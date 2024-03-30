@@ -16,6 +16,6 @@ TEST_CASE("Mosiac") {
 }
 
 TEST_CASE("Mosiac version") {
-  static_assert(std::string_view(MOSIAC_VERSION) == std::string_view("1.0"));
-  CHECK(std::string(MOSIAC_VERSION) == std::string("1.0"));
+  static_assert(std::string_view(MOSIAC_VERSION) == std::string_view("0.1.0"));
+  CHECK(std::string(MOSIAC_VERSION) == std::string("0.1.0"));
 }

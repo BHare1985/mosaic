@@ -33,6 +33,36 @@ CPMAddPackage(
   OPTIONS "FMT_INSTALL YES" # create an installable target
 )
 
+CPMAddPackage(
+        NAME libzmq
+        GIT_TAG v4.3.5
+        GITHUB_REPOSITORY zeromq/libzmq
+        OPTIONS
+        "BUILD_SHARED OFF"
+)
+
+CPMAddPackage(
+        NAME czmq
+        GIT_TAG v4.2.1
+        GITHUB_REPOSITORY zeromq/czmq
+        OPTIONS
+        "BUILD_SHARED OFF"
+        "LIBZMQ_FOUND 1"
+        "LIBZMQ_LIBRARIES libzmq-static"
+)
+
+CPMAddPackage(
+        NAME malamute
+        GIT_TAG 1.1.0
+        GITHUB_REPOSITORY zeromq/malamute
+        OPTIONS
+        "BUILD_SHARED OFF"
+        "LIBZMQ_FOUND 1"
+        "LIBZMQ_LIBRARIES libzmq-static"
+        "CZMQ_FOUND 1"
+        "CZMQ_LIBRARIES czmq-static"
+)
+
 # ---- Add source files ----
 
 # Note: globbing sources is considered bad practice as CMake's generators may not detect new files
@@ -61,7 +91,7 @@ endif()
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt mlm-static)
 
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>

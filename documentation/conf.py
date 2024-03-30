@@ -10,10 +10,10 @@ LINKS_NAVBAR1 = [
 
 # LINKS_NAVBAR1 = [
 #     (None, 'pages', [(None, 'about')]),
-#     (None, 'namespaces', [(None, 'namespacemosiac')]),
+#     (None, 'namespaces', [(None, 'namespacemosaic')]),
 # ]
 #
 # LINKS_NAVBAR2 = [
-#     (None, 'annotated', [(None, 'classmosiac_1_1_mosiac')]),
-#     (None, 'files', [(None, 'mosiac_8h')]),
+#     (None, 'annotated', [(None, 'classmosaic_1_1_mosaic')]),
+#     (None, 'files', [(None, 'mosaic_8h')]),
 # ]

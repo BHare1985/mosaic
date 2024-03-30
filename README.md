@@ -1,17 +1,11 @@
-[![Actions Status](https://github.com/bhare1985/mosiac/workflows/MacOS/badge.svg)](https://github.com/bhare1985/mosiac/actions)
-[![Actions Status](https://github.com/bhare1985/mosiac/workflows/Windows/badge.svg)](https://github.com/bhare1985/mosiac/actions)
-[![Actions Status](https://github.com/bhare1985/mosiac/workflows/Ubuntu/badge.svg)](https://github.com/bhare1985/mosiac/actions)
-[![Actions Status](https://github.com/bhare1985/mosiac/workflows/Style/badge.svg)](https://github.com/bhare1985/mosiac/actions)
-[![Actions Status](https://github.com/bhare1985/mosiac/workflows/Install/badge.svg)](https://github.com/bhare1985/mosiac/actions)
-[![codecov](https://codecov.io/gh/bhare1985/mosiac/branch/master/graph/badge.svg)](https://codecov.io/gh/bhare1985/mosiac)
 
 <p align="center">
-  <img src="https://github.com/BHare1985/mosiac/assets/2180284/5ecbfb8b-6e25-49a1-b9e4-67ca347c71be" height="175" width="auto" />
+  <img src="https://github.com/BHare1985/mosaic/assets/2180284/595a6a61-7b3c-4bdf-af11-1a1d3c1f9b70" height="384" width="auto" />
 </p>
 
-# Mosiac - Decentralized Message Broker / Blockchain Hybrid
+# Mosaic - Decentralized Data Parity Broker
 
-This project aims to revolutionize data distribution using a high-performant distribution of parity files, with a focus on unique encoding methods and innovative consensus mechanisms.
+This project aims to revolutionize data distribution using a high-performant distribution of verifiable and repairable fountain code parity symbols, with a focus on unique encoding methods and blockchain-based consensus mechanisms that aim to exceed 100,000 TPS (transactions per second) by leveraging distributed messaging queue technology.
 
 ## Key Features
 
@@ -25,11 +19,11 @@ This project aims to revolutionize data distribution using a high-performant dis
 
 ## Project Foundation
 
-The project draws inspiration from ZeroMQ's [Malamute](https://github.com/zeromq/malamute) C project and aims to build a barebones infrastructure capable of supporting decentralized CDNs while remaining adaptable to specific use cases.
+The project draws inspiration from ZeroMQ's libraries, and has a dependency on the [Malamute](https://github.com/zeromq/malamute) C project and aims to build a barebones infrastructure capable of supporting decentralized CDNs while remaining adaptable to specific use cases.
 
 ## Getting Started
 
-To get started with our project, please refer to the [documentation](docs/README.md) for installation instructions, development guidelines, and more.
+To get started with our project, please refer to the [documentation](https://bhare1985.github.io/mosaic) for installation instructions, development guidelines, and more.
 
 We welcome contributions and feedback from the community to help shape the future of decentralized data distribution.
 
@@ -49,7 +43,7 @@ While the data storage nodes operate in a permissionless manner, the blockchain 
 - Code formatting enforced by [clang-format](https://clang.llvm.org/docs/ClangFormat.html) and [cmake-format](https://github.com/cheshirekow/cmake_format) via [Format.cmake](https://github.com/TheLartians/Format.cmake)
 - Reproducible dependency management via [CPM.cmake](https://github.com/TheLartians/CPM.cmake)
 - Installable target with automatic versioning information and header generation via [PackageProject.cmake](https://github.com/TheLartians/PackageProject.cmake)
-- Automatic [documentation](https://bhare1985.github.io/mosiac) and deployment with [Doxygen](https://www.doxygen.nl) and [GitHub Pages](https://pages.github.com)
+- Automatic [documentation](https://bhare1985.github.io/mosaic) and deployment with [Doxygen](https://www.doxygen.nl) and [GitHub Pages](https://pages.github.com)
 
 ## Usage
 
@@ -60,7 +54,7 @@ Use the following command to build and run the executable target.
 ```bash
 cmake -S standalone -B build/standalone
 cmake --build build/standalone
-./build/standalone/Mosiac --help
+./build/standalone/Mosaic --help
 ```
 
 ### Build and run test suite
@@ -73,7 +67,7 @@ cmake --build build/test
 CTEST_OUTPUT_ON_FAILURE=1 cmake --build build/test --target test
 
 # or simply call the executable: 
-./build/test/MosiacTests
+./build/test/MosaicTests
 ```
 
 To collect code coverage information, run CMake with the `-DENABLE_TEST_COVERAGE=1` option.
@@ -81,7 +75,7 @@ To collect code coverage information, run CMake with the `-DENABLE_TEST_COVERAGE
 
 ### Build the documentation
 
-The documentation is automatically built and [published](https://bhare1985.github.io/mosiac) whenever a [GitHub Release](https://help.github.com/en/github/administering-a-repository/managing-releases-in-a-repository) is created.
+The documentation is automatically built and [published](https://bhare1985.github.io/mosaic) whenever a [GitHub Release](https://help.github.com/en/github/administering-a-repository/managing-releases-in-a-repository) is created.
 To manually build documentation, call the following command.
 
 ```bash
@@ -103,11 +97,11 @@ cmake -S all -B build
 cmake --build build
 
 # run tests
-./build/test/MosiacTests
+./build/test/MosaicTests
 # format code
 cmake --build build --target fix-format
 # run standalone
-./build/standalone/Mosiac --help
+./build/standalone/Mosaic --help
 # build docs
 cmake --build build --target GenerateDocs
 ```

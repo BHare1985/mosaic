@@ -1,11 +1,11 @@
 #include <fmt/format.h>
-#include <mosiac/mosiac.h>
+#include <mosaic/mosaic.h>
 
-using namespace mosiac;
+using namespace mosaic;
 
-Mosiac::Mosiac(std::string _name) : name(std::move(_name)) {}
+Mosaic::Mosaic(std::string _name) : name(std::move(_name)) {}
 
-std::string Mosiac::greet(LanguageCode lang) const {
+std::string Mosaic::greet(LanguageCode lang) const {
   switch (lang) {
     default:
     case LanguageCode::EN:

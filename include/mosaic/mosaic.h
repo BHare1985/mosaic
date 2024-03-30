@@ -2,23 +2,23 @@
 
 #include <string>
 
-namespace mosiac {
+namespace mosaic {
 
-  /**  Language codes to be used with the Mosiac class */
+  /**  Language codes to be used with the Mosaic class */
   enum class LanguageCode { EN, DE, ES, FR };
 
   /**
    * @brief A class for saying hello in multiple languages
    */
-  class Mosiac {
+  class Mosaic {
     std::string name;
 
   public:
     /**
-     * @brief Creates a new mosiac
+     * @brief Creates a new mosaic
      * @param name the name to greet
      */
-    Mosiac(std::string name);
+    Mosaic(std::string name);
 
     /**
      * @brief Creates a localized string containing the greeting
@@ -28,4 +28,4 @@ namespace mosiac {
     std::string greet(LanguageCode lang = LanguageCode::EN) const;
   };
 
-}  // namespace mosiac
+}  // namespace mosaic

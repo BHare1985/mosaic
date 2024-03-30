@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14...3.22)
 
-project(MosiacTests LANGUAGES CXX)
+project(MosaicTests LANGUAGES CXX)
 
 # ---- Options ----
 
@@ -21,29 +21,29 @@ CPMAddPackage("gh:doctest/doctest@2.4.9")
 #CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
 
 if(TEST_INSTALLED_VERSION)
-  find_package(Mosiac REQUIRED)
+  find_package(Mosaic REQUIRED)
 else()
-  CPMAddPackage(NAME Mosiac SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+  CPMAddPackage(NAME Mosaic SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()
 
 # ---- Create binary ----
 
 file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
 add_executable(${PROJECT_NAME} ${sources})
-target_link_libraries(${PROJECT_NAME} doctest::doctest Mosiac::Mosiac mlm-static)
+target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic mlm-static)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(Mosiac PUBLIC -Wall -Wpedantic -Wextra -Werror)
+    target_compile_options(Mosaic PUBLIC -Wall -Wpedantic -Wextra -Werror)
   elseif(MSVC)
-    target_compile_options(Mosiac PUBLIC /W4 /WX)
+    target_compile_options(Mosaic PUBLIC /W4 /WX)
     target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
   endif()
 endif()
 
-# ---- Add MosiacTests ----
+# ---- Add MosaicTests ----
 
 enable_testing()
 
@@ -57,6 +57,6 @@ doctest_discover_tests(${PROJECT_NAME})
 # ---- code coverage ----
 
 if(ENABLE_TEST_COVERAGE)
-  target_compile_options(Mosiac PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
-  target_link_options(Mosiac PUBLIC -fprofile-arcs -ftest-coverage)
+  target_compile_options(Mosaic PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
+  target_link_options(Mosaic PUBLIC -fprofile-arcs -ftest-coverage)
 endif()

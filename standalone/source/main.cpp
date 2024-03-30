@@ -1,5 +1,5 @@
-#include <mosiac/mosiac.h>
-#include <mosiac/version.h>
+#include <mosaic/mosaic.h>
+#include <mosaic/version.h>
 
 #include <cxxopts.hpp>
 #include <iostream>
@@ -7,11 +7,11 @@
 #include <unordered_map>
 
 auto main(int argc, char** argv) -> int {
-  const std::unordered_map<std::string, mosiac::LanguageCode> languages{
-      {"en", mosiac::LanguageCode::EN},
-      {"de", mosiac::LanguageCode::DE},
-      {"es", mosiac::LanguageCode::ES},
-      {"fr", mosiac::LanguageCode::FR},
+  const std::unordered_map<std::string, mosaic::LanguageCode> languages{
+      {"en", mosaic::LanguageCode::EN},
+      {"de", mosaic::LanguageCode::DE},
+      {"es", mosaic::LanguageCode::ES},
+      {"fr", mosaic::LanguageCode::FR},
   };
 
   cxxopts::Options options(*argv, "A program to welcome the world!");
@@ -36,7 +36,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (result["version"].as<bool>()) {
-    std::cout << "Mosiac, version " << MOSIAC_VERSION << std::endl;
+    std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
     return 0;
   }
 
@@ -46,8 +46,8 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  mosiac::Mosiac mosiac(name);
-  std::cout << mosiac.greet(langIt->second) << std::endl;
+  mosaic::Mosaic mosaic(name);
+  std::cout << mosaic.greet(langIt->second) << std::endl;
 
   return 0;
 }

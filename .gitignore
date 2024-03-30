@@ -1,3 +1,19 @@
+/.vscode
+/.idea
+
+/build*
+/all/build*
+/standalone/build*
+/test/build*
+
+/cmake-build*
+/all/cmake-build*
+/standalone/cmake-build*
+/test/cmake-build*
+
+/cpm_modules
+.DS_Store
+
 # Prerequisites
 *.d
 

@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="https://github.com/BHare1985/mosaic/assets/2180284/595a6a61-7b3c-4bdf-af11-1a1d3c1f9b70" height="384" width="auto" />
+  <img src="https://github.com/BHare1985/mosaic/assets/2180284/73ac71af-2309-4efd-a24a-bf8d8b021eb1" height="384" width="auto" />
 </p>
 
 # Mosaic - Decentralized Data Parity Broker

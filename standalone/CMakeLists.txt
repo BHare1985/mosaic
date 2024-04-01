@@ -26,4 +26,4 @@ add_executable(${PROJECT_NAME} ${sources})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17 OUTPUT_NAME "Mosaic")
 
-target_link_libraries(${PROJECT_NAME} Mosaic::Mosaic cxxopts)
+target_link_libraries(${PROJECT_NAME} Mosaic::Mosaic cxxopts mlm-static)

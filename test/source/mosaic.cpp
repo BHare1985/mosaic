@@ -4,18 +4,20 @@
 
 #include <string>
 
-TEST_CASE("Mosaic") {
-  using namespace mosaic;
+TEST_CASE("Mosaic")
+{
+    using namespace mosaic;
 
-  Mosaic mosaic("Tests");
+    Mosaic mosaic("Tests");
 
-  CHECK(mosaic.greet(LanguageCode::EN) == "Hello, Tests!");
-  CHECK(mosaic.greet(LanguageCode::DE) == "Hallo Tests!");
-  CHECK(mosaic.greet(LanguageCode::ES) == "¡Hola Tests!");
-  CHECK(mosaic.greet(LanguageCode::FR) == "Bonjour Tests!");
+    CHECK(mosaic.greet(LanguageCode::EN) == "Hello, Tests!");
+    CHECK(mosaic.greet(LanguageCode::DE) == "Hallo Tests!");
+    CHECK(mosaic.greet(LanguageCode::ES) == "¡Hola Tests!");
+    CHECK(mosaic.greet(LanguageCode::FR) == "Bonjour Tests!");
 }
 
-TEST_CASE("Mosaic version") {
-  static_assert(std::string_view(MOSAIC_VERSION) == std::string_view("0.1.0"));
-  CHECK(std::string(MOSAIC_VERSION) == std::string("0.1.0"));
+TEST_CASE("Mosaic version")
+{
+    static_assert(std::string_view(MOSAIC_VERSION) == std::string_view("0.1.0"));
+    CHECK(std::string(MOSAIC_VERSION) == std::string("0.1.0"));
 }

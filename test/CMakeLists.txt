@@ -20,11 +20,11 @@ CPMAddPackage("gh:doctest/doctest@2.4.9")
 #clang-format target conflicts with libzmq
 #CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
 
-if(TEST_INSTALLED_VERSION)
-  find_package(Mosaic REQUIRED)
-else()
-  CPMAddPackage(NAME Mosaic SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
-endif()
+if (TEST_INSTALLED_VERSION)
+    find_package(Mosaic REQUIRED)
+else ()
+    CPMAddPackage(NAME Mosaic SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+endif ()
 
 # ---- Create binary ----
 
@@ -34,14 +34,14 @@ target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic mlm-static
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 # enable compiler warnings
-if(NOT TEST_INSTALLED_VERSION)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(Mosaic PUBLIC -Wall -Wpedantic -Wextra -Werror)
-  elseif(MSVC)
-    target_compile_options(Mosaic PUBLIC /W4 /WX)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
-  endif()
-endif()
+if (NOT TEST_INSTALLED_VERSION)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        target_compile_options(Mosaic PUBLIC -Wall -Wpedantic -Wextra -Werror)
+    elseif (MSVC)
+        target_compile_options(Mosaic PUBLIC /W4 /WX)
+        target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
+    endif ()
+endif ()
 
 # ---- Add MosaicTests ----
 
@@ -56,7 +56,7 @@ doctest_discover_tests(${PROJECT_NAME})
 
 # ---- code coverage ----
 
-if(ENABLE_TEST_COVERAGE)
-  target_compile_options(Mosaic PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
-  target_link_options(Mosaic PUBLIC -fprofile-arcs -ftest-coverage)
-endif()
+if (ENABLE_TEST_COVERAGE)
+    target_compile_options(Mosaic PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
+    target_link_options(Mosaic PUBLIC -fprofile-arcs -ftest-coverage)
+endif ()

@@ -8,12 +8,7 @@ project(
 )
 
 # ---- Include guards ----
-if (PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
-    message(
-            FATAL_ERROR
-            "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
-    )
-endif ()
+
 
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
@@ -40,6 +35,21 @@ CPMAddPackage(
         "BUILD_SHARED_LIBS OFF"
 )
 
+if (UNIX)
+    CPMAddPackage(
+            NAME libzmq
+            GIT_TAG v4.3.5
+            GITHUB_REPOSITORY zeromq/libzmq
+            OPTIONS
+            "BUILD_SHARED OFF"
+            "ZMQ_BUILD_TESTS ON"
+            "WITH_PERF_TOOL OFF"
+            "ENABLE_CURVE ON"
+            "WITH_LIBSODIUM ON"
+            "WITH_LIBSODIUM_STATIC ON"
+    )
+endif ()
+
 #CPM SODIUM HACKS for libzmq's builds/cmake/Modules/Findsodium.cmake
 if (MSVC)
     set(SODIUM_LIBRARY_DIRS ${libsodium_BINARY_DIR})
@@ -47,24 +57,23 @@ if (MSVC)
 
     set(SODIUM_INCLUDE_HINTS ${SODIUM_INCLUDES} ${SODIUM_INCLUDES}/*)
     set(SODIUM_LIBRARY_HINTS ${SODIUM_LIBRARY_DIRS} ${SODIUM_LIBRARY_DIRS}/*)
+
+    CPMAddPackage(
+            NAME libzmq
+            GIT_TAG v4.3.5
+            GITHUB_REPOSITORY zeromq/libzmq
+            OPTIONS
+            "BUILD_SHARED OFF"
+            "ZMQ_BUILD_TESTS OFF"
+            "WITH_PERF_TOOL OFF"
+            "ENABLE_CURVE ON"
+            "WITH_LIBSODIUM ON"
+            "WITH_LIBSODIUM_STATIC ON"
+            #CPM SODIUM HACKS because Findsodium.cmake find_library doesn't work
+            "SODIUM_FOUND ON"
+            "SODIUM_LIBRARIES ${libsodium_BINARY_DIR}/sodium.lib"
+    )
 endif ()
-
-
-CPMAddPackage(
-        NAME libzmq
-        GIT_TAG v4.3.5
-        GITHUB_REPOSITORY zeromq/libzmq
-        OPTIONS
-        "BUILD_SHARED OFF"
-        "ZMQ_BUILD_TESTS OFF"
-        "WITH_PERF_TOOL OFF"
-        "ENABLE_CURVE ON"
-        "WITH_LIBSODIUM ON"
-        "WITH_LIBSODIUM_STATIC ON"
-        #CPM SODIUM HACKS because Findsodium.cmake find_library doesn't work
-        "SODIUM_FOUND ON"
-        "SODIUM_LIBRARIES ${libsodium_BINARY_DIR}/sodium.lib"
-)
 
 CPMAddPackage(
         NAME czmq

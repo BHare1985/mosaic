@@ -1,8 +1,8 @@
+#include "mosaic/version.h"
 #include "CertManager.h"
 #include <cxxopts.hpp>
 #include <fstream>
 #include <iostream>
-#include <mosaic/version.h>
 
 int prompt_cert_choices(CertManager* cert_manager, const std::string& certificate_filename, const std::string& private_key)
 {

@@ -1,87 +1,80 @@
-#include <mosaic/mosaic.h>
+#include "CertManager.h"
+#include <cxxopts.hpp>
+#include <fstream>
+#include <iostream>
 #include <mosaic/version.h>
 
-#include <cxxopts.hpp>
-#include <iostream>
-
-#include "KeyManager.h"
-#include <fstream>
-
-bool Parse(
-    const cxxopts::ParseResult& result,
-    const std::unordered_map<std::string, mosaic::LanguageCode>& languages,
-    const std::string& lang_code,
-    const std::string& certificate_filename,
-    KeyManager* key_manager,
-    const std::string& help)
+int prompt_cert_choices(CertManager* cert_manager, const std::string& certificate_filename, const std::string& private_key)
 {
-    if (result["help"].as<bool>()) {
-	std::cout << help << std::endl;
+    if (cert_manager->LoadKeys(certificate_filename)) {
 	return true;
     }
 
-    if (result["version"].as<bool>()) {
-	std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
-	return true;
-    }
+    int choice;
+    std::cout << "Attempted to open " << certificate_filename << ", but keys not found. Would you like to:" << std::endl;
+    std::cout << "1) Generate new public and private keypair" << std::endl;
+    std::cout << "2) Paste private key and generate keypair" << std::endl;
+    std::cout << "3) Exit" << std::endl;
+    std::cin >> choice;
 
-    auto langIt = languages.find(lang_code);
-    if (langIt == languages.end()) {
-	std::cerr << "unknown language code: " << lang_code << std::endl;
+    switch (choice) {
+    case 1:
+	return cert_manager->GenerateKeys(certificate_filename);
+    case 2:
+	return cert_manager->GenerateKeysFromPrivate(private_key);
+    case 3:
+	exit(0);
+    default:
+	std::cerr << "Invalid choice." << std::endl;
 	return false;
     }
-
-    if (result["generateKeys"].as<bool>()) {
-	if (key_manager->GenerateKeys(certificate_filename)) {
-	    std::cerr << "Failed to generate key pair." << std::endl;
-	    return false;
-	}
-    } else if (result.count("privateKey")) {
-	std::cerr << "Pasting private key from standard input is not implemented yet." << std::endl;
-	return false;
-    }
-
-    return true;
 }
 
 auto main(int argc, char** argv) -> int
 {
-    const std::unordered_map<std::string, mosaic::LanguageCode> languages {
-	{ "en", mosaic::LanguageCode::EN },
-	{ "de", mosaic::LanguageCode::DE },
-	{ "es", mosaic::LanguageCode::ES },
-	{ "fr", mosaic::LanguageCode::FR },
-    };
-
-    std::string lang_code;
     std::string certificate_filename;
     std::string private_key;
-    zcert_t* cert = nullptr;
 
-    cxxopts::Options options(*argv, "A program to welcome the world!");
+    cxxopts::Options options(*argv, "Mosaic: Decentralized data parity broker");
 
     // clang-format off
     options.add_options()
     ("h,help", "Show help")
     ("v,verbose", "Run in verbose mode")
-    ("V,version", "Print the current version number")
-    ("l,lang", "Language code to use", cxxopts::value(lang_code)->default_value("en"));
+    ("V,version", "Print the current version number");
 
     options.add_options("certificate")
-    ("c,cert_file", "Public key file (with private key as _secret)", cxxopts::value(certificate_filename)->default_value(KeyManager::DEFAULT_CERT_FILENAME))
+    ("c,cert_file", "Public key file (with private key as _secret)", cxxopts::value(certificate_filename)->default_value(CertManager::DEFAULT_CERT_FILENAME))
     ("g,generateKeys", "Generate new public/private key pair")
     ("p,privateKey", "Private key string", cxxopts::value(private_key));
     // clang-format on
 
     auto quickHelp = "try 'mosiac --help' for more information"; // todo: Make this .exe or OS dependent
-    auto key_manager = new KeyManager();
+    auto cert_manager = new CertManager();
 
     try {
 	auto result = options.parse(argc, argv);
 	auto help = options.help({ "", "certificate" });
 
-	if (!Parse(result, languages, lang_code, certificate_filename, key_manager, help))
-	    return 1;
+	if (result["help"].as<bool>()) {
+	    std::cout << help << std::endl;
+	    return true;
+	}
+
+	if (result["version"].as<bool>()) {
+	    std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
+	    return true;
+	}
+
+	if (result["generateKeys"].as<bool>()) {
+	    if (!cert_manager->GenerateKeys(certificate_filename)) {
+		std::cerr << "Failed to generate key pair." << std::endl;
+		return false;
+	    }
+	} else if (result.count("privateKey")) {
+	    std::cerr << "Pasting private key from standard input is not implemented yet." << std::endl;
+	    return false;
+	}
 
 	// Handle unknown commands
 	if (!result.unmatched().empty()) {
@@ -99,40 +92,11 @@ auto main(int argc, char** argv) -> int
 	return 1;
     }
 
-    // Try loading keys from files
-    if (!key_manager->LoadKeys(certificate_filename)) {
-	// No options provided or keys not found, ask user
-	int choice;
-	std::cout << "Attempted to open " << certificate_filename << ", but keys not found. Would you like to:" << std::endl;
-	std::cout << "1. Generate new public and private keypair" << std::endl;
-	std::cout << "2. Paste private key and generate keypair" << std::endl;
-	std::cout << "3. Exit" << std::endl;
-	std::cin >> choice;
-
-	if (choice == 1) {
-	    if (!key_manager->GenerateKeys(certificate_filename)) {
-		std::cerr << "Failed to generate key pair." << std::endl;
-		return 1;
-	    }
-	} else if (choice == 2) {
-	    if (!key_manager->GenerateKeysFromPrivate(private_key)) {
-		std::cerr << "Failed to generate key pair." << std::endl;
-		return 1;
-	    }
-	} else if (choice == 3) {
-	    return 0;
-	} else {
-	    std::cerr << "Invalid choice." << std::endl;
-	    return 1;
-	}
+    if (!prompt_cert_choices(cert_manager, certificate_filename, private_key)) {
+	return 1;
     }
 
-    // You can use the loaded certificate (cert) here for further CZMQ operations
-    // ...
-
-    std::cout << zcert_public_txt(key_manager->GetCert()) << std::endl;
-
-    zcert_destroy(&cert);
+    std::cout << zcert_public_txt(cert_manager->GetCert()) << std::endl;
 
     return 0;
 }

@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.14...3.22)
 
 # ---- Project ----
-
-# Note: update this to your new project's name and version
 project(
         Mosaic
         VERSION 0.1.0
@@ -10,7 +8,6 @@ project(
 )
 
 # ---- Include guards ----
-
 if (PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
     message(
             FATAL_ERROR
@@ -34,11 +31,39 @@ CPMAddPackage(
 )
 
 CPMAddPackage(
+        NAME libsodium
+        GIT_SUBMODULES_RECURSE TRUE
+        GITHUB_REPOSITORY robinlinden/libsodium-cmake
+        GIT_TAG f568ff02f1bed155ea598c0e803ef3c9db2703d2
+        OPTIONS
+        "SODIUM_DISABLE_TESTS ON"
+        "BUILD_SHARED_LIBS OFF"
+)
+
+#CPM SODIUM HACKS for libzmq's builds/cmake/Modules/Findsodium.cmake
+if (MSVC)
+    set(SODIUM_LIBRARY_DIRS ${libsodium_BINARY_DIR})
+    set(SODIUM_INCLUDES ${libsodium_SOURCE_DIR}/libsodium/src/libsodium/include)
+
+    set(SODIUM_INCLUDE_HINTS ${SODIUM_INCLUDES} ${SODIUM_INCLUDES}/*)
+    set(SODIUM_LIBRARY_HINTS ${SODIUM_LIBRARY_DIRS} ${SODIUM_LIBRARY_DIRS}/*)
+endif ()
+
+
+CPMAddPackage(
         NAME libzmq
         GIT_TAG v4.3.5
         GITHUB_REPOSITORY zeromq/libzmq
         OPTIONS
         "BUILD_SHARED OFF"
+        "ZMQ_BUILD_TESTS OFF"
+        "WITH_PERF_TOOL OFF"
+        "ENABLE_CURVE ON"
+        "WITH_LIBSODIUM ON"
+        "WITH_LIBSODIUM_STATIC ON"
+        #CPM SODIUM HACKS because Findsodium.cmake find_library doesn't work
+        "SODIUM_FOUND ON"
+        "SODIUM_LIBRARIES ${libsodium_BINARY_DIR}/sodium.lib"
 )
 
 CPMAddPackage(
@@ -47,7 +72,7 @@ CPMAddPackage(
         GITHUB_REPOSITORY zeromq/czmq
         OPTIONS
         "BUILD_SHARED OFF"
-        "LIBZMQ_FOUND 1"
+        "LIBZMQ_FOUND ON"
         "LIBZMQ_LIBRARIES libzmq-static"
 )
 
@@ -57,9 +82,9 @@ CPMAddPackage(
         GITHUB_REPOSITORY zeromq/malamute
         OPTIONS
         "BUILD_SHARED OFF"
-        "LIBZMQ_FOUND 1"
+        "LIBZMQ_FOUND ON"
         "LIBZMQ_LIBRARIES libzmq-static"
-        "CZMQ_FOUND 1"
+        "CZMQ_FOUND ON"
         "CZMQ_LIBRARIES czmq-static"
 )
 

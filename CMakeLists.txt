@@ -28,7 +28,7 @@ CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
 CPMAddPackage(
         NAME fmt
-        GIT_TAG 9.1.0
+        GIT_TAG 11.0.2
         GITHUB_REPOSITORY fmtlib/fmt
         OPTIONS "FMT_INSTALL YES" # create an installable target
 )
@@ -41,6 +41,9 @@ CPMAddPackage(
         "BUILD_SHARED OFF"
 )
 
+# czmq/malamute find libzmq/czmq headers via these dirs (their find modules are bypassed below)
+include_directories(${libzmq_SOURCE_DIR}/include)
+
 CPMAddPackage(
         NAME czmq
         GIT_TAG v4.2.1
@@ -51,10 +54,14 @@ CPMAddPackage(
         "LIBZMQ_LIBRARIES libzmq-static"
 )
 
+include_directories(${czmq_SOURCE_DIR}/include)
+
 CPMAddPackage(
         NAME malamute
         GIT_TAG 1.1.0
         GITHUB_REPOSITORY zeromq/malamute
+        # malamute's "distclean" target collides with czmq's (same global name)
+        PATCH_COMMAND sed -i "s/distclean/mlm_distclean/g" CMakeLists.txt
         OPTIONS
         "BUILD_SHARED OFF"
         "LIBZMQ_FOUND 1"
@@ -114,5 +121,5 @@ packageProject(
         INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
         VERSION_HEADER "${VERSION_HEADER_LOCATION}"
         COMPATIBILITY SameMajorVersion
-        DEPENDENCIES "fmt 9.1.0"
+        DEPENDENCIES "fmt 11.0.2"
 )

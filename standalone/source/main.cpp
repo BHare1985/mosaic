@@ -1,6 +1,7 @@
 #include <mosaic/mosaic.h>
 #include <mosaic/version.h>
 
+#include <cstdint>
 #include <cxxopts.hpp>
 #include <iostream>
 #include <string>
@@ -9,10 +10,10 @@
 auto main(int argc, char** argv) -> int
 {
     const std::unordered_map<std::string, mosaic::LanguageCode> languages {
-	{ "en", mosaic::LanguageCode::EN },
-	{ "de", mosaic::LanguageCode::DE },
-	{ "es", mosaic::LanguageCode::ES },
-	{ "fr", mosaic::LanguageCode::FR },
+    { "en", mosaic::LanguageCode::EN },
+    { "de", mosaic::LanguageCode::DE },
+    { "es", mosaic::LanguageCode::ES },
+    { "fr", mosaic::LanguageCode::FR },
     };
 
     cxxopts::Options options(*argv, "A program to welcome the world!");
@@ -31,19 +32,19 @@ auto main(int argc, char** argv) -> int
     auto result = options.parse(argc, argv);
 
     if (result["help"].as<bool>()) {
-	std::cout << options.help() << std::endl;
-	return 0;
+    std::cout << options.help() << std::endl;
+    return 0;
     }
 
     if (result["version"].as<bool>()) {
-	std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
-	return 0;
+    std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
+    return 0;
     }
 
     auto langIt = languages.find(language);
     if (langIt == languages.end()) {
-	std::cerr << "unknown language code: " << language << std::endl;
-	return 1;
+    std::cerr << "unknown language code: " << language << std::endl;
+    return 1;
     }
 
     mosaic::Mosaic mosaic(name);

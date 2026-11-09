@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.14...3.22)
 
 project(MosaicTests LANGUAGES CXX)
 
+# let old third-party CMake projects configure under CMake >= 4
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # ---- Options ----
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
@@ -15,7 +18,7 @@ include(../cmake/tools.cmake)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage("gh:doctest/doctest@2.4.9")
+CPMAddPackage("gh:doctest/doctest@2.4.11")
 
 #clang-format target conflicts with libzmq
 #CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")

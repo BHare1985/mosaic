@@ -35,5 +35,4 @@ Whitepaper's ~2 µs/message claim is **unverified** → MATCH-1 adds a benchmark
 3. `Node` re-checks `matches_any(channel)` on every record/head, so a misbehaving transport cannot make it store unrelated logs.
 
 ## Open work
-MATCH-1 benchmark, MATCH-2 list patterns for Hello, MATCH-3 cleanup. Decide (D5) whether to add per-field matching
-(headers) later; today only the channel name is matched.
+MATCH-1 benchmark, MATCH-2 list patterns for Hello, MATCH-3 cleanup. Matching is on the channel name only (default taken in [decisions](decisions.md)); add per-field matching only when a use-case needs it.

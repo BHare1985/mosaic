@@ -1,5 +1,8 @@
 # Direction
 
+> **Status 2026-11-09:** direction **A** accepted and decisions D1–D6 settled; see [design/decisions.md](design/decisions.md).
+> The text below is the original analysis. The "Decisions needed" list at the end is now answered there.
+
 ## Where we are
 
 Mosaic began (2024) as a "decentralized data parity broker": Malamute for
@@ -57,6 +60,11 @@ Why this is useful in 2026 (candidate use cases, in my order of confidence):
 * **Event bus for multi-agent / automation systems** where each agent is a
   single writer with its own identity and logs must be replayable.
   (Plausible fit, not validated.)
+
+## Future layers (the original Mosaic vision, kept for later)
+Fountain-code parity symbols, proof of replication/geolocation (Filecoin-inspired), bandwidth/storage utility tokens and a
+permissioned chain are **not** part of the core. If pursued, they consume these logs as transport and evidence store.
+Original notes: https://eprint.iacr.org/2021/697.pdf (geolocation).
 
 ## Alternatives considered
 

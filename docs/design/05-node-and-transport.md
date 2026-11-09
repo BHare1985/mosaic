@@ -18,15 +18,15 @@ A conformance suite (NET-0) must test these for every transport.
 Fully connected, deterministic, seeded RNG, `set_loss`, `set_duplicate`. Missing: latency, reordering, partitions, per-link
 loss (SIM-1); scenario runner with seed sweeps (SIM-2). **All new Node behaviour must come with a sim scenario.**
 
-## ZeroMQ transport (⬜ ZMQ-1, blocked on decision D3)
-Two candidate socket layouts; the `Transport` interface hides the choice, so Node does not change:
+## ZeroMQ transport (⬜ ZMQ-0, ZMQ-1; layout **B** chosen, see [decisions](decisions.md) D3)
+Two layouts were considered; the `Transport` interface hides the choice, so Node does not change:
 
 | Layout | Live path | Repair/unicast | Pros | Cons |
 |---|---|---|---|---|
 | **A. Dafka-shaped** | PUB/SUB, first frame = channel | also PUB/SUB, first frame = target node id | one socket kind, matches Dafka wire shape, trivially brokerless | unicast over PUB/SUB drops silently, no peer identity/back-pressure signal |
-| **B. Split** (recommended) | PUB/SUB, first frame = channel | ROUTER/DEALER (ROUTER identity = NodeId) | real unicast, identities for credits and ACL, back-pressure visible | two sockets per peer link, slightly more code |
+| **B. Split** (**chosen**) | PUB/SUB, first frame = channel | ROUTER/DEALER (ROUTER identity = NodeId) | real unicast, identities for credits and ACL, back-pressure visible | two sockets per peer link, slightly more code |
 
-Either way: bind a PUB (and ROUTER) per node; connect SUBs/DEALERs to discovered peers; use CURVE (SEC-1); set HWM; apply the
+Whichever layout: bind a PUB (and ROUTER) per node; connect SUBs/DEALERs to discovered peers; use CURVE (SEC-1); set HWM; apply the
 prefix-subscription rule from [03](03-matching-and-channels.md); one I/O thread, poll loop owning all sockets
 (`zmq_poll`), feeding `poll()`.
 

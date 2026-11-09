@@ -2,33 +2,20 @@
 
 ## Goal
 
-Mosaic is a **Decentralized Data Parity Broker**: high-performance distribution of verifiable, repairable fountain-code parity symbols across a network of storage nodes, with a blockchain-based consensus layer targeting >100,000 TPS via distributed message-queue technology. The aim is a barebones infrastructure capable of supporting decentralized CDNs while staying adaptable to specific use cases.
+Mosaic is a **brokerless, verifiable, replicated-log library plus daemon** in C++20 on ZeroMQ: signed hash-chained
+append-only logs per channel, pattern subscriptions, peer-to-peer replication and repair, credit-based flow control, and an
+optional job layer. It is inspired by Dafka and Malamute (not wire-compatible). Settled decisions:
+[docs/design/decisions.md](docs/design/decisions.md). Rationale: [docs/direction.md](docs/direction.md).
 
-Key ideas:
-- **Proof of Replication & Geolocation** – inspired by Filecoin; geolocation per https://eprint.iacr.org/2021/697.pdf
-- **Two utility tokens** – bandwidth and storage; contributors earn per byte provided
-- **Scalability protocol** – built on ZeroMQ messaging; depends on [Malamute](https://github.com/zeromq/malamute) (C)
-- **Permissioned blockchain initially** (storage nodes are permissionless); to become permissionless once malicious-actor mitigations exist
+The original vision (parity coding, proof of replication, tokens, chain) is an optional future layer on top, not core scope.
 
-## Direction (under discussion)
+## Ground rules
 
-See [docs/direction.md](docs/direction.md): proposed pivot to a small brokerless,
-Dafka-inspired replicated-log library. Design in
-[docs/decentralized-broker-2026.md](docs/decentralized-broker-2026.md).
-**Do not fix or file anything upstream (libzmq, czmq, malamute, dafka, ...) without
-discussing with the maintainer first**; log findings in
-[docs/upstream-notes.md](docs/upstream-notes.md).
-Reference copies: `docs/references/` (run `docs/references/fetch.sh`; git-ignored).
-
-## References
-
-- Repo: https://github.com/BHare1985/mosaic
-- Docs: https://bhare1985.github.io/mosaic (Doxygen, published on GitHub Release)
-- Proof of geolocation paper: https://eprint.iacr.org/2021/697.pdf
-- Malamute: https://github.com/zeromq/malamute
-- ZeroMQ: https://zeromq.org
-- Filecoin (proof of replication inspiration): https://filecoin.io
-- Project template: modern CMake, CPM.cmake, Format.cmake, PackageProject.cmake (see README)
+- **Keep everything local** (decision D4): no pushes, PRs or issues, and nothing filed or patched upstream (libzmq, czmq,
+  malamute, dafka, ...). Log findings in [docs/upstream-notes.md](docs/upstream-notes.md).
+- Commit locally only when asked. Commit author: use the maintainer's identity per command, never edit git config.
+- Work from the task board: [docs/design/TODO.md](docs/design/TODO.md). Respect the module dependency order.
+- Reference copies of upstream material: `docs/references/` (run `docs/references/fetch.sh`; git-ignored).
 
 ## Layout
 
@@ -55,3 +42,9 @@ cmake -S all -B build && cmake --build build -j && ./build/test/MosaicTests
 
 See `docs/design/conventions.md`: C++20, warnings are errors, no exceptions in core..node, time and randomness injected,
 single-threaded, no dependencies in core..node, every interface has a contract comment and (eventually) a conformance suite.
+
+## References
+
+- Dafka: https://github.com/zeromq/dafka (RFC 46: https://rfc.zeromq.org/spec/46)
+- Malamute: https://github.com/zeromq/malamute
+- ZeroMQ Guide: https://zguide.zeromq.org · ZeroMQ: https://zeromq.org

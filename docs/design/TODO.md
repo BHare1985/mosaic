@@ -3,7 +3,7 @@
 Rules for picking up a task:
 1. Read [00-overview](00-overview.md), [conventions](conventions.md), the module README and the design doc named in the task.
 2. Size: **S** ≈ 1 day, **M** ≈ 2–4 days, **L** ≈ 1–2 weeks. Ask before starting an L: it needs a short design note first.
-3. Do not start a task whose **Depends** are open or whose **Decision** is pending (see bottom).
+3. Do not start a task whose **Depends** are open. Project-level decisions are settled in [decisions.md](decisions.md); if a task seems to contradict one, stop and ask.
 4. Finish with the [definition of done](08-testing-strategy.md#definition-of-done-any-task). Code `TODO(ID)` comments must match IDs here
    (`scripts/check_todo_ids.sh` verifies).
 
@@ -18,7 +18,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M0 — scaffold** ✅ | (this repo) | Log + Matcher + Credits + Node converge under loss in the simulator |
 | **M1 — trustworthy sim** | CORE-3, STORE-0, NET-0, SIM-1, SIM-2, NODE-1, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
 | **M2 — real crypto & wire** | CORE-1, CORE-2, ENC-1, ENC-2, HELLO-1 | signed records that survive a byte round-trip |
-| **M3 — two machines** | ZMQ-1, DISC-1, SEC-1, STORE-1, CLI-1 | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
+| **M3 — two machines** | ZMQ-0, ZMQ-1, DISC-1, SEC-1, STORE-1, CLI-1 | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ACK-1, HEADS-1, FLOW-2, FLOW-3, FLOW-4, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery |
 | **M5 — jobs** | JOBS-1..4 | call a service by name over the same network |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
@@ -74,7 +74,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | NET-0 | Transport conformance suite | S | – | Checks all rules in `transport.h` contract; `SimTransport` passes |
 | SIM-1 | Latency, reordering, partitions, per-link loss in `SimNetwork` | M | – | Seeded; heal-then-converge test with a partition |
 | SIM-2 | Scenario runner: seed sweep (N seeds), prints failing seed, CLI `Mosaic sim` | M | SIM-1 | One command runs 1000 seeds of the convergence scenario |
-| ZMQ-1 | ZeroMQ transport (layout per decision D3) | L | D3, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested |
+| ZMQ-0 | Split CMake into `Mosaic` (core, no ZeroMQ) and `MosaicZmq` (transport); find system libzmq first, fall back to building from source; rename `MOSAIC_BUILD_ZMQ_STACK` to say what it does | M | – | Core still builds and tests with no ZeroMQ installed; `MosaicZmq` links libzmq; docs explain both paths |
+| ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested |
 | DISC-1 | Wire `Discovery` into the ZeroMQ transport (static list) | M | ZMQ-1 | Nodes connect to peers from config |
 | DISC-2 | LAN beacon discovery | M | DISC-1 | Two hosts on a LAN find each other with no config |
 | DISC-3 | Gossip peer lists over the protocol | L | DISC-1, HELLO-1 | Removing any single node does not stop discovery |
@@ -110,16 +111,10 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README |
 | CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) |
 | CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green |
-| DOC-1 | Remove template leftovers (Doxygen config/README sections) and refresh root README for new direction | S | maintainer decision D6 | README matches [direction](../direction.md) |
-| BIND-1 | Stable C ABI (`mosaic_c.h`) over Node | L | M3, decision D2 | ABI test in C; no C++ types exposed |
+| DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed |
+| BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 
-## Pending decisions (maintainer) — do not start blocked tasks
-| ID | Question | Blocks |
-|---|---|---|
-| D1 | Direction: brokerless log + CI track (recommended) vs alternatives ([direction](../direction.md)) | everything beyond M2 |
-| D2 | C++ core + C ABI vs plain C | BIND-* |
-| D3 | ZeroMQ layout A (Dafka-shaped PUB/SUB only) vs B (PUB/SUB + ROUTER/DEALER), and Dafka wire compatibility | ZMQ-1, ENC-1 details |
-| D4 | Which findings go upstream and from whose account ([upstream-notes](../upstream-notes.md)) | any upstream work |
-| D5 | Match on channel name only, or also on headers/fields | MATCH extensions |
-| D6 | Project name and README framing (drop "parity broker/tokens"?) | DOC-1 |
+## Decisions
+All of D1–D6 are settled; see [decisions.md](decisions.md). One default remains open: matching is on **channel name only**
+(no field/header matching) until a use-case needs more.

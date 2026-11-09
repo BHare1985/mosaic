@@ -26,9 +26,11 @@ include(cmake/CPM.cmake)
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
-# The ZeroMQ stack (libzmq, czmq, malamute) is only needed for the "does the ZeroMQ
-# ecosystem still compile" check and the future ZeroMQ transport. The core library
-# does not depend on it. Configure with -DMOSAIC_BUILD_ZMQ_STACK=OFF for fast iteration.
+# ZeroMQ is a hard dependency of the PRODUCT (the network transport, ZMQ-1), but the core
+# library is deliberately ZeroMQ-free so the protocol can be tested in-process with SimNetwork.
+# This option only controls whether libzmq/czmq/malamute are COMPILED FROM SOURCE here (slow;
+# also the "does the ZeroMQ ecosystem still build" check). Use -DMOSAIC_BUILD_ZMQ_STACK=OFF for a
+# fast core-only loop. ZMQ-0 will replace this with a proper MosaicZmq target and find_package.
 option(MOSAIC_BUILD_ZMQ_STACK "Build libzmq/czmq/malamute from source" ON)
 
 if (MOSAIC_BUILD_ZMQ_STACK)

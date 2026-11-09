@@ -5,6 +5,7 @@ Read in order. Each doc says what is **implemented** (✅), **stubbed** (🟡) o
 | # | Doc | Covers |
 |---|---|---|
 | 00 | [overview](00-overview.md) | Goals, architecture, module map, dependency rules, one record's journey |
+| – | [decisions](decisions.md) | Settled project decisions D1–D6 (read first) |
 | – | [conventions](conventions.md) | Code style, errors, time, threading, how to add things |
 | 01 | [data model](01-data-model.md) | Record, hash chain, signatures, forks, store contract, retention |
 | 02 | [protocol](02-protocol.md) | Messages, state machines, gap repair, versioning, wire encoding |

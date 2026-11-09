@@ -1,54 +1,38 @@
-#include <mosaic/mosaic.h>
-#include <mosaic/version.h>
-
-#include <cstdint>
-#include <cxxopts.hpp>
 #include <iostream>
+#include <mosaic/match/matcher.h>
+#include <mosaic/version.h>
 #include <string>
-#include <unordered_map>
 
-auto main(int argc, char** argv) -> int
+namespace {
+int usage()
 {
-    const std::unordered_map<std::string, mosaic::LanguageCode> languages {
-    { "en", mosaic::LanguageCode::EN },
-    { "de", mosaic::LanguageCode::DE },
-    { "es", mosaic::LanguageCode::ES },
-    { "fr", mosaic::LanguageCode::FR },
-    };
+    std::cerr << "usage:\n"
+                 "  Mosaic version\n"
+                 "  Mosaic match <pattern> <channel>   # does the channel match the pattern?\n";
+    return 2;
+}
+} // namespace
 
-    cxxopts::Options options(*argv, "A program to welcome the world!");
+// Minimal CLI. Planned subcommands (pub, sub, tail, verify) are tasks CLI-* in docs/design/TODO.md.
+int main(int argc, char** argv)
+{
+    if (argc < 2)
+        return usage();
+    const std::string command = argv[1];
 
-    std::string language;
-    std::string name;
-
-    // clang-format off
-    options.add_options()
-    ("h,help", "Show help")
-    ("v,version", "Print the current version number")
-    ("n,name", "Name to greet", cxxopts::value(name)->default_value("World"))
-    ("l,lang", "Language code to use", cxxopts::value(language)->default_value("en"));
-    // clang-format on
-
-    auto result = options.parse(argc, argv);
-
-    if (result["help"].as<bool>()) {
-    std::cout << options.help() << std::endl;
-    return 0;
+    if (command == "version") {
+        std::cout << "Mosaic, version " << MOSAIC_VERSION << '\n';
+        return 0;
     }
-
-    if (result["version"].as<bool>()) {
-    std::cout << "Mosaic, version " << MOSAIC_VERSION << std::endl;
-    return 0;
+    if (command == "match" && argc == 4) {
+        mosaic::Matcher matcher;
+        if (!matcher.add(argv[2])) {
+            std::cerr << "invalid pattern: " << argv[2] << '\n';
+            return 2;
+        }
+        const bool hit = matcher.matches_any(argv[3]);
+        std::cout << (hit ? "match" : "no match") << '\n';
+        return hit ? 0 : 1;
     }
-
-    auto langIt = languages.find(language);
-    if (langIt == languages.end()) {
-    std::cerr << "unknown language code: " << language << std::endl;
-    return 1;
-    }
-
-    mosaic::Mosaic mosaic(name);
-    std::cout << mosaic.greet(langIt->second) << std::endl;
-
-    return 0;
+    return usage();
 }

@@ -32,24 +32,26 @@ Reference copies: `docs/references/` (run `docs/references/fetch.sh`; git-ignore
 
 ## Layout
 
-- `include/`, `source/` – library code
-- `standalone/` – executable target (`Mosaic`)
-- `test/` – test suite (`MosaicTests`)
-- `documentation/` – Doxygen docs
-- `all/` – builds every target together
-- `cmake/` – CMake helpers
+- `include/mosaic/<module>/` + `source/<module>/` – library, one dir per module (`core store log match flow proto net node jobs`).
+  Each module has a `README.md` with rules and open tasks. Dependency order: core ← store ← log ← proto ← net ← node ← jobs;
+  `match` and `flow` are leaves.
+- `standalone/` – `Mosaic` CLI (`version`, `match`)
+- `test/source/` – doctest suite (`MosaicTests`); `malamute.cpp` is the ZeroMQ-stack compile check
+- `docs/design/` – **design set and junior TODO board (`TODO.md`)**; read `00-overview.md` and `conventions.md` first
+- `docs/references/` – fetched upstream material (git-ignored)
+- `scripts/check_todo_ids.sh` – every `TODO(ID)` in code must exist in `docs/design/TODO.md`
 
 ## Commands
 
 ```bash
-cmake -S standalone -B build/standalone && cmake --build build/standalone
-cmake -S test -B build/test && cmake --build build/test && ./build/test/MosaicTests
-cmake -S all -B build && cmake --build build      # everything
-cmake --build build --target format               # clang-format / cmake-format check: fix-format
+# fast loop (no ZeroMQ stack)
+cmake -S test -B build/test -DMOSAIC_BUILD_ZMQ_STACK=OFF && cmake --build build/test -j && ./build/test/MosaicTests
+# everything, incl. libzmq/czmq/malamute from source
+cmake -S all -B build && cmake --build build -j && ./build/test/MosaicTests
+./scripts/check_todo_ids.sh
 ```
 
 ## Conventions
 
-- C++ with modern CMake; format with clang-format (`.clang-format`) and cmake-format (`.cmake-format`).
-- Manage dependencies via CPM.cmake; keep library and executable code separated.
-- Add/update tests in `test/` for behavior changes.
+See `docs/design/conventions.md`: C++20, warnings are errors, no exceptions in core..node, time and randomness injected,
+single-threaded, no dependencies in core..node, every interface has a contract comment and (eventually) a conformance suite.

@@ -32,9 +32,16 @@ endif ()
 # ---- Create binary ----
 
 file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+if (NOT TARGET mlm-static)
+    # ZeroMQ stack disabled (-DMOSAIC_BUILD_ZMQ_STACK=OFF): skip the ZeroMQ compile-check test
+    list(FILTER sources EXCLUDE REGEX "malamute\\.cpp$")
+endif ()
 add_executable(${PROJECT_NAME} ${sources})
-target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic mlm-static)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic)
+if (TARGET mlm-static)
+    target_link_libraries(${PROJECT_NAME} mlm-static)
+endif ()
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 # enable compiler warnings
 if (NOT TEST_INSTALLED_VERSION)

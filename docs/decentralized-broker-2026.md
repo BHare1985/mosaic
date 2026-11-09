@@ -2,7 +2,7 @@
 
 A design guide for Mosaic, distilled from the ZeroMQ Guide, Dafka and
 Malamute (see [references](references/README.md)) and adjusted for today.
-Section 1 states what we borrow; sections 2-9 are the design; section 10 is the plan.
+The implementation-level design that followed from this guide lives in [design/](design/README.md). Section 1 states what we borrow; sections 2-9 are the design; section 10 is the plan.
 
 ## 1. What to borrow, and from where
 

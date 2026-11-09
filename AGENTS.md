@@ -10,6 +10,16 @@ Key ideas:
 - **Scalability protocol** – built on ZeroMQ messaging; depends on [Malamute](https://github.com/zeromq/malamute) (C)
 - **Permissioned blockchain initially** (storage nodes are permissionless); to become permissionless once malicious-actor mitigations exist
 
+## Direction (under discussion)
+
+See [docs/direction.md](docs/direction.md): proposed pivot to a small brokerless,
+Dafka-inspired replicated-log library. Design in
+[docs/decentralized-broker-2026.md](docs/decentralized-broker-2026.md).
+**Do not fix or file anything upstream (libzmq, czmq, malamute, dafka, ...) without
+discussing with the maintainer first**; log findings in
+[docs/upstream-notes.md](docs/upstream-notes.md).
+Reference copies: `docs/references/` (run `docs/references/fetch.sh`; git-ignored).
+
 ## References
 
 - Repo: https://github.com/BHare1985/mosaic

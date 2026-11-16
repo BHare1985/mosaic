@@ -8,5 +8,6 @@ Pure arithmetic, no I/O. Policy lives in [04-flow-control](../../../docs/design/
   drop; never block the whole node*.
 - No dependencies.
 
-**Where it is used today:** `Node` keeps a `CreditWindow` per peer for FETCH requests. The live path and jobs
-are open work: FLOW-2, FLOW-3, FLOW-4, JOBS-4.
+**Where it is used today:** `Node` keeps a `CreditWindow` per peer for FETCH requests, with the credit owed tracked on
+each outstanding request so a late response cannot create credit (FLOW-2, done). The live path and jobs are open work:
+FLOW-3, FLOW-4, JOBS-4.

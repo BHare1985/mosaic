@@ -100,7 +100,9 @@ Rollback is per-step: steps 1-2 are additive, and step 4 is isolated to `fetches
 
 ## Open Questions
 
-- Whether `Mosaic sim` should exist at all at this stage, or whether the sweep stays a test flag until the CLI lands in the
-  transport change. Deferrable: costs one target either way.
+- ~~Whether `Mosaic sim` should exist at all at this stage~~ **Resolved: not built.** The scenario runner lives in the test
+  sources, so a `Mosaic sim` subcommand would have to link test code into the product or duplicate the scenarios. The sweep is
+  `MOSAIC_SEEDS=<n> ./build/test/MosaicTests -tc="*seed sweep*"`, which is one documented command; the CLI half of SIM-2 stays
+  open on the board and should move to the CLI change, where a real command surface exists.
 - Whether per-link fault configuration needs a declarative file format for long scenarios, or whether in-code scenario
   functions remain enough. Deferrable until a scenario needs more than a page of configuration.

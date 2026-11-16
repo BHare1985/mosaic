@@ -68,5 +68,19 @@ A store MUST report the writer and channel of every log it holds, so replicas ca
 
 #### Scenario: Enumeration lists every retained log
 
-- **WHEN** three logs have been written and one has been removed
-- **THEN** enumeration reports exactly the remaining logs
+- **WHEN** three logs have been written to one store
+- **THEN** enumeration reports exactly those three writer and channel pairs
+
+### Requirement: In-memory storage promises no durability
+
+A store that does not explicitly claim durability MUST NOT be described as durable, and no caller MUST rely on its records surviving the process. Durability is added only by a store that states it commits before reporting success.
+
+#### Scenario: Process end loses non-durable records
+
+- **WHEN** a node runs against a non-durable store and the process ends
+- **THEN** nothing claims those records were persisted, and a fresh store starts empty
+
+#### Scenario: Durability is claimed per store, not implied by the contract
+
+- **WHEN** a caller reads the store contract
+- **THEN** durability is stated as a property of a specific implementation, not of the interface

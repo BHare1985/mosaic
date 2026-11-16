@@ -12,6 +12,9 @@
   (documented per class). Prefer value types for messages.
 - **Interfaces:** pure virtual classes in headers with a doc comment that states the *contract*, not just signatures.
   Each interface has (or must get) a conformance test usable by every implementation.
+- **Normative behaviour:** capability specs in `openspec/specs/` state what the system must do; this doc set and the
+  module READMEs explain the reasoning. Change behaviour through an OpenSpec change (`openspec/changes/`), not by editing
+  a doc. Work items stay in [TODO.md](TODO.md), and a `TODO(ID)` comment cites that board, never a spec requirement.
 - **Dependencies:** `core`..`node` use only the standard library. Third-party code needs maintainer approval and
   must sit behind an interface (e.g. libsodium behind `Hasher`/`Signer`).
 - **Comments:** explain *why* and cite design docs/TODO ids (`// TODO(FLOW-2): ...`). Every TODO id must exist in

@@ -1,5 +1,9 @@
 # Mosaic design set
 
+> **Behaviour is specified in [`openspec/specs/`](../../openspec/specs/); this set is the rationale.** The docs below explain
+> *why* and *how it fits together*; when a capability spec and a doc disagree, the spec is normative and the doc is corrected
+> in the same change. Work items stay on the [TODO board](TODO.md); task IDs are not copied into specs.
+
 Read in order. Each doc says what is **implemented** (✅), **stubbed** (🟡) or **designed only** (⬜).
 
 | # | Doc | Covers |

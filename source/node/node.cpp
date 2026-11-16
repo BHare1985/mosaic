@@ -49,6 +49,9 @@ void Node::pump(std::uint64_t now_ms)
 
 void Node::tick(std::uint64_t now_ms)
 {
+    // 0. Version handshake: every peer we can address hears our version until it answers with its own.
+    greet_peers(now_ms);
+
     // 1. HEAD heartbeats for logs we write.
     for (auto& [key, slot] : writers_) {
         if (now_ms - slot.last_head_ms < config_.head_interval_ms)
@@ -88,18 +91,20 @@ void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_
                    [&](const DirectRecordMsg& m) { handle_record(from, m.record, true, now_ms); },
                    [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
                    [&](const FetchMsg& m) { handle_fetch(from, m); },
-                   // TODO(ACK-1, HEADS-1, FLOW-3, HELLO-1): the remaining messages are defined but not handled yet.
+                   [&](const HelloMsg& m) { handle_hello(from, m); },
+                   // TODO(ACK-1, HEADS-1, FLOW-3): still defined but not handled.
                    [&](const AckMsg&) { },
                    [&](const GetHeadsMsg&) { },
                    [&](const DirectHeadMsg&) { },
                    [&](const CreditMsg&) { },
-                   [&](const HelloMsg&) { },
                },
         message);
 }
 
 void Node::handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms)
 {
+    if (!accept_payload(from))
+        return;
     if (!following_.matches_any(record.channel))
         return;
 
@@ -141,6 +146,8 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
 
 void Node::handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms)
 {
+    if (!accept_payload(from))
+        return;
     if (!following_.matches_any(head.key.channel))
         return;
     auto& known = remote_head_[head.key];
@@ -151,6 +158,8 @@ void Node::handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t no
 
 void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch)
 {
+    if (!accept_payload(from))
+        return;
     const auto count = std::min(fetch.count, config_.max_serve);
     for (auto& record : store_.read(fetch.key, fetch.from, count))
         transport_.send(from, DirectRecordMsg { std::move(record) });
@@ -208,6 +217,49 @@ std::uint32_t Node::credit_available(const NodeId& peer) const
     const auto it = peer_credits_.find(peer);
     // Nothing has been spent for a peer we never fetched from, so the whole window is available.
     return it == peer_credits_.end() ? config_.fetch_window : it->second.available();
+}
+
+void Node::greet_peers(std::uint64_t now_ms)
+{
+    for (const auto& peer : transport_.peers()) {
+        auto& link = peer_links_[peer];
+        if (link.version_known)
+            continue;
+        // Retry on the head interval: a hello can be lost like anything else, and a link that never
+        // negotiates must not look like a peer that simply has nothing to say.
+        if (link.hello_sent && now_ms - link.last_hello_ms < config_.head_interval_ms)
+            continue;
+        transport_.send(peer, HelloMsg { kProtocolVersion, { } });
+        link.hello_sent = true;
+        link.last_hello_ms = now_ms;
+    }
+}
+
+void Node::handle_hello(const NodeId& from, const HelloMsg& hello)
+{
+    auto& link = peer_links_[from];
+    link.version_known = true;
+    link.version = hello.version;
+    // A peer speaking a version we cannot decode cannot be asked to speak ours; its payload is refused
+    // from here on and counted, which is what makes the mismatch visible instead of mysterious.
+    if (hello.version != kProtocolVersion)
+        ++counters_.version_rejects;
+}
+
+bool Node::accept_payload(const NodeId& peer)
+{
+    const auto it = peer_links_.find(peer);
+    if (it == peer_links_.end() || !it->second.version_known) {
+        // The hello may simply be late or lost. Records are self-verifying, so accepting and counting is
+        // better than stalling replication to enforce metadata (docs/design/02-protocol.md).
+        ++counters_.unnegotiated;
+        return true;
+    }
+    if (it->second.version != kProtocolVersion) {
+        ++counters_.version_rejects;
+        return false;
+    }
+    return true;
 }
 
 Seq Node::next_seq(const LogKey& key) const

@@ -11,9 +11,11 @@ It descends from [Dafka](https://github.com/zeromq/dafka) (brokerless log) and [
 (channels, services, flow control), implementing the parts of Malamute's design that were only ever on paper. Not wire-compatible
 with either.
 
-> **Status: early scaffold.** The core is implemented and tested in an in-process simulator (including convergence under 30%
-> packet loss). The ZeroMQ transport, binary wire format, real Ed25519 signatures and persistent storage are still to do.
-> `InsecureTestSigner` provides **no security**. Do not use for real data yet.
+> **Status: early, but the record layer is real.** Logs, matching, credits and the node state machine are implemented and
+> tested in an in-process simulator (convergence across seeded sweeps at 30% loss, 10% duplication and jitter). Records are
+> signed with **Ed25519** and travel in a versioned binary format with permanent message ids and a total decoder, when built
+> with libsodium (`-DMOSAIC_WITH_SODIUM=ON`, the default). Still to do: the ZeroMQ transport, CURVE on the link, durable
+> storage, peer discovery. Do not use for real data until CURVE lands: records are authenticated, links are not.
 
 ## Why
 Local-first sync, edge/on-prem event streams, tamper-evident audit logs, and job/agent buses all want a durable, replayable

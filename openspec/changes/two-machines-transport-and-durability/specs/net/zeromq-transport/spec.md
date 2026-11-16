@@ -99,3 +99,25 @@ after a link loss that is repaired.
 
 - **WHEN** a peer link is broken during publication and later restored
 - **THEN** the follower converges to the writer's head without operator action
+
+### Requirement: CURVE keys derive from the writer identity and stay interoperable
+
+The transport MUST derive its CURVE key pair from the node's Ed25519 identity (curve25519 conversion of the signing key) and
+present it in the z85 form ZeroMQ expects, so the identity that authenticates a link is the identity that signs records. It MUST
+import and export the ecosystem's certificate file format (the czmq certificate container) so existing tooling can be used,
+without that file ever becoming the source of truth.
+
+#### Scenario: Link identity is the record identity
+
+- **WHEN** a node authenticates a link and then delivers a record it signed
+- **THEN** the key that authenticated the link and the writer identity on the record derive from the same keystore entry
+
+#### Scenario: An existing certificate imports
+
+- **WHEN** a certificate file produced by the ecosystem's tooling is imported
+- **THEN** the resulting identity is usable both for CURVE on links and for signing records
+
+#### Scenario: Export is readable by the ecosystem
+
+- **WHEN** a node exports its identity in that certificate format
+- **THEN** the ecosystem's tooling accepts the file and derives the same public identity

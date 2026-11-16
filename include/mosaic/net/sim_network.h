@@ -8,6 +8,7 @@
 #include <random>
 #include <set>
 #include <utility>
+#include <vector>
 
 namespace mosaic {
 
@@ -113,6 +114,7 @@ public:
     void publish(const Channel& channel, Message message) override;
     void send(const NodeId& to, Message message) override;
     std::optional<Envelope> poll() override;
+    std::vector<NodeId> peers() const override;
 
 private:
     SimNetwork& net_;

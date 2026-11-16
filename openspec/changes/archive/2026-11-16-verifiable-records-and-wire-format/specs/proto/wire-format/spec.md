@@ -100,17 +100,33 @@ receiver does not support MUST be reported to the caller rather than decoded on 
 - **WHEN** a peer announces a protocol version the receiver does not support
 - **THEN** the mismatch is reported and no messages of that version are decoded
 
-### Requirement: Version negotiation happens before payload exchange
+### Requirement: Version negotiation is announced and retried
 
-A peer MUST announce its protocol version before any other message type is accepted from it, and MUST refuse to process
-payload messages from a peer whose version it cannot support.
+A node MUST announce its protocol version to every peer it can address, and MUST keep retrying until that peer answers,
+because a hello can be lost like any other message.
 
-#### Scenario: Payload before hello is refused
+#### Scenario: Retry until answered
 
-- **WHEN** a peer sends a record before announcing its version
-- **THEN** the message is refused and the version requirement is reported
+- **WHEN** a peer has not announced a version
+- **THEN** the node keeps announcing its own, at the announcement interval, and stops once a version arrives
 
 #### Scenario: Matching versions proceed
 
 - **WHEN** both peers announce a supported version
-- **THEN** payload exchange proceeds
+- **THEN** payload exchange proceeds and nothing is counted as unnegotiated
+
+### Requirement: Payload from an unsupported version is refused
+
+Payload from a peer that announced a version the receiver cannot speak MUST be refused and counted. Payload from a peer whose
+version is not yet known MUST be counted as unnegotiated and MAY be processed: records are self-verifying, so stalling
+replication to enforce a metadata handshake would cost convergence and buy no security.
+
+#### Scenario: Payload before hello is counted, not fatal
+
+- **WHEN** a record arrives from a peer that has not yet announced a version
+- **THEN** the record is processed and counted as unnegotiated, and the handshake keeps retrying
+
+#### Scenario: An unsupported version is refused
+
+- **WHEN** a peer announces a version the receiver cannot speak and then sends payload
+- **THEN** the payload is refused, counted, and never stored or delivered

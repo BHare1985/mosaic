@@ -15,7 +15,7 @@ the requester's credit.
 | `AckMsg` | replica → writer | unicast | "stored up to seq" (ACK-1) | ⬜ |
 | `GetHeadsMsg` / `DirectHeadMsg` | newcomer ↔ peers | unicast | learn heads while writer offline (HEADS-1) | ⬜ |
 | `CreditMsg` | receiver → sender | unicast | explicit credit on streaming paths (FLOW-3) | ⬜ |
-| `HelloMsg` | both | unicast on connect | version + followed patterns (HELLO-1) | ⬜ |
+| `HelloMsg` | both | unicast, retried until answered | version now; followed patterns with JOBS-2 | 🟡 |
 
 ## Node behaviour (the state machines)
 

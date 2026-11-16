@@ -33,6 +33,8 @@ struct NodeCounters {
     std::uint64_t fetches_sent = 0;
     std::uint64_t fetch_retries = 0; // requests abandoned on timeout and retried
     std::uint64_t credit_drops = 0; // a repair request we could not afford
+    std::uint64_t version_rejects = 0; // payload refused: the peer announced a version we cannot speak
+    std::uint64_t unnegotiated = 0; // payload accepted before the peer's version was known (see 02-protocol)
     std::uint64_t credit_spent = 0; // units committed to repair requests, cumulatively
     std::uint64_t credit_returned = 0; // units given back, cumulatively
 };
@@ -83,6 +85,12 @@ private:
         std::unique_ptr<LogWriter> log;
         std::uint64_t last_head_ms = 0;
     };
+    struct PeerLink {
+        std::uint64_t last_hello_ms = 0;
+        bool hello_sent = false;
+        bool version_known = false;
+        std::uint8_t version = 0;
+    };
     struct FetchState {
         std::uint64_t sent_ms = 0;
         Seq from = 0; // first seq requested
@@ -94,6 +102,11 @@ private:
     void handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms);
     void handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms);
     void handle_fetch(const NodeId& from, const FetchMsg& fetch);
+    void handle_hello(const NodeId& from, const HelloMsg& hello);
+    /// Send our version to any peer we have not confirmed a version for yet. Called from tick().
+    void greet_peers(std::uint64_t now_ms);
+    /// Is payload from this peer allowed? False (and counted) when it announced a version we cannot speak.
+    bool accept_payload(const NodeId& peer);
     void request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t now_ms);
     /// Return one credit for a repair record that answers a live request. A record belonging to a
     /// request that already ended (late response) is consumed and must not create credit (FLOW-2).
@@ -113,6 +126,7 @@ private:
     std::map<LogKey, Seq> remote_head_; // highest seq we have heard of for each log
     std::map<std::pair<LogKey, NodeId>, FetchState> fetches_;
     std::map<NodeId, CreditWindow> peer_credits_;
+    std::map<NodeId, PeerLink> peer_links_;
     NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;

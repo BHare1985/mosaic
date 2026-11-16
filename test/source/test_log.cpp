@@ -1,4 +1,5 @@
 #include <doctest/doctest.h>
+#include <mosaic/core/insecure_test_signer.h>
 #include <mosaic/log/log.h>
 #include <mosaic/store/memory_log_store.h>
 
@@ -81,6 +82,7 @@ TEST_CASE_FIXTURE(Fixture, "replica detects equivocation (fork)")
     Record r1;
     r1.writer = "alice";
     r1.channel = "chan.one";
+    r1.hash_algo = hasher.algorithm();
     r1.seq = 1;
     r1.prev = record_hash(twin, hasher);
     r1.sig = alice.sign(record_hash(r1, hasher));
@@ -105,6 +107,7 @@ TEST_CASE_FIXTURE(Fixture, "verification order: signature is checked before stru
     Record forged_chain;
     forged_chain.writer = "alice";
     forged_chain.channel = "chan.one";
+    forged_chain.hash_algo = hasher.algorithm();
     forged_chain.prev.bytes[0] = 1;
     forged_chain.sig = bytes("not-a-signature");
     CHECK(replica.ingest(forged_chain) == IngestResult::BadSignature);
@@ -118,6 +121,7 @@ TEST_CASE_FIXTURE(Fixture, "seq 0 must have zero prev")
     Record r;
     r.writer = "alice";
     r.channel = "chan.one";
+    r.hash_algo = hasher.algorithm();
     r.prev.bytes[0] = 1;
     r.sig = alice.sign(record_hash(r, hasher));
     CHECK(replica.ingest(r) == IngestResult::BadChain);

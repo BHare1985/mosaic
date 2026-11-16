@@ -70,6 +70,14 @@ Find system libzmq first; fall back to the existing from-source build in `all/`.
 `MOSAIC_BUILD_ZMQ_FROM_SOURCE`, which is what it has always done.
 *Why:* "does the core still build with no ZeroMQ installed" is a property, and properties are easier to keep than options.
 
+**D6a - One identity: Ed25519 signs records, CURVE derives from it (`docs/design/07-security.md`).**
+The 2024 `key-loading` branch (branch `key-loading`, commit `a3e7758`) used czmq `zcert` as the source of truth, which
+generates an independent curve25519 pair - a second identity with no link to the writer that signs records. Instead: the
+keystore holds the Ed25519 pair, `crypto_sign_ed25519_sk_to_curve25519` derives the CURVE key, `sodium_bin2z85` produces the
+40-character strings libzmq wants, and the ecosystem certificate format becomes import/export only.
+*Alternative:* keep zcert authoritative - rejected, it contradicts D3's "identity agrees between link and log" and leaves two
+unrelated keys to manage, rotate and revoke.
+
 **D7 - The CLI is a thin driver over the node, not a second implementation.**
 `pub` and `tail` construct a node, drive `pump`/`tick` in a loop with the real clock and a poll timeout, and do nothing else.
 Any behaviour the CLI needs (a pure replica, a stream of delivered records) is added to the node as a requirement, not

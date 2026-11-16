@@ -160,6 +160,15 @@ void SimTransport::publish(const Channel& channel, Message message)
 
 void SimTransport::send(const NodeId& to, Message message) { net_.schedule(id_, to, message); }
 
+std::vector<NodeId> SimTransport::peers() const
+{
+    std::vector<NodeId> out;
+    for (const auto& [peer_id, peer] : net_.peers_)
+        if (peer_id != id_)
+            out.push_back(peer_id);
+    return out;
+}
+
 std::optional<Envelope> SimTransport::poll()
 {
     auto& inbox = net_.peers_[id_].inbox;

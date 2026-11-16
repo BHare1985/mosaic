@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.14...3.22)
 
 project(MosaicTests LANGUAGES CXX)
 
+# let old third-party CMake projects configure under CMake >= 4
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # ---- Options ----
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
@@ -15,7 +18,7 @@ include(../cmake/tools.cmake)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage("gh:doctest/doctest@2.4.9")
+CPMAddPackage("gh:doctest/doctest@2.4.11")
 
 #clang-format target conflicts with libzmq
 #CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
@@ -29,9 +32,16 @@ endif ()
 # ---- Create binary ----
 
 file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+if (NOT TARGET mlm-static)
+    # ZeroMQ stack disabled (-DMOSAIC_BUILD_ZMQ_STACK=OFF): skip the ZeroMQ compile-check test
+    list(FILTER sources EXCLUDE REGEX "malamute\\.cpp$")
+endif ()
 add_executable(${PROJECT_NAME} ${sources})
-target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic mlm-static)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic)
+if (TARGET mlm-static)
+    target_link_libraries(${PROJECT_NAME} mlm-static)
+endif ()
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 # enable compiler warnings
 if (NOT TEST_INSTALLED_VERSION)

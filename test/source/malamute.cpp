@@ -21,16 +21,16 @@ static zpoller_t* poller = nullptr;
 static zmsg_t* my_mlm_client_recv(mlm_client_t* client)
 {
     if (zsys_interrupted)
-	return nullptr;
+    return nullptr;
 
     if (!poller) {
-	poller = zpoller_new(mlm_client_msgpipe(client), NULL);
+    poller = zpoller_new(mlm_client_msgpipe(client), NULL);
     }
 
     auto* which = static_cast<zsock_t*>(zpoller_wait(poller, 1000));
     if (which == mlm_client_msgpipe(client)) {
-	zmsg_t* reply = mlm_client_recv(client);
-	return reply;
+    zmsg_t* reply = mlm_client_recv(client);
+    return reply;
     }
 
     return nullptr;
@@ -69,28 +69,29 @@ TEST_CASE("Malamute Send/Recv")
 
     int reply_nbr = 1;
     for (int request_nbr = 1; request_nbr <= 3; ++request_nbr) {
-	zmsg_t* msg = zmsg_new();
-	zmsg_addstrf(msg, "msg%d", request_nbr);
-	zsys_info("Sending request number=%d", request_nbr);
-	mlm_client_sendto(client, "server", "something", nullptr, 1000, &msg);
+    zmsg_t* msg = zmsg_new();
+    zmsg_addstrf(msg, "msg%d", request_nbr);
+    zsys_info("Sending request number=%d", request_nbr);
+    mlm_client_sendto(client, "server", "something", nullptr, 1000, &msg);
 
-	zmsg_t* sent_msg = mlm_client_recv(server);
-	if (sent_msg) {
-	    char* request = zmsg_popstr(sent_msg);
-	    zsys_info("server received: %s sender=%s", request, mlm_client_sender(server));
-	    zmsg_addstrf(sent_msg, "%s OK (%d)", request, reply_nbr++);
-	    mlm_client_sendto(server, mlm_client_sender(server), "anything", nullptr, 0, &sent_msg);
-	}
+    zmsg_t* sent_msg = mlm_client_recv(server);
+    if (sent_msg) {
+        char* request = zmsg_popstr(sent_msg);
+        zsys_info("server received: %s sender=%s", request, mlm_client_sender(server));
+        zmsg_addstrf(sent_msg, "%s OK (%d)", request, reply_nbr++);
+        free(request);
+        mlm_client_sendto(server, mlm_client_sender(server), "anything", nullptr, 0, &sent_msg);
+    }
 
-	msg = my_mlm_client_recv(client);
-	if (msg) {
-	    char* reply = zmsg_popstr(msg);
-	    zsys_info("client received: %s", reply);
-	    free(reply);
-	    zmsg_destroy(&msg);
-	    zclock_sleep(100);
-	} else
-	    zsys_error("MISSED reply number=%d", request_nbr);
+    msg = my_mlm_client_recv(client);
+    if (msg) {
+        char* reply = zmsg_popstr(msg);
+        zsys_info("client received: %s", reply);
+        free(reply);
+        zmsg_destroy(&msg);
+        zclock_sleep(100);
+    } else
+        zsys_error("MISSED reply number=%d", request_nbr);
     }
 
     mlm_client_destroy(&client);

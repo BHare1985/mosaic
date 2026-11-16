@@ -5,6 +5,9 @@ cmake_minimum_required(VERSION 3.14...3.22)
 
 project(BuildAll LANGUAGES CXX)
 
+# let old third-party CMake projects configure under CMake >= 4
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 include(../cmake/tools.cmake)
 
 # needed to generate test target

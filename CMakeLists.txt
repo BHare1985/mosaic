@@ -26,42 +26,51 @@ include(cmake/CPM.cmake)
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
-CPMAddPackage(
-        NAME fmt
-        GIT_TAG 9.1.0
-        GITHUB_REPOSITORY fmtlib/fmt
-        OPTIONS "FMT_INSTALL YES" # create an installable target
-)
+# ZeroMQ is a hard dependency of the PRODUCT (the network transport, ZMQ-1), but the core
+# library is deliberately ZeroMQ-free so the protocol can be tested in-process with SimNetwork.
+# This option only controls whether libzmq/czmq/malamute are COMPILED FROM SOURCE here (slow;
+# also the "does the ZeroMQ ecosystem still build" check). Use -DMOSAIC_BUILD_ZMQ_STACK=OFF for a
+# fast core-only loop. ZMQ-0 will replace this with a proper MosaicZmq target and find_package.
+option(MOSAIC_BUILD_ZMQ_STACK "Build libzmq/czmq/malamute from source" ON)
 
-CPMAddPackage(
-        NAME libzmq
-        GIT_TAG v4.3.5
-        GITHUB_REPOSITORY zeromq/libzmq
-        OPTIONS
-        "BUILD_SHARED OFF"
-)
+if (MOSAIC_BUILD_ZMQ_STACK)
+    CPMAddPackage(
+            NAME libzmq
+            GIT_TAG v4.3.5
+            GITHUB_REPOSITORY zeromq/libzmq
+            OPTIONS
+            "BUILD_SHARED OFF"
+    )
 
-CPMAddPackage(
-        NAME czmq
-        GIT_TAG v4.2.1
-        GITHUB_REPOSITORY zeromq/czmq
-        OPTIONS
-        "BUILD_SHARED OFF"
-        "LIBZMQ_FOUND 1"
-        "LIBZMQ_LIBRARIES libzmq-static"
-)
+    # czmq/malamute find libzmq/czmq headers via these dirs (their find modules are bypassed below)
+    include_directories(${libzmq_SOURCE_DIR}/include)
 
-CPMAddPackage(
-        NAME malamute
-        GIT_TAG 1.1.0
-        GITHUB_REPOSITORY zeromq/malamute
-        OPTIONS
-        "BUILD_SHARED OFF"
-        "LIBZMQ_FOUND 1"
-        "LIBZMQ_LIBRARIES libzmq-static"
-        "CZMQ_FOUND 1"
-        "CZMQ_LIBRARIES czmq-static"
-)
+    CPMAddPackage(
+            NAME czmq
+            GIT_TAG v4.2.1
+            GITHUB_REPOSITORY zeromq/czmq
+            OPTIONS
+            "BUILD_SHARED OFF"
+            "LIBZMQ_FOUND 1"
+            "LIBZMQ_LIBRARIES libzmq-static"
+    )
+
+    include_directories(${czmq_SOURCE_DIR}/include)
+
+    CPMAddPackage(
+            NAME malamute
+            GIT_TAG 1.1.0
+            GITHUB_REPOSITORY zeromq/malamute
+            # malamute's "distclean" target collides with czmq's (same global name)
+            PATCH_COMMAND sed -i "s/distclean/mlm_distclean/g" CMakeLists.txt
+            OPTIONS
+            "BUILD_SHARED OFF"
+            "LIBZMQ_FOUND 1"
+            "LIBZMQ_LIBRARIES libzmq-static"
+            "CZMQ_FOUND 1"
+            "CZMQ_LIBRARIES czmq-static"
+    )
+endif ()
 
 # ---- Add source files ----
 
@@ -75,7 +84,7 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # Note: for header-only libraries change all PUBLIC flags to INTERFACE and create an interface
 # target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 if (MSVC)
     target_compile_definitions(${PROJECT_NAME} PUBLIC
@@ -91,7 +100,7 @@ endif ()
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt mlm-static)
+# The core library has no third-party dependencies (see docs/design/00-overview.md).
 
 target_include_directories(
         ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -114,5 +123,4 @@ packageProject(
         INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
         VERSION_HEADER "${VERSION_HEADER_LOCATION}"
         COMPATIBILITY SameMajorVersion
-        DEPENDENCIES "fmt 9.1.0"
 )

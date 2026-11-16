@@ -25,7 +25,8 @@ See proposal.md - Why. What shapes the approach:
 
 **Non-Goals:**
 
-- No behaviour change: no header, source or test file is touched by this change.
+- No behaviour change: no product header or source is touched. One test is added, for the verification order that no
+  existing case pinned; everything else is documented where it already behaves as specified.
 - No attempt to spec `jobs` end to end (only rendezvous ranking exists) or the job/security layers.
 - No replacement of `docs/design/`: the docs keep the rationale and the "why"; the specs become the normative statement.
 - No transport-specific requirements. ZeroMQ mapping stays out so it cannot leak into the contract.

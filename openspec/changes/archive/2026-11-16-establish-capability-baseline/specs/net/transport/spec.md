@@ -65,6 +65,20 @@ A transport MUST expose non-blocking polling that returns at most one inbound me
 - **WHEN** no message has arrived
 - **THEN** polling returns immediately with no message
 
+### Requirement: The baseline transport is in-process and carries no bytes
+
+The baseline transport implementation MUST connect nodes inside a single process only. It MUST NOT define a wire format and MUST NOT discover peers: encoding and discovery are separate capabilities, so no requirement here may assume bytes on a link or a topology the caller did not supply.
+
+#### Scenario: All nodes share one process
+
+- **WHEN** a scenario runs on the baseline transport
+- **THEN** every node lives in the same process and no byte encoding is involved
+
+#### Scenario: Peers are supplied, never searched for
+
+- **WHEN** a node needs to reach a peer
+- **THEN** the caller has already supplied that peer; the transport does not look for one
+
 ### Requirement: Every transport satisfies one conformance suite
 
 All transport implementations MUST satisfy the same conformance suite, so the node runtime never needs transport-specific branches.

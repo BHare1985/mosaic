@@ -21,7 +21,7 @@ TEST_CASE_FIXTURE(Fixture, "writer builds a hash chain")
     const auto r0 = writer.append("t", bytes("a"), 1);
     const auto r1 = writer.append("t", bytes("b"), 2);
     CHECK(r0.seq == 0);
-    CHECK(r0.prev == Hash {});
+    CHECK(r0.prev == Hash { });
     CHECK(r1.seq == 1);
     CHECK(r1.prev == record_hash(r0, hasher));
     CHECK(writer.head()->seq == 1);
@@ -85,6 +85,32 @@ TEST_CASE_FIXTURE(Fixture, "replica detects equivocation (fork)")
     r1.prev = record_hash(twin, hasher);
     r1.sig = alice.sign(record_hash(r1, hasher));
     CHECK(replica.ingest(r1) == IngestResult::Fork);
+}
+
+// docs/design/01-data-model.md fixes the order of the checks: signature, then stored history, then
+// gap, then link. A record that violates two rules must therefore be classified by the first one,
+// otherwise two replicas disagree about the same bytes.
+TEST_CASE_FIXTURE(Fixture, "verification order: signature is checked before structure")
+{
+    const auto r0 = writer.append("t", bytes("a"), 1);
+    REQUIRE(replica.ingest(r0) == IngestResult::Accepted);
+
+    // Forgery *and* gap: the expected next sequence is 1, so seq 5 would be a gap.
+    Record forged_gap = r0;
+    forged_gap.seq = 5;
+    forged_gap.prev = record_hash(r0, hasher);
+    CHECK(replica.ingest(forged_gap) == IngestResult::BadSignature);
+
+    // Forgery *and* bad chain: seq 0 with a non-zero prev is BadChain on its own.
+    Record forged_chain;
+    forged_chain.writer = "alice";
+    forged_chain.channel = "chan.one";
+    forged_chain.prev.bytes[0] = 1;
+    forged_chain.sig = bytes("not-a-signature");
+    CHECK(replica.ingest(forged_chain) == IngestResult::BadSignature);
+
+    // Neither rejection may have touched the stored log.
+    CHECK(replica.head(r0.key())->seq == 0);
 }
 
 TEST_CASE_FIXTURE(Fixture, "seq 0 must have zero prev")

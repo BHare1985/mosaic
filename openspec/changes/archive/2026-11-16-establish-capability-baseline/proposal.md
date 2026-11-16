@@ -17,8 +17,9 @@ capability specs, so every later change becomes a delta against a written requir
 - Each requirement states an invariant that the current tests already exercise, plus the contract from the module header.
 - Explicitly record what the baseline does **not** promise (durability, real signatures, wire bytes, discovery), so later
   changes add requirements instead of quietly widening behaviour.
-- No code changes. Every requirement is satisfied by the current implementation; `./build/test/MosaicTests` (22 cases,
-  5294 assertions) is the evidence.
+- No behaviour changes: every requirement is satisfied by the current implementation. One test is added where the baseline
+  had no evidence at all (the fixed order of the verification checks), so the suite ends at 23 cases / 5298 assertions and is
+  the evidence for the rest.
 
 ## Capabilities
 

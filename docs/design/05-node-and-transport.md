@@ -12,11 +12,27 @@ Planned: metrics (NODE-1), unfollow & batching (NODE-2), store-node preset (NODE
 ## Transport contract (✅ `net/transport.h`)
 `self()`, `subscribe(pattern)`, `publish(channel, msg)`, `send(to, msg)`, `poll()`.
 Best effort, non-blocking, no self-delivery, publish filtered by subscription, unicast to unknown peers is silently dropped.
-A conformance suite (NET-0) must test these for every transport.
+
+The conformance suite is `run_transport_conformance(factory)` in `test/source/transport_conformance.h` (NET-0). It takes a
+factory that builds two connected endpoints plus a `settle()` step, and asserts the whole contract without knowing which
+transport it is testing. **A new transport is accepted by adding one test case that calls it** - that is the gate for ZMQ-1,
+and the suite must never gain a transport-specific branch.
 
 ## SimNetwork (✅)
-Fully connected, deterministic, seeded RNG, `set_loss`, `set_duplicate`. Missing: latency, reordering, partitions, per-link
-loss (SIM-1); scenario runner with seed sweeps (SIM-2). **All new Node behaviour must come with a sim scenario.**
+Fully connected and fully seeded, but delivery is **scheduled**, not immediate: a send picks an arrival time and
+`advance(now_ms)` releases what is due. That is what makes latency, jitter-induced reordering, timeouts and partitions
+expressible in simulated time with no sleeping (SIM-1):
+
+- `set_loss`, `set_duplicate`, `set_delay(min, max)` apply to every link; `set_link` overrides one direction.
+- Each link **direction** owns a generator stream derived from `(seed, from, to)`, so adding a peer does not change the
+  faults an existing link suffers, and a reported seed still reproduces a failure.
+- `partition(a, b)` / `heal(a, b)` drop silently, exactly like loss, so a node cannot tell them apart.
+- `reordered()` counts deliveries that arrived out of send order, so a test asserts the fault model did something
+  instead of assuming it.
+
+Scenarios are named functions over a seed, run by `test/source/scenario.h`: `first_failing_seed(n, scenario)` reports the
+first failing seed, and `MOSAIC_SEEDS` raises the sweep size (SIM-2). A convergence claim must cite a sweep, not one run.
+**All new Node behaviour must come with a sim scenario.**
 
 ## ZeroMQ transport (⬜ ZMQ-0, ZMQ-1; layout **B** chosen, see [decisions](decisions.md) D3)
 Two layouts were considered; the `Transport` interface hides the choice, so Node does not change:

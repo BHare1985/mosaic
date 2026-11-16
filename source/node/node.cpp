@@ -3,10 +3,12 @@
 
 namespace mosaic {
 namespace {
-    template <class... Fs> struct Overloaded : Fs... {
+    template <class... Fs>
+    struct Overloaded : Fs... {
         using Fs::operator()...;
     };
-    template <class... Fs> Overloaded(Fs...) -> Overloaded<Fs...>;
+    template <class... Fs>
+    Overloaded(Fs...) -> Overloaded<Fs...>;
 } // namespace
 
 Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher, const Verifier& verifier)
@@ -57,22 +59,26 @@ void Node::tick(std::uint64_t now_ms)
     }
 
     // 2. FETCH housekeeping: forget finished requests, retry timed-out ones.
+    // Credit is returned per request, and only once: a request that is abandoned returns what it owed
+    // right here, so responses that arrive afterwards find no live request and cannot create credit
+    // (FLOW-2). Resetting the peer's whole window instead would let one slow round inflate the next.
     std::vector<std::pair<LogKey, NodeId>> retry;
     for (auto it = fetches_.begin(); it != fetches_.end();) {
         const auto& [key_peer, state] = *it;
         if (next_seq(key_peer.first) > state.end_seq) {
-            it = fetches_.erase(it); // complete
+            return_credit(key_peer.second, state.credit_left); // complete
+            it = fetches_.erase(it);
         } else if (now_ms - state.sent_ms >= config_.fetch_timeout_ms) {
+            return_credit(key_peer.second, state.credit_left); // abandoned; may still answer later
             retry.push_back(key_peer);
+            ++counters_.fetch_retries;
             it = fetches_.erase(it);
         } else {
             ++it;
         }
     }
-    for (const auto& [key, peer] : retry) {
-        credits_for(peer).reset(); // TODO(FLOW-2): account for credits per request instead of resetting
+    for (const auto& [key, peer] : retry)
         request_fetch(key, peer, now_ms);
-    }
 }
 
 void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_ms)
@@ -83,44 +89,53 @@ void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_
                    [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
                    [&](const FetchMsg& m) { handle_fetch(from, m); },
                    // TODO(ACK-1, HEADS-1, FLOW-3, HELLO-1): the remaining messages are defined but not handled yet.
-                   [&](const AckMsg&) {},
-                   [&](const GetHeadsMsg&) {},
-                   [&](const DirectHeadMsg&) {},
-                   [&](const CreditMsg&) {},
-                   [&](const HelloMsg&) {},
+                   [&](const AckMsg&) { },
+                   [&](const GetHeadsMsg&) { },
+                   [&](const DirectHeadMsg&) { },
+                   [&](const CreditMsg&) { },
+                   [&](const HelloMsg&) { },
                },
         message);
 }
 
 void Node::handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms)
 {
-    if (direct)
-        credits_for(from).grant(1); // a requested record arrived: its credit comes back
     if (!following_.matches_any(record.channel))
         return;
 
     const LogKey key = record.key();
+    if (direct)
+        consume_credit(from, key, record.seq);
+
     auto& known = remote_head_[key];
     known = std::max(known, record.seq);
 
     switch (replica_.ingest(record)) {
     case IngestResult::Accepted:
+        ++counters_.accepted;
         if (on_record_)
             on_record_(record);
         if (direct && next_seq(key) <= known)
             request_fetch(key, from, now_ms); // more to catch up on
         break;
     case IngestResult::Gap:
+        ++counters_.gap;
         request_fetch(key, from, now_ms);
         break;
     case IngestResult::Fork:
+        ++counters_.fork;
         if (on_fork_)
             on_fork_(record);
         break;
     case IngestResult::Duplicate:
+        ++counters_.duplicate;
+        break;
     case IngestResult::BadChain:
+        ++counters_.bad_chain;
+        break; // TODO(SEC-2): rate-limit peers that keep sending bad data
     case IngestResult::BadSignature:
-        break; // TODO(SEC-2): count and rate-limit peers that send bad data
+        ++counters_.bad_signature;
+        break;
     }
 }
 
@@ -154,11 +169,45 @@ void Node::request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t no
 
     const auto wanted = static_cast<std::uint32_t>(std::min<Seq>(known->second - from + 1, config_.fetch_batch));
     const auto granted = credits_for(peer).take_up_to(wanted);
-    if (granted == 0)
+    if (granted == 0) {
+        ++counters_.credit_drops;
         return; // no credit: wait for responses (or the timeout) before asking again
+    }
+
+    if (pending != fetches_.end()) {
+        return_credit(peer, pending->second.credit_left); // the range moved on; close the old request
+        fetches_.erase(pending);
+    }
 
     transport_.send(peer, FetchMsg { key, from, granted });
-    fetches_[{ key, peer }] = { now_ms, from + granted - 1 };
+    counters_.credit_spent += granted;
+    fetches_[{ key, peer }] = FetchState { now_ms, from, from + granted - 1, granted };
+    ++counters_.fetches_sent;
+}
+
+void Node::consume_credit(const NodeId& peer, const LogKey& key, Seq seq)
+{
+    const auto it = fetches_.find({ key, peer });
+    if (it == fetches_.end() || seq < it->second.from || seq > it->second.end_seq || it->second.credit_left == 0)
+        return; // late or unsolicited: its credit was already returned, so it must not create any
+    --it->second.credit_left;
+    credits_for(peer).grant(1);
+    ++counters_.credit_returned;
+}
+
+void Node::return_credit(const NodeId& peer, std::uint32_t amount)
+{
+    if (amount != 0) {
+        credits_for(peer).grant(amount);
+        counters_.credit_returned += amount;
+    }
+}
+
+std::uint32_t Node::credit_available(const NodeId& peer) const
+{
+    const auto it = peer_credits_.find(peer);
+    // Nothing has been spent for a peer we never fetched from, so the whole window is available.
+    return it == peer_credits_.end() ? config_.fetch_window : it->second.available();
 }
 
 Seq Node::next_seq(const LogKey& key) const

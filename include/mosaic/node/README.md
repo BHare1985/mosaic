@@ -11,6 +11,8 @@ A "store" is just a node that follows `>`.
 - Single-threaded, non-blocking, time injected via `now_ms`. No sleeps, no threads, no globals.
 - Message handling is a pure function of (state, message, now). That is what makes `SimNetwork` tests reproducible.
 - Never trust a peer: every record goes through `ReplicaLog::ingest`.
-- New behaviour needs a `SimNetwork` scenario in `test_node_sim.cpp`.
+- New behaviour needs a `SimNetwork` scenario in `test_node_sim.cpp`, and the counter it should move in `NodeCounters`.
+- Credit is accounted **per request** (`FetchState::credit_left`), never by resetting a peer's window: the invariant
+  `credit_available == fetch_window - (credit_spent - credit_returned)` must hold after every step (FLOW-2).
 
-**Open work:** ACK-1, HEADS-1, HELLO-1, FLOW-2..4, NODE-1..3, SEC-2.
+**Open work:** ACK-1, HEADS-1, HELLO-1, FLOW-3, FLOW-4, NODE-2, NODE-3, SEC-2.

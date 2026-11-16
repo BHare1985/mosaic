@@ -14,14 +14,23 @@
 
 | Path | Mechanism | Status |
 |---|---|---|
-| Repair (`FETCH`/`DIRECT_RECORD`) | Requester keeps a `CreditWindow` per peer (`fetch_window`). `FetchMsg.count` ≤ available; each `DirectRecordMsg` returns 1; timeout resets. Responder also caps at `max_serve`. | ✅ |
-| Live (`RecordMsg`) | Best effort; ZeroMQ HWM drops when a follower is slow. A follower that falls behind should *stop relying on live* and catch up by FETCH (slow-follower rule, FLOW-4). | ⬜ |
+| Repair (`FETCH`/`DIRECT_RECORD`) | Requester keeps a `CreditWindow` per peer (`fetch_window`). `FetchMsg.count` ≤ available; each `DirectRecordMsg` returns 1; a request that is abandoned on timeout returns exactly what it still owed. Responder also caps at `max_serve`. | ✅ |
+| Live (`RecordMsg`) | Best effort; ZeroMQ HWM drops when a follower is slow. A follower that falls behind should *stop relying on live* and catch up by FETCH (slow-follower rule, FLOW-4). | ⬜ (FLOW-4) |
 | Explicit grants (`CreditMsg`) | For streaming consumers that want push with back-pressure. | ⬜ FLOW-3 |
 | Jobs | Workers advertise remaining capacity; ranking skips workers without credit. | ⬜ JOBS-4 |
 
-## Known weakness to fix (FLOW-2)
-On FETCH timeout the node resets the peer's whole window, which can over-credit when responses are merely late. Replace with
-per-request accounting (credits owed per outstanding FETCH).
+## Credit accounting is per request (✅ FLOW-2)
+Each outstanding FETCH carries the credit it spent (`FetchState::credit_left`). A request that completes or is abandoned on
+timeout returns exactly what it still owed, and a response that arrives afterwards finds no live request, so it is consumed
+without creating credit. The invariant the old blanket `reset()` broke:
+
+```
+credit_available(peer) == fetch_window - (credit_spent - credit_returned)
+```
+
+This holds after every step and is asserted in `test_node_sim.cpp` (`credit is accounted per request`). The blanket reset
+let one late round inflate the next, so the node could hold more requests in flight than the window allows - unbounded
+memory and duplicate traffic on a slow link. Verified by temporarily reintroducing the reset: the scenario fails.
 
 ## Interaction with ZeroMQ
 HWM is a *safety net*, not the flow-control mechanism: it silently drops (PUB) or blocks (PUSH/DEALER). Our credits keep us

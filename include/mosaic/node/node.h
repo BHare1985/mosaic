@@ -21,6 +21,22 @@ struct NodeConfig {
     std::uint32_t max_serve = 1024; // most records we send for one FETCH, whatever the requester asks
 };
 
+/// Cumulative counters, so tests assert on behaviour instead of eyeballing logs (NODE-1).
+/// They are written only where a decision has already been made: no counter may change control flow.
+struct NodeCounters {
+    std::uint64_t accepted = 0;
+    std::uint64_t duplicate = 0;
+    std::uint64_t gap = 0;
+    std::uint64_t fork = 0;
+    std::uint64_t bad_signature = 0;
+    std::uint64_t bad_chain = 0;
+    std::uint64_t fetches_sent = 0;
+    std::uint64_t fetch_retries = 0; // requests abandoned on timeout and retried
+    std::uint64_t credit_drops = 0; // a repair request we could not afford
+    std::uint64_t credit_spent = 0; // units committed to repair requests, cumulatively
+    std::uint64_t credit_returned = 0; // units given back, cumulatively
+};
+
 /// The glue that makes the building blocks one system. A Node is simultaneously:
 ///   - a WRITER for the logs it publishes (HEAD heartbeats),
 ///   - a REPLICA for every channel pattern it follows (verify, store, repair gaps via FETCH),
@@ -55,6 +71,12 @@ public:
 
     std::optional<Head> head(const LogKey& key) const { return replica_.head(key); }
     const NodeId& id() const { return config_.id; }
+    const NodeCounters& counters() const { return counters_; }
+
+    /// Credit still spendable on `peer`. Together with the cumulative `credit_spent`/`credit_returned`
+    /// counters this must satisfy `available == fetch_window - (spent - returned)` on every step: credit
+    /// is either spendable or committed, never both (FLOW-2).
+    std::uint32_t credit_available(const NodeId& peer) const;
 
 private:
     struct WriterSlot {
@@ -63,7 +85,9 @@ private:
     };
     struct FetchState {
         std::uint64_t sent_ms = 0;
+        Seq from = 0; // first seq requested
         Seq end_seq = 0; // last seq requested
+        std::uint32_t credit_left = 0; // credit this request has not accounted for yet
     };
 
     void handle(const NodeId& from, const Message& message, std::uint64_t now_ms);
@@ -71,6 +95,10 @@ private:
     void handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms);
     void handle_fetch(const NodeId& from, const FetchMsg& fetch);
     void request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t now_ms);
+    /// Return one credit for a repair record that answers a live request. A record belonging to a
+    /// request that already ended (late response) is consumed and must not create credit (FLOW-2).
+    void consume_credit(const NodeId& peer, const LogKey& key, Seq seq);
+    void return_credit(const NodeId& peer, std::uint32_t amount);
     Seq next_seq(const LogKey& key) const;
     CreditWindow& credits_for(const NodeId& peer);
 
@@ -85,6 +113,7 @@ private:
     std::map<LogKey, Seq> remote_head_; // highest seq we have heard of for each log
     std::map<std::pair<LogKey, NodeId>, FetchState> fetches_;
     std::map<NodeId, CreditWindow> peer_credits_;
+    NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;
 };

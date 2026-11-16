@@ -35,6 +35,23 @@ void run_case(const TransportPair& pair)
         CHECK(a.self() == "a"); // stable for the transport's lifetime, not recomputed per call
     }
 
+    SUBCASE("the peer view lists addressable peers and never self")
+    {
+        const auto peers = a.peers();
+        bool lists_b = false;
+        bool lists_self = false;
+        for (const auto& id : peers) {
+            if (id == "b")
+                lists_b = true;
+            if (id == "a")
+                lists_self = true;
+        }
+        CHECK(lists_b);
+        CHECK_FALSE(lists_self);
+        // A snapshot, not a promise: asking twice is allowed to differ once links come and go.
+        CHECK_NOTHROW(a.peers());
+    }
+
     SUBCASE("poll on an idle transport returns nothing and does not block")
     {
         pair.settle();

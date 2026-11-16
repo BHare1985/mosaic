@@ -1,7 +1,9 @@
 # 07 — Security (⬜ placeholders only; read before using in anger)
 
-> **`InsecureTestSigner` offers no security.** It exists so the rest of the system can be built and tested. Until CORE-2
-> lands, nothing here is safe for real data.
+> **Records are authenticated; links are not.** CORE-2 landed: records are signed with Ed25519 and the writer identity is the
+> hex public key, so a tampered or forged record is rejected. `InsecureTestSigner` still exists as a test double only (its own
+> header, definition in the test sources) and provides no security at all. Transport security is still missing: CURVE and the
+> peer allow-list are SEC-1, so for now anyone who can reach a socket can talk to it.
 
 ## Layers
 1. **Record signatures** (CORE-2): Ed25519 via libsodium; `WriterId` = hex public key; sign `record_hash`. Independent of
@@ -9,6 +11,19 @@
 2. **Transport security** (SEC-1): ZeroMQ CURVE (libsodium) + ZAP allow-list of peer public keys. Protects confidentiality
    and peer authentication on links.
 3. **Authorization** (later): which writer may write which channel; which peer may follow which pattern.
+
+## One identity, two representations (decided)
+
+Record signing needs **Ed25519**; ZeroMQ CURVE needs a **curve25519** key pair in **z85** form (`zmq_curve_*`, and ZAP
+allow-lists are z85 public keys). The 2024 `key-loading` branch solved this the other way round - czmq's `zcert` was the source
+of truth and generated an independent curve25519 pair - which leaves a node with two unrelated identities and no way to say
+"the peer that authenticated this link is the writer of this record".
+
+Decision: **Ed25519 is the identity; the CURVE key is derived from it.** `crypto_sign_ed25519_sk_to_curve25519()` converts the
+signing key, `sodium_bin2z85()` produces the 40-character strings libzmq wants, so one keystore entry yields both. `zcert` files
+stay supported as an **import/export format**, because the rest of the ZeroMQ ecosystem (czmq/malamute tooling) speaks it, and
+interoperating with those tools is worth more than the convenience of not writing a converter. That converter belongs to the
+transport change (SEC-1), not to this one.
 
 ## Threat model (first draft; owner: maintainer to review)
 | Actor | Can | Cannot / mitigation |

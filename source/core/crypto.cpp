@@ -1,5 +1,9 @@
 #include <mosaic/core/crypto.h>
 
+#ifdef MOSAIC_HAS_SODIUM
+#include <sodium.h>
+#endif
+
 namespace mosaic {
 namespace {
     constexpr std::uint32_t K[64] = {
@@ -76,14 +80,85 @@ Hash sha256(const std::uint8_t* data, std::size_t size)
 
 Hash sha256(const Bytes& data) { return sha256(data.data(), data.size()); }
 
-Bytes InsecureTestSigner::make(const WriterId& id, const Hash& record_hash)
+bool hash_algo_supported(HashAlgo algo)
 {
-    Bytes in;
-    for (char c : std::string("INSECURE-TEST|") + id + "|")
-        in.push_back(static_cast<std::uint8_t>(c));
-    in.insert(in.end(), record_hash.bytes.begin(), record_hash.bytes.end());
-    const Hash digest = sha256(in);
-    return Bytes(digest.bytes.begin(), digest.bytes.end());
+    switch (algo) {
+    case HashAlgo::Sha256:
+        return true;
+    case HashAlgo::Blake2b:
+#ifdef MOSAIC_HAS_SODIUM
+        return true;
+#else
+        return false;
+#endif
+    }
+    return false;
 }
+
+std::optional<Hash> hash_with(HashAlgo algo, const Bytes& data)
+{
+    switch (algo) {
+    case HashAlgo::Sha256:
+        return sha256(data);
+    case HashAlgo::Blake2b:
+#ifdef MOSAIC_HAS_SODIUM
+        return Blake2bHasher { }.hash(data);
+#else
+        return std::nullopt;
+#endif
+    }
+    return std::nullopt;
+}
+
+#ifdef MOSAIC_HAS_SODIUM
+
+// BLAKE2b with a 32-byte digest, so it fits the same Hash type as SHA-256. The algorithm is stamped
+// into the record, so changing this default never invalidates an existing log.
+Hash Blake2bHasher::hash(const Bytes& data) const
+{
+    Hash out;
+    crypto_generichash(out.bytes.data(), out.bytes.size(), data.data(), data.size(), nullptr, 0);
+    return out;
+}
+
+Ed25519Signer::Ed25519Signer(Bytes public_key, Bytes secret_key)
+    : public_key_(std::move(public_key))
+    , secret_key_(std::move(secret_key))
+{
+}
+
+Bytes Ed25519Signer::sign(const Hash& record_hash) const
+{
+    Bytes signature(crypto_sign_BYTES, 0);
+    unsigned long long length = 0;
+    crypto_sign_detached(signature.data(), &length, record_hash.bytes.data(), record_hash.bytes.size(),
+        secret_key_.data());
+    signature.resize(static_cast<std::size_t>(length));
+    return signature;
+}
+
+bool Ed25519Verifier::verify(const WriterId& writer, const Hash& record_hash, const Bytes& signature) const
+{
+    // The identity is text; anything that is not a hex key is simply not a key we can verify.
+    const auto public_key = from_hex(writer);
+    if (!public_key || public_key->size() != crypto_sign_PUBLICKEYBYTES)
+        return false;
+    if (signature.size() != crypto_sign_BYTES)
+        return false;
+    return crypto_sign_verify_detached(signature.data(), record_hash.bytes.data(), record_hash.bytes.size(),
+               public_key->data())
+        == 0;
+}
+
+std::optional<std::pair<Bytes, Bytes>> ed25519_generate()
+{
+    Bytes public_key(crypto_sign_PUBLICKEYBYTES, 0);
+    Bytes secret_key(crypto_sign_SECRETKEYBYTES, 0);
+    if (crypto_sign_keypair(public_key.data(), secret_key.data()) != 0)
+        return std::nullopt;
+    return std::make_pair(std::move(public_key), std::move(secret_key));
+}
+
+#endif // MOSAIC_HAS_SODIUM
 
 } // namespace mosaic

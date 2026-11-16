@@ -10,14 +10,14 @@ Rules for picking up a task:
 Status legend: ⬜ open · 🟡 partly done · ✅ done
 
 ## Good first tasks (no dependencies, low risk)
-`CORE-3` · `STORE-0` · `MATCH-1` · `MATCH-3` · `FLOW-1` · `LOG-2` · `CI-3` · `JOBS-1`
+`CORE-3` · `STORE-0` · `MATCH-1` · `MATCH-3` · `FLOW-1` · `LOG-2` · `CI-3` · `CI-4` · `JOBS-1`
 
 ## Milestones (how the blocks come together)
 | Milestone | Tasks | Demonstrates |
 |---|---|---|
 | **M0 — scaffold** ✅ | (this repo) | Log + Matcher + Credits + Node converge under loss in the simulator |
 | **M1 — trustworthy sim** | CORE-3, STORE-0, ~~NET-0~~ ✅, ~~SIM-1~~ ✅, ~~SIM-2~~ ✅, ~~NODE-1~~ ✅, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
-| **M2 — real crypto & wire** | CORE-1, CORE-2, ENC-1, ENC-2, HELLO-1 | signed records that survive a byte round-trip |
+| **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
 | **M3 — two machines** | ZMQ-0, ZMQ-1, DISC-1, SEC-1, STORE-1, CLI-1 | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ACK-1, HEADS-1, FLOW-2, FLOW-3, FLOW-4, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery |
 | **M5 — jobs** | JOBS-1..4 | call a service by name over the same network |
@@ -26,8 +26,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## core
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| CORE-1 | `Hasher` backed by libsodium (BLAKE2b or SHA-256); keep the reference SHA-256 as fallback | S | – | Same test vectors; selectable at build time; no libsodium types in public headers |
-| CORE-2 | Ed25519 `Signer`/`Verifier` (libsodium); `WriterId` = hex pubkey; keystore (generate/load/save, file mode 0600) | M | CORE-1 | `test_log.cpp` passes with real keys; forged/tampered cases still rejected; `InsecureTestSigner` only used in tests |
+| CORE-1 | `Hasher` backed by libsodium (BLAKE2b or SHA-256); keep the reference SHA-256 as fallback | S | – | Same test vectors; selectable at build time; no libsodium types in public headers | ✅
+| CORE-2 | Ed25519 `Signer`/`Verifier` (libsodium); `WriterId` = hex pubkey; keystore (generate/load/save, file mode 0600) | M | CORE-1 | `test_log.cpp` passes with real keys; forged/tampered cases still rejected; `InsecureTestSigner` only used in tests | ✅
 | CORE-3 | `Record::operator==`, `from_hex(Hash)`, doctest `toString` for Record/Hash/LogKey | S | – | Failing tests print readable diffs; round-trip test for hex |
 
 ## store
@@ -62,9 +62,9 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## proto
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| ENC-1 | Binary encode/decode of all messages and Records | L | design note | Round-trip + fuzz tests; strict bounds; golden test vectors checked in; `std::optional<Message>` decoder |
-| ENC-2 | Unknown message id/version handling | S | ENC-1 | Unknown ids ignored, counted; version mismatch reported |
-| HELLO-1 | Handle `HelloMsg` (version + patterns), keep per-peer follow set | S | MATCH-2 | Peers learn who follows what; used by jobs worker discovery |
+| ENC-1 | Binary encode/decode of all messages and Records | L | design note | Round-trip + fuzz tests; strict bounds; golden test vectors checked in; `std::optional<Message>` decoder | ✅
+| ENC-2 | Unknown message id/version handling | S | ENC-1 | Unknown ids ignored, counted; version mismatch reported | ✅
+| HELLO-1 | Handle `HelloMsg` (version + patterns), keep per-peer follow set | S | MATCH-2 | Peers learn who follows what; used by jobs worker discovery | 🟡 version + codec done; pattern advertisement moved to JOBS-2
 | ACK-1 | Replica sends `AckMsg`; writer tracks acked seq and `min_replicas`; unacked retention | L | design note | Writer keeps records until `min_replicas` ACKs (fixes Dafka's missing setting); sim with replica loss |
 | HEADS-1 | `GetHeadsMsg`/`DirectHeadMsg` | M | HELLO-1 | Newcomer learns heads while the writer is offline and fetches from other replicas |
 

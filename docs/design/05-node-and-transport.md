@@ -10,8 +10,10 @@ Everything is single-threaded and clock-injected. State: `writers_`, `remote_hea
 Planned: metrics (NODE-1), unfollow & batching (NODE-2), store-node preset (NODE-3), ACK/HEADS/HELLO handling.
 
 ## Transport contract (✅ `net/transport.h`)
-`self()`, `subscribe(pattern)`, `publish(channel, msg)`, `send(to, msg)`, `poll()`.
+`self()`, `subscribe(pattern)`, `publish(channel, msg)`, `send(to, msg)`, `poll()`, `peers()`.
 Best effort, non-blocking, no self-delivery, publish filtered by subscription, unicast to unknown peers is silently dropped.
+`peers()` is a best-effort snapshot of addressable peers (never self): it is what the version handshake iterates over, and it is
+also where per-link credit and CURVE identities will hang in ZMQ-1.
 
 The conformance suite is `run_transport_conformance(factory)` in `test/source/transport_conformance.h` (NET-0). It takes a
 factory that builds two connected endpoints plus a `settle()` step, and asserts the whole contract without knowing which

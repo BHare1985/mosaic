@@ -100,6 +100,14 @@ Rollback is per-step; step 2 is the only one that changes record bytes, and it p
 
 ## Open Questions
 
+- **Hello enforcement needs a peer set the node does not have** (found during implementation, blocks task 4.1). The wire half
+  is done: hello carries the version and an unsupported version is reported instead of decoded. But "reject payload from a
+  peer that has not announced a version" requires knowing which peers exist and when a link starts - and `Transport` exposes
+  neither (`self/subscribe/publish/send/poll` only, no peer list, no connect event). Today the node learns a peer only by
+  receiving from it, so enforcement would have to be "reject until a hello arrives", which every simulation scenario would
+  have to pay for without testing anything real (the simulator has no links to establish). The honest home for this is the
+  transport change, where connections exist: it is recorded as a requirement there.
+
 - Whether the message set needs a per-message minimum protocol version, or whether the single session version is enough.
   Deferrable: resolved by whoever first needs to add a message with a new field.
 - Whether golden vectors should live as text (hex) or binary fixtures. Deferrable, no behavioural impact.

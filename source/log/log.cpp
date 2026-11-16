@@ -5,12 +5,18 @@ namespace mosaic {
 const char* to_string(IngestResult result)
 {
     switch (result) {
-    case IngestResult::Accepted: return "accepted";
-    case IngestResult::Duplicate: return "duplicate";
-    case IngestResult::Gap: return "gap";
-    case IngestResult::Fork: return "fork";
-    case IngestResult::BadChain: return "bad-chain";
-    case IngestResult::BadSignature: return "bad-signature";
+    case IngestResult::Accepted:
+        return "accepted";
+    case IngestResult::Duplicate:
+        return "duplicate";
+    case IngestResult::Gap:
+        return "gap";
+    case IngestResult::Fork:
+        return "fork";
+    case IngestResult::BadChain:
+        return "bad-chain";
+    case IngestResult::BadSignature:
+        return "bad-signature";
     }
     return "?";
 }
@@ -41,6 +47,7 @@ Record LogWriter::append(std::string content_type, Bytes payload, std::uint64_t 
         r.seq = h->seq + 1;
         r.prev = h->hash;
     }
+    r.hash_algo = hasher_.algorithm();
     r.timestamp_ms = timestamp_ms;
     r.content_type = std::move(content_type);
     r.payload = std::move(payload);
@@ -66,7 +73,12 @@ std::optional<Head> ReplicaLog::head(const LogKey& key) const
 
 IngestResult ReplicaLog::ingest(const Record& record)
 {
-    const Hash hash = record_hash(record, hasher_);
+    // Use the algorithm the record names, so a log written under a previous default still verifies.
+    // An algorithm this build cannot compute is indistinguishable from a forgery: reject it.
+    const auto tagged = record_hash_tagged(record);
+    if (!tagged)
+        return IngestResult::BadSignature;
+    const Hash hash = *tagged;
     if (!verifier_.verify(record.writer, hash, record.sig))
         return IngestResult::BadSignature;
 
@@ -76,16 +88,22 @@ IngestResult ReplicaLog::ingest(const Record& record)
 
     if (record.seq < next) {
         const auto existing = store_.get(key, record.seq);
-        return record_hash(*existing, hasher_) == hash ? IngestResult::Duplicate : IngestResult::Fork;
+        const auto existing_hash = existing ? record_hash_tagged(*existing) : std::nullopt;
+        if (!existing_hash)
+            return IngestResult::Fork;
+        return *existing_hash == hash ? IngestResult::Duplicate : IngestResult::Fork;
     }
     if (record.seq > next)
         return IngestResult::Gap;
 
     if (record.seq == 0) {
-        if (record.prev != Hash {})
+        if (record.prev != Hash { })
             return IngestResult::BadChain;
-    } else if (record.prev != record_hash(*store_.get(key, record.seq - 1), hasher_)) {
-        return IngestResult::Fork; // writer signed a chain that disagrees with the one we hold
+    } else {
+        const auto previous = store_.get(key, record.seq - 1);
+        const auto previous_hash = previous ? record_hash_tagged(*previous) : std::nullopt;
+        if (!previous_hash || record.prev != *previous_hash)
+            return IngestResult::Fork; // writer signed a chain that disagrees with the one we hold
     }
 
     store_.append(record);

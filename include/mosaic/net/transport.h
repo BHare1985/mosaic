@@ -3,6 +3,7 @@
 #include <mosaic/core/types.h>
 #include <mosaic/proto/messages.h>
 #include <optional>
+#include <vector>
 
 namespace mosaic {
 
@@ -21,6 +22,8 @@ struct Envelope {
 ///  - publish() reaches only peers whose subscribe() pattern matches `channel` (filtering by
 ///    subscription is how nodes "only listen to what they follow"). Never delivers to self.
 ///  - send() is unicast to a peer by id. Silently dropped if the peer is unknown/unreachable.
+///  - peers() is a best-effort snapshot of the peers this node can address right now. It may be empty
+///    before discovery and may gain entries at any time; it is not a membership agreement.
 class Transport {
 public:
     virtual ~Transport() = default;
@@ -30,6 +33,9 @@ public:
     virtual void publish(const Channel& channel, Message message) = 0;
     virtual void send(const NodeId& to, Message message) = 0;
     virtual std::optional<Envelope> poll() = 0;
+    /// Peers currently addressable (never includes self). Used for the version handshake and, later,
+    /// for credit accounting per link.
+    virtual std::vector<NodeId> peers() const = 0;
 };
 
 } // namespace mosaic

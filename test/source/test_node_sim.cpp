@@ -1,4 +1,5 @@
 #include <doctest/doctest.h>
+#include <mosaic/core/insecure_test_signer.h>
 #include <mosaic/net/sim_network.h>
 #include <mosaic/node/node.h>
 #include <mosaic/store/memory_log_store.h>
@@ -288,6 +289,62 @@ TEST_CASE("credit is accounted per request and is never inflated by late respons
     CHECK(follower.received.size() == 6);
     CHECK(max_outstanding > 0); // the window really was used, so the invariant had teeth
     CHECK(follower.node.counters().fetch_retries > 0); // responses were late, so requests were retried
+}
+
+TEST_CASE("peers negotiate the protocol version without blocking replication")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(17);
+    Peer writer(net, "writer", hasher, alice), follower(net, "follower", hasher, alice);
+    follower.node.follow("events.>");
+
+    writer.node.publish(alice, "events.a", "t", bytes("hello-then-data"), 0);
+    step(net, 0, { &writer, &follower });
+    // The handshake rides on tick(), so the record may arrive before the hello: that is counted, not
+    // punished (a hello can be lost like anything else, and records are self-verifying).
+    CHECK(follower.received.size() == 1);
+
+    step(net, 200, { &writer, &follower }); // one head interval later both sides have said hello
+    writer.node.publish(alice, "events.a", "t", bytes("after-handshake"), 200);
+    step(net, 300, { &writer, &follower });
+    CHECK(follower.received.size() == 2);
+    CHECK(writer.node.counters().version_rejects == 0);
+    CHECK(follower.node.counters().version_rejects == 0);
+
+    // After negotiation, further payload advances without being counted as unnegotiated.
+    const auto before = follower.node.counters().unnegotiated;
+    writer.node.publish(alice, "events.a", "t", bytes("settled"), 400);
+    step(net, 500, { &writer, &follower });
+    CHECK(follower.received.size() == 3);
+    CHECK(follower.node.counters().unnegotiated == before);
+}
+
+TEST_CASE("payload from a peer announcing an unsupported version is refused")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(19);
+    Peer writer(net, "writer", hasher, alice), follower(net, "follower", hasher, alice);
+    // The writer follows the channel, so the payload would genuinely reach it if it were allowed.
+    writer.node.follow("events.>");
+    follower.node.follow("events.>");
+
+    // Let the normal handshake settle first (both sides greet on tick), so the injected hello below is
+    // not overwritten by a retry: the *last* version a peer announces is the one that counts.
+    step(net, 0, { &writer, &follower });
+    step(net, 200, { &writer, &follower });
+    REQUIRE(writer.node.counters().version_rejects == 0);
+
+    // Now the peer announces a version the writer cannot speak.
+    follower.transport.send("writer", HelloMsg { static_cast<std::uint8_t>(kProtocolVersion + 7), { } });
+    step(net, 400, { &writer, &follower });
+    CHECK(writer.node.counters().version_rejects == 1);
+
+    follower.node.publish(alice, "events.a", "t", bytes("from-the-future"), 0);
+    step(net, 50, { &writer, &follower });
+    CHECK(writer.received.empty()); // refused at the boundary, not stored and not delivered
+    CHECK(writer.node.counters().version_rejects == 2);
 }
 
 TEST_CASE("converges under loss, duplication and jitter (seed sweep)")

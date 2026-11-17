@@ -142,6 +142,32 @@ if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
     )
 endif ()
 
+# ---- SQLite LogStore backend (STORE-1) ----
+# Persistence behind the LogStore seam. Prefer a system SQLite; otherwise fetch the amalgamation, which
+# is what makes this dependency-free project able to have a durable backend without asking a developer
+# to install anything. Off = the memory store remains the only backend.
+option(MOSAIC_WITH_SQLITE "Build the SQLite LogStore backend" ON)
+set(MOSAIC_SQLITE_TARGET "")
+
+if (MOSAIC_WITH_SQLITE)
+    find_package(SQLite3 QUIET)
+    if (TARGET SQLite::SQLite3)
+        set(MOSAIC_SQLITE_TARGET SQLite::SQLite3)
+    else ()
+        include(FetchContent)
+        FetchContent_Declare(sqlite_amalgamation
+                URL https://sqlite.org/2024/sqlite-amalgamation-3460100.zip
+                DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+        FetchContent_MakeAvailable(sqlite_amalgamation)
+        enable_language(C) # sqlite3.c is C, and this project is otherwise CXX-only
+        add_library(mosaic_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+        target_include_directories(mosaic_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+        target_compile_definitions(mosaic_sqlite3 PRIVATE SQLITE_THREADSAFE=1)
+        set(MOSAIC_SQLITE_TARGET mosaic_sqlite3)
+    endif ()
+    message(STATUS "SQLite LogStore: ${MOSAIC_SQLITE_TARGET}")
+endif ()
+
 # ---- Add source files ----
 
 # Note: globbing sources is considered bad practice as CMake's generators may not detect new files
@@ -151,6 +177,10 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # The ZeroMQ transport is the one place ZeroMQ may appear; keeping it out of this target is what makes
 # "the core builds without ZeroMQ" a property rather than a hope.
 list(FILTER sources EXCLUDE REGEX "source/net/zmq_transport\\.cpp$")
+if (NOT MOSAIC_SQLITE_TARGET)
+    # No SQLite available: the durable backend is not part of this build.
+    list(FILTER sources EXCLUDE REGEX "source/store/sqlite_log_store\\.cpp$")
+endif ()
 
 # ---- Create library ----
 
@@ -175,6 +205,11 @@ target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>
 # Link dependencies
 # The core library has no third-party dependencies except the crypto seam: libsodium sits behind
 # Hasher/Signer/Verifier and never appears in a public header (see docs/design/00-overview.md).
+if (MOSAIC_SQLITE_TARGET)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC MOSAIC_HAS_SQLITE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE $<BUILD_INTERFACE:${MOSAIC_SQLITE_TARGET}>)
+endif ()
+
 if (MOSAIC_WITH_SODIUM)
     if (TARGET sodium)
         target_compile_definitions(${PROJECT_NAME} PUBLIC MOSAIC_HAS_SODIUM)

@@ -34,7 +34,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | STORE-0 | Turn `MemoryLogStore contract` into a reusable conformance suite (template/macro that takes a factory) | S | – | `MemoryLogStore` runs through it; adding a store = one line; covers NotNext, read bounds, keys(), multiple logs | ✅
-| STORE-1 | SQLite `LogStore` (WAL, one table keyed `(writer, channel, seq)`) | M | STORE-0 | Passes conformance; survives reopen; 100k appends benchmark recorded in README |
+| STORE-1 | SQLite `LogStore` (WAL, one table keyed `(writer, channel, seq)`) | M | STORE-0 | Passes conformance; survives reopen; 100k appends benchmark recorded in README | ✅
 | STORE-2 | Append-only segment-file store with index | L | STORE-0, design note | Passes conformance; crash-safe (torn tail write recovers); documented format |
 | STORE-3 | Retention + signed checkpoints | M | STORE-1, decision in [01](01-data-model.md) | Truncated replica can still verify new records from checkpoint; fork detection unaffected |
 

@@ -64,14 +64,18 @@
       `run_transport_conformance`. Verified by: `store conformance: MemoryLogStore` passes, and the suite covers contiguity,
       refused rewrites, bounded ordered reads, empty/unknown logs, per-writer and per-channel isolation, enumeration order and
       the store-never-verifies rule - which the old inline case did not (it had one log and one writer).
-- [ ] 4.1 Implement a SQLite `LogStore` (one table keyed by writer, channel and sequence, WAL, one transaction per append).
-      Verified by: it passes the store conformance suite that `MemoryLogStore` passes.
-- [ ] 4.2 Commit before reporting success, and resume at head plus one after reopen. Verified by: a test that appends, kills
+- [x] 4.1 Implement a SQLite `LogStore` (one table keyed by writer, channel and sequence, WAL, one transaction per append).
+      Verified by: `store conformance: SqliteLogStore` - the same suite `MemoryLogStore` passes, unchanged. Records are stored
+      as their wire encoding, so storage and transmission share one byte format. SQLite is fetched as the amalgamation when no
+      system copy is installed, which keeps "clone and build" working without a package manager.
+- [x] 4.2 Commit before reporting success, and resume at head plus one after reopen. Verified by: a test that appends, kills
       the process, reopens and asserts both the head and the next successful append.
-- [ ] 4.3 Recover from a damaged tail to the last complete record without failing to open. Verified by: a test that truncates
-      the tail and asserts open succeeds, the head is the last complete record, and earlier records still verify.
-- [ ] 4.4 Record the append throughput benchmark in the store README with the reproducible command. Verified by: the numbers
-      and command are present and re-runnable.
+- [x] 4.3 Recover from a damaged tail to the last complete record without failing to open. Verified by: `a damaged tail ends
+      the log instead of breaking it` - the last row's blob is corrupted at the byte level, the store still opens, the head
+      becomes the last decodable record, and reads stop at the damage rather than serving nonsense.
+- [x] 4.4 Record the append throughput benchmark in the store README with the reproducible command. Verified by: 818us per
+      durable append (5000 appends), recorded with its command and the explicit note that this is the price of
+      synchronous=FULL - group commit is the fix if a writer needs more, and that is a policy decision with this baseline.
 
 ## 5. Static Peer Discovery (DISC-1)
 

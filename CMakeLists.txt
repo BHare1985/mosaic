@@ -42,7 +42,7 @@ if (MOSAIC_WITH_SODIUM)
             OPTIONS
             "SODIUM_DISABLE_TESTS ON"
             "BUILD_SHARED_LIBS OFF"
-            # czmq/malamute build shared libraries that link this static libsodium, so it has to be PIC.
+            # czmq builds a shared library that links this static libsodium, so it has to be PIC.
             "CMAKE_POSITION_INDEPENDENT_CODE ON"
     )
 endif ()
@@ -51,7 +51,7 @@ endif ()
 # its tests build and pass with no ZeroMQ installed at all. MOSAIC_BUILD_ZMQ_FROM_SOURCE decides only
 # whether this build also compiles the ecosystem from source, which is slow and is also the
 # "does ZeroMQ still build in 2026" check.
-option(MOSAIC_BUILD_ZMQ_FROM_SOURCE "Build libzmq/czmq/malamute from source" ON)
+option(MOSAIC_BUILD_ZMQ_FROM_SOURCE "Build libzmq and czmq from source (slow; use a system copy when you have one)" ON)
 option(MOSAIC_WITH_ZMQ "Build the ZeroMQ transport (MosaicZmq)" ON)
 
 set(MOSAIC_ZMQ_TARGET "")
@@ -112,9 +112,9 @@ if (MOSAIC_WITH_ZMQ)
     endif ()
 endif ()
 
-# czmq is used by the daemon and CLI targets only (ZPL config today, discovery next); malamute exists only so
-# the build proves the surrounding ZeroMQ ecosystem still compiles from source. Neither ever reaches
-# core..node or the `core` / `no-crypto` configurations.
+# czmq is used by the daemon and CLI targets only (ZPL config, discovery). It never reaches core..node or the
+# `core` / `no-crypto` configurations. The old "does the Malamute/Dafka ecosystem still build" track is gone:
+# this project does not depend on that ecosystem, so proving it compiles was work without a beneficiary.
 option(MOSAIC_WITH_CZMQ "Build the daemon (MosaicDaemon), which uses czmq for ZPL config" ON)
 
 if ((MOSAIC_WITH_CZMQ OR MOSAIC_BUILD_ZMQ_FROM_SOURCE) AND MOSAIC_ZMQ_TARGET)
@@ -130,22 +130,6 @@ if ((MOSAIC_WITH_CZMQ OR MOSAIC_BUILD_ZMQ_FROM_SOURCE) AND MOSAIC_ZMQ_TARGET)
     )
 
     include_directories(${czmq_SOURCE_DIR}/include)
-endif ()
-
-if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
-    CPMAddPackage(
-            NAME malamute
-            GIT_TAG 1.1.0
-            GITHUB_REPOSITORY zeromq/malamute
-            # malamute's "distclean" target collides with czmq's (same global name)
-            PATCH_COMMAND sed -i "s/distclean/mlm_distclean/g" CMakeLists.txt
-            OPTIONS
-            "BUILD_SHARED OFF"
-            "LIBZMQ_FOUND 1"
-            "LIBZMQ_LIBRARIES ${MOSAIC_ZMQ_TARGET}"
-            "CZMQ_FOUND 1"
-            "CZMQ_LIBRARIES czmq-static"
-    )
 endif ()
 
 # ---- SQLite LogStore backend (STORE-1) ----

@@ -1,7 +1,7 @@
 # proto — wire messages
 
 **Purpose:** the `Message` variant: `RecordMsg`, `DirectRecordMsg`, `HeadMsg`, `FetchMsg`, `AckMsg`, `GetHeadsMsg`,
-`DirectHeadMsg`, `CreditMsg`, `HelloMsg`. Semantics: [02-protocol](../../../docs/design/02-protocol.md).
+`DirectHeadMsg`, `CreditMsg`, `HelloMsg`. Semantics: 02-protocol (`docs/design/02-protocol.md`).
 
 **Status:** values only. The binary encoder/decoder is ENC-1 and must be written before any real network
 transport. `Node` currently handles Record, DirectRecord, Head, Fetch; the rest are TODO (ACK-1, HEADS-1,

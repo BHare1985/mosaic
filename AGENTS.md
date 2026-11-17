@@ -23,7 +23,7 @@ The original vision (parity coding, proof of replication, tokens, chain) is an o
   Each module has a `README.md` with rules and open tasks. Dependency order: core ← store ← log ← proto ← net ← node ← jobs;
   `match` and `flow` are leaves.
 - `standalone/` – `Mosaic` CLI (`version`, `match`)
-- `test/source/` – doctest suite (`MosaicTests`); `malamute.cpp` is the ZeroMQ-stack compile check
+- `test/source/` – doctest suite (`MosaicTests`)
 - `docs/design/` – **design set and junior TODO board (`TODO.md`)**; read `00-overview.md` and `conventions.md` first
 - `docs/references/` – fetched upstream material (git-ignored)
 - `scripts/check_todo_ids.sh` – every `TODO(ID)` in code must exist in `docs/design/TODO.md`
@@ -33,7 +33,7 @@ The original vision (parity coding, proof of replication, tokens, chain) is an o
 ```bash
 # fast loop (no ZeroMQ stack)
 cmake -S test -B build/test -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF && cmake --build build/test -j && ./build/test/MosaicTests
-# everything, incl. libzmq/czmq/malamute from source
+# everything, incl. libzmq and czmq from source
 cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./scripts/check_todo_ids.sh
 ```
@@ -45,6 +45,6 @@ single-threaded, no dependencies in core..node, every interface has a contract c
 
 ## References
 
-- Dafka: https://github.com/zeromq/dafka (RFC 46: https://rfc.zeromq.org/spec/46)
-- Malamute: https://github.com/zeromq/malamute
+- Dafka: https://github.com/zeromq/dafka (RFC 46: https://rfc.zeromq.org/spec/46) - design reference only; nothing is
+  built or linked from it
 - ZeroMQ Guide: https://zguide.zeromq.org · ZeroMQ: https://zeromq.org

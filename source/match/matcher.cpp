@@ -117,10 +117,20 @@ void Matcher::remove(SubId id)
     const bool tail = segs.back() == ">";
     const std::size_t constrained = tail ? segs.size() - 1 : segs.size();
     for (std::size_t i = 0; i < constrained; ++i) {
-        if (segs[i] == "*")
+        if (segs[i] == "*") {
             star_[i].reset(id);
-        else
-            literal_[i][std::string(segs[i])].reset(id); // TODO(MATCH-3): erase empty entries
+        } else {
+            const std::string segment(segs[i]);
+            auto& by_segment = literal_[i];
+            const auto it = by_segment.find(segment);
+            if (it != by_segment.end()) {
+                it->second.reset(id);
+                // Erase the entry when nothing subscribes to that literal any more, so add/remove churn
+                // returns the matcher to its baseline footprint instead of accumulating empty bitsets.
+                if (it->second.none())
+                    by_segment.erase(it);
+            }
+        }
     }
     if (tail)
         tail_[constrained].reset(id);
@@ -158,6 +168,25 @@ bool Matcher::matches_any(std::string_view channel) const
         acc.and_with(allowed);
     }
     return !acc.none();
+}
+
+bool Matcher::remove_pattern(std::string_view pattern)
+{
+    for (SubId id = 0; id < subs_.size(); ++id)
+        if (subs_[id].active && subs_[id].pattern == pattern) {
+            remove(id);
+            return true;
+        }
+    return false;
+}
+
+std::vector<std::string> Matcher::patterns() const
+{
+    std::vector<std::string> out;
+    for (const auto& subscription : subs_)
+        if (subscription.active)
+            out.push_back(subscription.pattern);
+    return out;
 }
 
 std::vector<Matcher::SubId> Matcher::match(std::string_view channel) const

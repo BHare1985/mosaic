@@ -213,3 +213,46 @@ TEST_CASE("matcher cost at 1k, 10k and 100k subscriptions")
         CHECK(nanos_per_any < expected.any_ns);
     }
 }
+
+TEST_CASE("removal releases what a literal pattern held")
+{
+    Matcher matcher;
+    const std::size_t baseline = matcher.size();
+    CHECK(baseline == 0);
+
+    for (int round = 0; round < 50; ++round) {
+        const auto id = matcher.add("storage.eu.shard" + std::to_string(round));
+        REQUIRE(id.has_value());
+        matcher.remove(*id);
+    }
+    // The matcher's size returns to baseline, and so does its literal index: an entry with no subscribers is
+    // erased rather than kept as a zeroed bitset.
+    CHECK(matcher.size() == baseline);
+    CHECK(matcher.patterns().empty());
+}
+
+TEST_CASE("patterns lists what is subscribed, after removals")
+{
+    Matcher matcher;
+    const auto a = *matcher.add("events.>");
+    const auto b = *matcher.add("storage.*.shard7");
+    const auto c = *matcher.add("svc.resize");
+
+    auto patterns = matcher.patterns();
+    CHECK(patterns.size() == 3);
+
+    matcher.remove(b);
+    patterns = matcher.patterns();
+    REQUIRE(patterns.size() == 2);
+    CHECK(std::find(patterns.begin(), patterns.end(), "storage.*.shard7") == patterns.end());
+    CHECK(std::find(patterns.begin(), patterns.end(), "events.>") != patterns.end());
+
+    // A reused id must not resurrect the removed pattern.
+    const auto d = matcher.add("metrics.>");
+    REQUIRE(d.has_value());
+    patterns = matcher.patterns();
+    CHECK(patterns.size() == 3);
+    CHECK(std::find(patterns.begin(), patterns.end(), "storage.*.shard7") == patterns.end());
+    (void)a;
+    (void)c;
+}

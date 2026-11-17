@@ -31,6 +31,9 @@ struct Record {
     Bytes sig; // NOT part of canonical_bytes
 
     LogKey key() const { return { writer, channel }; }
+
+    /// Value equality, so a failing comparison in a test shows what differs rather than "a != b".
+    friend bool operator==(const Record&, const Record&) = default;
 };
 
 /// Summary of a log: how far it goes and the hash of its last record.

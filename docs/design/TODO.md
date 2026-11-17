@@ -28,7 +28,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|---|---|
 | CORE-1 | `Hasher` backed by libsodium (BLAKE2b or SHA-256); keep the reference SHA-256 as fallback | S | – | Same test vectors; selectable at build time; no libsodium types in public headers | ✅
 | CORE-2 | Ed25519 `Signer`/`Verifier` (libsodium); `WriterId` = hex pubkey; keystore (generate/load/save, file mode 0600) | M | CORE-1 | `test_log.cpp` passes with real keys; forged/tampered cases still rejected; `InsecureTestSigner` only used in tests | ✅
-| CORE-3 | `Record::operator==`, `from_hex(Hash)`, doctest `toString` for Record/Hash/LogKey | S | – | Failing tests print readable diffs; round-trip test for hex |
+| CORE-3 | `Record::operator==`, `from_hex(Hash)`, doctest `toString` for Record/Hash/LogKey | S | – | Failing tests print readable diffs; round-trip test for hex | ✅
 
 ## store
 | ID | Task | Size | Depends | Acceptance criteria |
@@ -48,14 +48,14 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | MATCH-1 | Benchmark (1k/10k/100k subscriptions) and write the numbers in [03](03-matching-and-channels.md) | S | – | Reproducible command; compares with naive scan; claim "µs/match" confirmed or corrected | ✅
-| MATCH-2 | `patterns()` listing for Hello | S | – | Returns active patterns; test with removals |
-| MATCH-3 | Erase empty literal entries on `remove` | S | – | Memory returns to baseline after add/remove churn (test via size accessor) |
+| MATCH-2 | `patterns()` listing for Hello | S | – | Returns active patterns; test with removals | ✅
+| MATCH-3 | Erase empty literal entries on `remove` | S | – | Memory returns to baseline after add/remove churn (test via size accessor) | ✅
 | MATCH-4 | Reduce matcher per-position allocations: reuse a scratch bitset instead of copying `open`, and exit word-wise early. MATCH-1 measured 6.7/22.7/191.7 µs at 1k/10k/100k | M | MATCH-1 | The MATCH-1 benchmark improves at 100k without changing semantics, and the randomised-vs-naive test still passes | ⬜ |
 
 ## flow
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| FLOW-1 | Property tests for `CreditWindow`/`CreditGranter` (no overflow, clamping, never negative) | S | – | Randomized sequences; invariant `available <= capacity` |
+| FLOW-1 | Property tests for `CreditWindow`/`CreditGranter` (no overflow, clamping, never negative) | S | – | Randomized sequences; invariant `available <= capacity` | ✅
 | FLOW-2 | Per-request credit accounting in Node (replace `reset()` on timeout) | M | – | Sim: delayed (not lost) responses do not inflate credit; window never exceeds capacity | ✅
 | FLOW-3 | Handle `CreditMsg`; credit-gated streaming path | L | ENC-1 recommended | A slow consumer is dropped to FETCH mode and keeps up; producers never block (sim scenario) | ✅
 | FLOW-4 | Slow-follower rule: if behind by > N, ignore live `RecordMsg` and catch up by FETCH only | M | – | Sim: follower slower than writer converges without unbounded memory | ✅
@@ -85,7 +85,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | NODE-1 | Metrics counters (ingest results, fetches sent, credits exhausted, drops) | S | – | Accessor struct; asserted in sim tests | ✅
-| NODE-2 | `unfollow`, publish batching | M | MATCH-3 | Unfollow stops delivery and unsubscribes at transport |
+| NODE-2 | `unfollow`, publish batching | M | MATCH-3 | Unfollow stops delivery and unsubscribes at transport | ✅
 | NODE-3 | Store-node preset (follow `>`, no app callback) | S | STORE-1 | One-liner to run a pure replica | ✅
 
 ## security

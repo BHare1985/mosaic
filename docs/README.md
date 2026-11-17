@@ -1,10 +1,17 @@
-# Mosaic docs
+# docs — where each document goes
 
-| Doc | What it is |
-|---|---|
-| **[design/](design/README.md)** | **Implementation design set + junior-developer TODO board. Start here to build.** |
-| [direction.md](direction.md) | Where the project should go and why. **Decisions needed from the maintainer are at the bottom.** |
-| [decentralized-broker-2026.md](decentralized-broker-2026.md) | Design guide: how to build a useful decentralized broker/log on ZeroMQ in 2026. |
-| [malamute-and-dafka-system-design.md](malamute-and-dafka-system-design.md) | How each system works, from the source, with the README/whitepaper claims checked against the code. |
-| [upstream-notes.md](upstream-notes.md) | Problems found in upstream/third-party code while reviving the build. Nothing here has been sent upstream. |
-| [references/](references/README.md) | Local copies of the ZeroMQ Guide, Dafka and Malamute (`references/fetch.sh` downloads them). |
+| Folder / file | What belongs there | Rendered into the site? |
+|---|---|---|
+| `design/` | Rationale: the overview, the data model, the protocol, matching, flow control, node and transport, jobs, security, testing, operations, the decisions log, and the TODO board | no |
+| `site/` | The documentation generator: `Doxyfile`, the m.css config, the hand-written pages, the CMake target | that *is* the generator |
+| `references/` | Fetched upstream copies (Dafka, Malamute, Zyre, the ZeroMQ Guide), git-ignored | no |
+| `direction.md` | Why the project exists and what it is not | no |
+| `upstream-notes.md` | Findings about the surrounding ZeroMQ ecosystem | no |
+| `decentralized-broker-2026.md`, `malamute-and-dafka-system-design.md` | Background reading, prior-art notes | no |
+
+Two rules, so the split stays honest:
+
+- **Behaviour is specified in `openspec/specs/`** — one capability per file. This folder explains and records; it does not define
+  what the system must do.
+- **Only the public surface is published** — the root README, the public headers, the module READMEs and `site/pages/`. If you want
+  something on the site, it goes in one of those places; if it addresses contributors, it goes in `design/`.

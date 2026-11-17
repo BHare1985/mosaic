@@ -16,3 +16,18 @@ Recorded 2026-11-09 by the maintainer. These are settled; change them only by ad
 - **ZeroMQ is a hard dependency of the product.** Only the core library is ZeroMQ-free, so it can be tested with `SimNetwork`.
   The CMake option `MOSAIC_BUILD_ZMQ_FROM_SOURCE` controls only whether libzmq/czmq/malamute are *compiled from source* in our build,
   which is slow. See ZMQ-0 in [TODO.md](TODO.md).
+
+## Defaults taken where the maintainer did not rule (change by adding an entry)
+- **Matching** is on the channel name only (no header/field matching). Revisit when a use-case needs it.
+- **ZeroMQ is a hard dependency of the product.** Only the core library is ZeroMQ-free, so it can be tested with `SimNetwork`.
+  The CMake option `MOSAIC_BUILD_ZMQ_FROM_SOURCE` controls only whether libzmq/czmq are *compiled from source* in our build,
+  which is slow. See ZMQ-0 in [TODO.md](TODO.md).
+
+## 2026-11-17 — the documentation site is published (D4 is not about hosting)
+Recorded because it looks like an exception to D4 and is not one. **D4** keeps *contributions upstream* local: no pushes, PRs or
+issues to libzmq, czmq, malamute, dafka or this repo's own history rewritten. Publishing **our own** reference documentation to
+GitHub Pages is nothing of the sort: it is a build artifact from `scripts/docs.sh` deployed by a workflow, with no branch to
+maintain and no upstream repository involved.
+
+Consequence: the site is exactly what the last workflow run produced, so it cannot hold a stale committed copy; and the only
+repository setting it needs is *Settings → Pages → Source: GitHub Actions*.

@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-11-17
+skip_specs: true
+# Formatting and lint configuration, plus one mechanical reformat: no externally observable
+# behaviour changes, so there is nothing for a capability spec to own. The naming table is a
+# project convention and lives in docs/design/conventions.md.

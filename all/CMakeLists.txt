@@ -18,4 +18,4 @@ enable_testing()
 # execute the core-only binary and report a green that never touched ZeroMQ.
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../standalone ${CMAKE_BINARY_DIR}/all/standalone)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../test ${CMAKE_BINARY_DIR}/all/test)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/all/documentation)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../docs/site ${CMAKE_BINARY_DIR}/all/site)

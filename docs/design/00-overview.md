@@ -3,7 +3,8 @@
 ## Goal
 A small, dependency-light library (C++20) for **brokerless, verifiable, replicated logs** with
 **channel-based subscription**, **credit-based flow control** and an optional **job/service layer**, designed
-to run over ZeroMQ. Built from Dafka's log (✔ durable, replayable, no consensus) plus Malamute's ideas that were
+to run over ZeroMQ. Built from [Dafka](https://github.com/zeromq/dafka)'s log (✔ durable, replayable, no consensus, see [RFC 46](https://rfc.zeromq.org/spec/46)) plus
+[Malamute](https://github.com/zeromq/malamute)'s ideas that were
 never implemented (✔ fast matching, ✔ credits, ✔ services). See [../direction.md](../direction.md).
 
 **Non-goals (for now):** global ordering, consensus, consumer groups, exactly-once, tokens/blockchain. Those are

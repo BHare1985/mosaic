@@ -41,7 +41,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## log
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| LOG-1 | Keep fork evidence (both records) and expose `forks()`; `Node::on_fork` receives both | M | – | Test: equivocating writer yields evidence retrievable after restart (with persistent store) |
+| LOG-1 | Keep fork evidence (both records) and expose `forks()`; `Node::on_fork` receives both | M | – | Test: equivocating writer yields evidence retrievable after restart (with persistent store) | ✅
 | LOG-2 | Batch ingest `ingest(span<const Record>)` with one store call | S | – | Same results as per-record ingest (property test); fewer store round trips |
 
 ## match
@@ -107,13 +107,13 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | CLI-1 | `Mosaic pub` / `Mosaic tail` | M | ZMQ-1 | Publish on host A, tail on host B | ✅
-| CLI-2 | `Mosaic verify <store>` verifies every chain in a store | S | STORE-1 | Detects tampered record |
+| CLI-2 | `Mosaic verify <store>` verifies every chain in a store | S | STORE-1 | Detects tampered record | ✅
 | CLI-3 | `Mosaic keygen` | S | CORE-2 | Writes keypair with safe permissions | ✅
-| CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README |
-| CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) |
-| CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green |
+| CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README | ✅
+| CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) | ✅
+| CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green | ✅
 | CI-4 | `clang-format` pass over the whole tree + a format check in CI | S | – | `clang-format --dry-run --Werror` clean on every tracked source. The config said `UseTab: Always` while `conventions.md` and all code use 4 spaces, so the gate never passed; the config is fixed (now `UseTab: Never`) and 7 files still carry drift: `core/record.h`, `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`, `test/malamute.cpp` | ✅
-| DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed |
+| DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed | ✅
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 

@@ -47,4 +47,21 @@ std::vector<LogKey> MemoryLogStore::keys() const
     return out;
 }
 
+bool MemoryLogStore::save_fork(const ForkEvidence& evidence)
+{
+    forks_[evidence.key][evidence.seq] = evidence; // same log and sequence: idempotent
+    return true;
+}
+
+std::vector<ForkEvidence> MemoryLogStore::load_forks(const LogKey& key) const
+{
+    std::vector<ForkEvidence> out;
+    const auto it = forks_.find(key);
+    if (it == forks_.end())
+        return out;
+    for (const auto& [seq, evidence] : it->second)
+        out.push_back(evidence);
+    return out;
+}
+
 } // namespace mosaic

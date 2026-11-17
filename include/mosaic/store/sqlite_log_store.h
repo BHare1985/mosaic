@@ -17,7 +17,7 @@
 
 namespace mosaic {
 
-class SqliteLogStore final : public LogStore {
+class SqliteLogStore final : public LogStore, public ForkEvidenceStore {
 public:
     /// Open or create the database at `path` ("":memory:" for a scratch store). Empty on failure.
     static std::optional<std::unique_ptr<SqliteLogStore>> open(const std::string& path);
@@ -32,6 +32,11 @@ public:
     std::optional<Record> get(const LogKey& key, Seq seq) const override;
     std::vector<Record> read(const LogKey& key, Seq from, std::size_t count) const override;
     std::vector<LogKey> keys() const override;
+
+    ForkEvidenceStore* evidence() override { return this; }
+    const ForkEvidenceStore* evidence() const override { return this; }
+    bool save_fork(const ForkEvidence& evidence) override;
+    std::vector<ForkEvidence> load_forks(const LogKey& key) const override;
 
 private:
     struct Impl;

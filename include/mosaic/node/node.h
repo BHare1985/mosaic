@@ -84,6 +84,12 @@ public:
     /// Logs whose retention floor cannot be met within the configured limit.
     std::vector<LogKey> retention_shortfalls() const;
 
+    /// Evidence of writer equivocation this node holds (LOG-1), and the count of evidence dropped past the
+    /// configured bound. Kept so a fork can be shown later, not only reported once.
+    std::vector<ForkEvidence> forks() const { return replica_.forks(); }
+    void set_max_fork_evidence(std::size_t max) { replica_.max_evidence = max; }
+    std::uint64_t fork_evidence_overflow() const { return replica_.evidence_overflow; }
+
     /// Called when a record proves the writer equivocated (same seq/prev, different content).
     void on_fork(RecordHandler handler) { on_fork_ = std::move(handler); }
 

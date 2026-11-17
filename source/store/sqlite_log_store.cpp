@@ -123,7 +123,13 @@ std::optional<std::unique_ptr<SqliteLogStore>> SqliteLogStore::open(const std::s
     if (!impl->exec("PRAGMA journal_mode=WAL") || !impl->exec("PRAGMA synchronous=FULL")
         || !impl->exec("CREATE TABLE IF NOT EXISTS records ("
                        " writer TEXT NOT NULL, channel TEXT NOT NULL, seq INTEGER NOT NULL,"
-                       " blob BLOB NOT NULL, PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")) {
+                       " blob BLOB NOT NULL, PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")
+        // Evidence needs its own table: a log store holds one record per (writer, channel, seq), and a fork
+        // is exactly the case where two exist.
+        || !impl->exec("CREATE TABLE IF NOT EXISTS forks ("
+                       " writer TEXT NOT NULL, channel TEXT NOT NULL, seq INTEGER NOT NULL,"
+                       " accepted BLOB NOT NULL, conflicting BLOB NOT NULL,"
+                       " PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")) {
         return std::nullopt;
     }
     return std::unique_ptr<SqliteLogStore>(new SqliteLogStore(std::move(impl)));
@@ -190,6 +196,43 @@ std::vector<Record> SqliteLogStore::read(const LogKey& key, Seq from, std::size_
         records.push_back(*record);
     }
     return records;
+}
+
+bool SqliteLogStore::save_fork(const ForkEvidence& evidence)
+{
+    Statement statement(impl_->db,
+        "INSERT OR REPLACE INTO forks (writer, channel, seq, accepted, conflicting) VALUES (?1, ?2, ?3, ?4, ?5)");
+    if (!statement.ok())
+        return false;
+    statement.bind_text(1, evidence.key.writer);
+    statement.bind_text(2, evidence.key.channel);
+    statement.bind_int64(3, static_cast<std::int64_t>(evidence.seq));
+    statement.bind_blob(4, encode_record(evidence.accepted));
+    statement.bind_blob(5, encode_record(evidence.conflicting));
+    return statement.step_done();
+}
+
+std::vector<ForkEvidence> SqliteLogStore::load_forks(const LogKey& key) const
+{
+    std::vector<ForkEvidence> out;
+    Statement statement(impl_->db,
+        "SELECT seq, accepted, conflicting FROM forks WHERE writer = ?1 AND channel = ?2 ORDER BY seq");
+    if (!statement.ok())
+        return out;
+    statement.bind_text(1, key.writer);
+    statement.bind_text(2, key.channel);
+    while (statement.step_row()) {
+        const auto accepted = record_from(static_cast<const std::uint8_t*>(sqlite3_column_blob(statement.handle, 1)),
+            sqlite3_column_bytes(statement.handle, 1));
+        const auto conflicting
+            = record_from(static_cast<const std::uint8_t*>(sqlite3_column_blob(statement.handle, 2)),
+                sqlite3_column_bytes(statement.handle, 2));
+        if (!accepted || !conflicting)
+            continue; // unreadable evidence is skipped, never half-returned
+        out.push_back(ForkEvidence { key, static_cast<Seq>(sqlite3_column_int64(statement.handle, 0)), *accepted,
+            *conflicting });
+    }
+    return out;
 }
 
 std::vector<LogKey> SqliteLogStore::keys() const

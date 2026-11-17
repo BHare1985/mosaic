@@ -19,6 +19,7 @@
 #include <memory>
 #include <mosaic/core/keystore.h>
 #include <mosaic/log/log.h>
+#include <mosaic/log/verify.h>
 #include <mosaic/match/matcher.h>
 #include <mosaic/net/sim_network.h>
 #include <mosaic/net/zmq_transport.h>
@@ -47,6 +48,7 @@ int usage()
                  "  Mosaic keygen <path>\n"
                  "  Mosaic pub <channel> [options]\n"
                  "  Mosaic tail <pattern[,pattern...]> [options]\n"
+                 "  Mosaic verify <store>\n"
                  "  Mosaic sim [--seeds N] [--records N]\n"
                  "\n"
                  "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
@@ -392,6 +394,28 @@ int run_sim(int argc, char** argv)
     return converged == seeds ? 0 : 1;
 }
 
+/// `Mosaic verify <store>`: re-check every chain and signature in a store, and say where it stops being true.
+int run_verify(int argc, char** argv)
+{
+    if (argc != 3)
+        return usage();
+    const std::string path = argv[2];
+    auto store = SqliteLogStore::open(path);
+    if (!store) {
+        std::cerr << "cannot open store: " << path << '\n';
+        return 1;
+    }
+    const Ed25519Verifier verifier;
+    const auto report = verify_store(**store, verifier);
+    if (!report.ok()) {
+        std::cerr << "FAILED " << report.failure->key.writer << ' ' << report.failure->key.channel << " seq "
+                  << report.failure->seq << ": " << report.failure->reason << '\n';
+        return 1;
+    }
+    std::cout << "verified " << report.records << " records in " << report.logs << " logs\n";
+    return 0;
+}
+
 int run_keygen(int argc, char** argv)
 {
     if (argc != 3)
@@ -442,6 +466,8 @@ int main(int argc, char** argv)
         return run_pub(argc, argv);
     if (command == "tail")
         return run_tail(argc, argv);
+    if (command == "verify")
+        return run_verify(argc, argv);
     if (command == "sim")
         return run_sim(argc, argv);
     return usage();

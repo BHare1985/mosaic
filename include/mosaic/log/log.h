@@ -1,9 +1,12 @@
 #pragma once
 
+#include <map>
 #include <mosaic/core/crypto.h>
 #include <mosaic/core/record.h>
+#include <mosaic/store/fork_evidence.h>
 #include <mosaic/store/log_store.h>
 #include <optional>
+#include <vector>
 
 namespace mosaic {
 
@@ -46,12 +49,22 @@ public:
 
     IngestResult ingest(const Record& record);
 
+    /// Evidence of writer equivocation: both records for a sequence, bounded by `max_evidence`.
+    /// Keeping it is what turns "a fork was detected" into something that can be shown later (LOG-1).
+    std::vector<ForkEvidence> forks() const;
+    std::size_t max_evidence = 1024; // configuration, not policy: bound the memory a fork storm can cost
+    std::uint64_t evidence_overflow = 0; // evidence dropped because the bound was reached
+
     std::optional<Head> head(const LogKey& key) const;
 
 private:
+    /// Record both sides of a fork. Returns the evidence so the caller can hand it to the application.
+    void keep_evidence(const Record& stored, const Record& conflicting);
+
     LogStore& store_;
     const Hasher& hasher_;
     const Verifier& verifier_;
+    std::map<LogKey, std::map<Seq, ForkEvidence>> evidence_;
 };
 
 } // namespace mosaic

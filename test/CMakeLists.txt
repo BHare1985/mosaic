@@ -45,6 +45,13 @@ target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic)
 if (TARGET MosaicZmq)
     target_link_libraries(${PROJECT_NAME} MosaicZmq)
 endif ()
+if (TARGET MosaicDaemon)
+    target_link_libraries(${PROJECT_NAME} MosaicDaemon)
+else ()
+    # No czmq here: the configuration tests have nothing to test
+    file(GLOB test_sources ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+    list(FILTER sources EXCLUDE REGEX "test_config\\.cpp$")
+endif ()
 if (TARGET mosaic_sqlite3)
     # The store test corrupts a row directly to prove a damaged tail is survivable.
     target_link_libraries(${PROJECT_NAME} mosaic_sqlite3)

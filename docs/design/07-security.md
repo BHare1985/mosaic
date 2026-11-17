@@ -1,5 +1,7 @@
 # 07 — Security (⬜ placeholders only; read before using in anger)
 
+_Describes 0.6.0._
+
 > **Records are authenticated; links are not.** CORE-2 landed: records are signed with Ed25519 and the writer identity is the
 > hex public key, so a tampered or forged record is rejected. `InsecureTestSigner` still exists as a test double only (its own
 > header, definition in the test sources) and provides no security at all. Transport security is still missing: CURVE and the

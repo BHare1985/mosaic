@@ -1,5 +1,7 @@
 # 09 — Running it
 
+_Describes 0.6.0._
+
 The daemon is `mosaicd`. It reads a ZPL config, opens its store and transport, follows what it was told to follow, and runs
 until `SIGINT`/`SIGTERM`. Contract: `openspec/specs/daemon/mosaicd`.
 

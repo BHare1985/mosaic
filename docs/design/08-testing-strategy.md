@@ -1,5 +1,7 @@
 # 08 — Testing strategy & definition of done
 
+_Describes 0.6.0._
+
 ## Layers (all run in `MosaicTests`, no network, no sleeps)
 | Layer | Example today | Purpose |
 |---|---|---|

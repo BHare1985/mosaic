@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.14...3.22)
 # Note: update this to your new project's name and version
 project(
         Mosaic
-        VERSION 0.1.0
+        VERSION 0.6.0
         LANGUAGES CXX
 )
 
@@ -260,9 +260,12 @@ endif ()
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
 
-# the location where the project's version header will be placed should match the project's regular
-# header paths
-string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
+# The version header is generated here rather than by PackageProject: its template emits macros only, and the
+# library wants an `inline constexpr` version a C++20 program can use without preprocessor tricks. The macros
+# are kept as aliases inside the same header, because CMake and packaging refer to them by name.
+set(VERSION_HEADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+configure_file(cmake/version.h.in "${VERSION_HEADER_DIR}/mosaic/version.h" @ONLY)
+target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${VERSION_HEADER_DIR}>)
 
 packageProject(
         NAME ${PROJECT_NAME}
@@ -271,6 +274,5 @@ packageProject(
         BINARY_DIR ${PROJECT_BINARY_DIR}
         INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
         INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
-        VERSION_HEADER "${VERSION_HEADER_LOCATION}"
         COMPATIBILITY SameMajorVersion
 )

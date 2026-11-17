@@ -1,5 +1,7 @@
 # 02 — Protocol (🟡 values implemented, wire encoding ⬜)
 
+_Describes 0.6.0._
+
 Derived from Dafka's RECORD / HEAD / FETCH / ACK / HELLO set (see
 [../malamute-and-dafka-system-design.md](../malamute-and-dafka-system-design.md)), with `FETCH.count` doubling as
 the requester's credit.

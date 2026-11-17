@@ -52,7 +52,9 @@ int usage()
                  "  Mosaic sim [--seeds N] [--records N]\n"
                  "\n"
                  "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
-                 "         --peer <id=host:port,curve-z85>   (repeatable)\n";
+                 "         --peer <id=host:port,curve-z85>   (repeatable)\n"
+                 "         --allow-writer <pattern>=<id>[,<id>]   (repeatable; open by default)\n"
+                 "         --no-curve                             diagnostic: run the link in plaintext\n";
     return 2;
 }
 
@@ -63,6 +65,8 @@ struct Options {
     std::string listen = "127.0.0.1";
     int port = 0; // 0 = pick a free port and report it
     std::vector<ZmqPeerEndpoint> peers;
+    std::vector<std::pair<std::string, std::vector<WriterId>>> allow; // channel rules
+    bool no_curve = false; // diagnostic: run the link in plaintext to isolate CURVE issues
     std::string port_out; // file to write the chosen ports to, so a test can discover them
 };
 
@@ -116,6 +120,29 @@ bool parse_options(int argc, char** argv, int first, Options& options, std::stri
         } else if (flag == "--port-out") {
             if (!next(options.port_out))
                 return false;
+        } else if (flag == "--no-curve") {
+            options.no_curve = true;
+        } else if (flag == "--allow-writer") {
+            // <pattern>=<writer-id>[,<writer-id>...]
+            std::string value;
+            if (!next(value))
+                return false;
+            const auto equals = value.find('=');
+            if (equals == std::string::npos) {
+                error = "--allow-writer needs <pattern>=<id>[,<id>]: " + value;
+                return false;
+            }
+            std::vector<WriterId> ids;
+            std::stringstream list(value.substr(equals + 1));
+            std::string id;
+            while (std::getline(list, id, ','))
+                if (!id.empty())
+                    ids.push_back(id);
+            if (ids.empty()) {
+                error = "--allow-writer needs at least one writer id: " + value;
+                return false;
+            }
+            options.allow.emplace_back(value.substr(0, equals), std::move(ids));
         } else if (flag == "--peer") {
             ZmqPeerEndpoint peer;
             std::string value;
@@ -143,6 +170,7 @@ struct Runtime {
     // relocate underneath the Node's references.
     std::unique_ptr<Sha256Hasher> hasher;
     std::unique_ptr<Ed25519Verifier> verifier;
+    std::unique_ptr<ChannelRules> rules; // outlives the node, which holds a pointer to it
     std::unique_ptr<Node> node;
 };
 
@@ -177,7 +205,7 @@ std::optional<Runtime> make_runtime(const Options& options, std::vector<std::str
     }
 
     const auto curve = curve_identity_from_keystore(*keystore);
-    if (curve) {
+    if (curve && !options.no_curve) {
         config.curve = ZmqCurveConfig { true, curve->public_z85, curve->secret_z85, "" };
     }
 
@@ -187,8 +215,25 @@ std::optional<Runtime> make_runtime(const Options& options, std::vector<std::str
 
     runtime.hasher = std::make_unique<Sha256Hasher>();
     runtime.verifier = std::make_unique<Ed25519Verifier>();
+    if (!options.allow.empty()) {
+        runtime.rules = std::make_unique<ChannelRules>();
+        for (const auto& [pattern, writers] : options.allow) {
+            if (!runtime.rules->allow(pattern, writers)) {
+                error = "invalid --allow-writer pattern: " + pattern;
+                return std::nullopt;
+            }
+        }
+    }
+    NodeConfig node_config;
+    node_config.id = options.node;
+    // Announce heads quickly. A CLI process is short-lived, and a subscriber that started *before* this
+    // writer existed may never receive the live records at all; the head announcement is what lets it
+    // repair, so waiting the default second would mean never announcing before exiting.
+    node_config.head_interval_ms = 250;
     runtime.node = std::make_unique<Node>(
-        NodeConfig { .id = options.node }, *runtime.transport, *runtime.store, *runtime.hasher, *runtime.verifier);
+        node_config, *runtime.transport, *runtime.store, *runtime.hasher, *runtime.verifier);
+    if (runtime.rules)
+        runtime.node->set_rules(runtime.rules.get());
     for (const auto& pattern : patterns)
         if (!runtime.node->follow(pattern)) {
             error = "invalid pattern: " + pattern;
@@ -223,6 +268,12 @@ int run_pub(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& [pattern, writers] : options.allow) {
+        std::cout << "allow " << pattern << " =";
+        for (const auto& writer : writers)
+            std::cout << ' ' << writer;
+        std::cout << '\n';
+    }
 
     std::uint64_t now = 0;
     std::string line;
@@ -248,9 +299,11 @@ int run_pub(int argc, char** argv)
 
     // Linger before exiting. The live path is best effort, and a SUB that was still connecting when we
     // published has missed the record; only a HEAD announcement lets it repair, so give the writer a
-    // moment to announce. Without this, "publish then exit" quietly loses the last records.
+    // moment to announce. `pump` matters as much as `tick` here: with CURVE the incoming handshake is
+    // serviced from the poll loop, so a tick-only linger leaves a later subscriber unable to connect at all.
     for (int i = 0; i < 60 && !g_stop; ++i) {
         now += 10;
+        runtime->node->pump(now);
         runtime->node->tick(now);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -286,6 +339,12 @@ int run_tail(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& [pattern, writers] : options.allow) {
+        std::cout << "allow " << pattern << " =";
+        for (const auto& writer : writers)
+            std::cout << ' ' << writer;
+        std::cout << '\n';
+    }
     std::cout.flush();
 
     // Replay what the durable store already holds, before live delivery starts. The node only reports

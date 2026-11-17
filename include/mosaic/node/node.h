@@ -8,7 +8,9 @@
 #include <mosaic/log/log.h>
 #include <mosaic/match/matcher.h>
 #include <mosaic/net/transport.h>
+#include <mosaic/node/channel_rules.h>
 #include <mosaic/store/log_store.h>
+#include <set>
 
 namespace mosaic {
 
@@ -62,6 +64,7 @@ struct NodeCounters {
     std::uint64_t oversized_records = 0; // refused: payload above max_record_bytes
     std::uint64_t head_requests_refused = 0; // refused: more patterns than a request may carry
     std::uint64_t requests_throttled = 0; // per-peer budgets: requests dropped for arriving too fast
+    std::uint64_t unauthorized_records = 0; // refused: a channel rule does not permit this writer
 };
 
 /// The glue that makes the building blocks one system. A Node is simultaneously:
@@ -79,6 +82,13 @@ public:
 
     /// All references must outlive the Node.
     Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher, const Verifier& verifier);
+
+    /// Install channel write rules. Without one the node is open, which is the documented default.
+    /// A rule is checked on ingest (before storage) and on publish (before the log is extended).
+    void set_rules(const ChannelRules* rules) { rules_ = rules; }
+
+    /// Rejections caused by a channel rule, per rule pattern - per writer would grow with the network.
+    const std::map<std::string, std::uint64_t>& unauthorized_by_pattern() const { return unauthorized_by_pattern_; }
 
     /// Start following channels matching `pattern` (see Matcher). Returns false for an invalid pattern.
     bool follow(const std::string& pattern);
@@ -150,6 +160,9 @@ private:
     void handle_credit(const NodeId& from, const CreditMsg& credit);
     /// Per-peer budget: true when this peer may have another request of this kind right now.
     bool admit_request(const NodeId& peer, std::uint64_t now_ms);
+    /// Does a channel rule permit this writer? Counts and names the rule when it does not, and remembers
+    /// the log so we stop asking for records we would refuse.
+    bool authorized(const LogKey& key);
     /// Announce what we hold for the patterns we follow, so a newcomer can find logs without the writer.
     void request_heads(std::uint64_t now_ms);
     /// Send an acknowledgement for logs we hold, rate-limited per peer.
@@ -192,6 +205,11 @@ private:
     std::map<LogKey, NodeId> source_peer_; // where a log's records actually came from (acks go there)
     std::map<NodeId, std::uint64_t> last_heads_request_ms_;
     std::vector<std::string> patterns_; // what we follow, replayed to peers when asking for heads
+    const ChannelRules* rules_ = nullptr; // null = open, the default
+    std::map<std::string, std::uint64_t> unauthorized_by_pattern_;
+    /// Logs a rule forbids: without this, a refused writer's head announcements would make us fetch
+    /// records we will refuse forever - a traffic amplifier handed to whoever can publish a head.
+    std::set<LogKey> unauthorized_logs_;
     std::map<NodeId, std::pair<std::uint64_t, std::uint32_t>> request_budget_; // peer -> (window start, used)
     NodeCounters counters_;
     RecordHandler on_record_;

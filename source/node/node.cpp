@@ -32,11 +32,13 @@ bool Node::follow(const std::string& pattern)
 std::optional<Record> Node::publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload,
     std::uint64_t now_ms)
 {
+    const LogKey key { signer.id(), channel };
     if (payload.size() > config_.max_record_bytes) {
         ++counters_.oversized_records;
         return std::nullopt; // a writer must not create history its own peers would refuse
     }
-    const LogKey key { signer.id(), channel };
+    if (!authorized(key))
+        return std::nullopt;
     auto it = writers_.find(key);
     if (it == writers_.end()) {
         WriterSlot slot { std::make_unique<LogWriter>(store_, hasher_, signer, channel), now_ms };
@@ -130,6 +132,8 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
         ++counters_.oversized_records;
         return; // refused before the store, the callback or the chain
     }
+    if (!authorized(record.key()))
+        return; // a channel rule does not permit this writer: never stored, never delivered
 
     const LogKey key = record.key();
     if (direct)
@@ -181,6 +185,8 @@ void Node::handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t no
 {
     if (!accept_payload(from))
         return;
+    if (unauthorized_logs_.count(head.key) != 0)
+        return; // a rule refuses this log; its heads are not worth acting on
     if (!following_.matches_any(head.key.channel))
         return;
     auto& known = remote_head_[head.key];
@@ -202,6 +208,8 @@ void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t
 
 void Node::request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t now_ms)
 {
+    if (unauthorized_logs_.count(key) != 0)
+        return; // never fetch a log a rule forbids
     const Seq from = next_seq(key);
     const auto known = remote_head_.find(key);
     if (known == remote_head_.end() || known->second < from)
@@ -422,6 +430,20 @@ Seq Node::behind_by(const LogKey& key) const
         return 0;
     const auto next = next_seq(key);
     return known->second >= next ? known->second - next + 1 : 0;
+}
+
+bool Node::authorized(const LogKey& key)
+{
+    if (rules_ == nullptr || rules_->size() == 0)
+        return true;
+    if (rules_->permits(key.channel, key.writer))
+        return true;
+    ++counters_.unauthorized_records;
+    const auto rule = rules_->rule_for(key.channel);
+    ++unauthorized_by_pattern_[rule.value_or("<none>")];
+    // Stop asking: a forbidden log stays forbidden, so fetching it would only be traffic.
+    unauthorized_logs_.insert(key);
+    return false;
 }
 
 bool Node::admit_request(const NodeId& peer, std::uint64_t now_ms)

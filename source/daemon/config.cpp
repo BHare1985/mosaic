@@ -42,6 +42,9 @@ namespace {
         { "follow", "pattern", "", "Channel pattern to replicate (repeat the section per pattern)" },
         { "allow", "pattern", "", "Channel pattern whose writers are restricted (repeat per rule)" },
         { "allow", "writer", "", "Writer identity allowed to write that pattern (repeatable)" },
+        { "discover", "cluster", "mosaic", "Scopes discovery: two deployments on one network must not merge" },
+        { "discover", "beacon_port", "0", "UDP port to announce on; 0 disables LAN discovery" },
+
     };
 
     /// Expand `${NAME}` from the environment. Deliberately ours rather than zconfig's: an unset variable must
@@ -191,6 +194,17 @@ namespace {
                     config.follows.push_back(value);
                 else
                     unknown(key);
+            } else if (section == "discover") {
+                if (key == "cluster")
+                    config.discover.cluster = value;
+                else if (key == "beacon_port") {
+                    std::uint32_t port = 0;
+                    if (!parse_u32(value, port) || port > 65535)
+                        error("discover.beacon_port", "must be a UDP port number (0 disables)");
+                    else
+                        config.discover.beacon_port = static_cast<std::uint16_t>(port);
+                } else
+                    unknown(key);
             } else if (section == "allow") {
                 if (key == "pattern")
                     config.allow.push_back({ value, { } });
@@ -275,6 +289,8 @@ LoadResult load_config(const std::string& path)
     for (const auto& rule : result.config.allow)
         if (rule.writers.empty())
             result.errors.push_back({ "allow.writer", "no writers listed for pattern " + rule.pattern });
+    if (result.config.discover.enabled() && result.config.discover.cluster.empty())
+        result.errors.push_back({ "discover.cluster", "required when discovery is enabled" });
     return result;
 }
 

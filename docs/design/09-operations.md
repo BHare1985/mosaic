@@ -43,3 +43,26 @@ non-zero value is evidence of an equivocating writer and is kept (`Node::forks()
 
 No hot reload (restart to change configuration), no discovery beyond the configured peer list, no metrics endpoint. It is
 single-threaded: one loop, time read once per iteration, 5 ms pacing - so a quiet daemon is cheap and a busy one is predictable.
+
+## Discovery
+
+A node can find peers instead of being told about them:
+
+```zpl
+discover
+    cluster = my-deployment    # scopes the beacon: two deployments on one network must not merge
+    beacon_port = 4567         # UDP port; 0 disables discovery
+```
+
+Two nodes with the same `cluster` and `beacon_port` and no `peer` sections connect on their own. The beacon announces this node's
+identity, endpoint and CURVE key - **discovery never grants trust**: a discovered peer goes through the same negotiation and the
+same key policy as a configured one, so in closed mode an unlisted key is still refused (and counted in `handshake_rejects`).
+
+What it reveals: that a deployment exists on this network, and its endpoint. A deployment that cannot tolerate that uses the
+static peer list instead.
+
+The status line reports `discovered=N`. A peer that stops announcing is reported as **evasive** first (recently quiet, probably
+busy or on a bad link) and only forgotten once it passes the expiry window, so "quiet" and "gone" are distinguishable.
+
+Gossip - discovery across subnets - is **not implemented**: czmq's `zgossip` can be commanded but its event stream is private
+(see `docs/upstream-notes.md`). Second-hop discovery needs either our own protocol or a deliberate dependency decision.

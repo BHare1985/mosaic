@@ -83,3 +83,18 @@ Two other things cost time and are worth writing down:
 
 Not an upstream bug, and nothing to file. Recorded because the failure mode ("sleeps forever, no traffic, no error") gives no
 hint about the cause.
+
+## Finding: zgossip can be commanded but not listened to from outside czmq
+
+`zgossip` accepts its command set publicly (`BIND`, `CONNECT`, `PUBLISH key value`, `SET path value`), and the header
+documents those. What it *emits* to its caller is a `zgossip_msg` zproto frame whose header, `zgossip_msg.h`, lives in czmq's
+`src/` and is not installed — so an application outside czmq cannot parse the tuples it receives. Zyre can, because it sits
+inside the same family of projects.
+
+Consequence for Mosaic: LAN discovery uses `zbeacon` (whose datagrams are plain frames on the actor pipe and therefore fully
+public), and gossip is deferred rather than half-implemented. Anything that needs second-hop discovery either implements it over
+Mosaic's own protocol or accepts czmq's private API as a dependency - a decision for whoever needs it, not a shortcut to take
+now.
+
+Not filed upstream (D4). Recorded because the public half of an API makes the private half easy to miss.
+

@@ -89,6 +89,8 @@ int main(int argc, char** argv)
             std::cout << ' ' << writer;
         std::cout << '\n';
     }
+    if (std::string(daemon->discovery_kind()) != "none")
+        std::cout << "discover " << daemon->discovery_kind() << " cluster " << result.config.discover.cluster << '\n';
     if (daemon->curve_enabled())
         std::cout << "curve " << daemon->curve_public() << '\n';
     for (const auto& peer : result.config.peers)

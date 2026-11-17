@@ -22,6 +22,13 @@ struct RuleSpec {
     std::vector<WriterId> writers;
 };
 
+struct DiscoverSpec {
+    std::string cluster = "mosaic"; // scopes the beacon and the gossip namespace
+    std::uint16_t beacon_port = 0; // UDP port; 0 disables discovery
+
+    bool enabled() const { return beacon_port != 0; }
+};
+
 struct Config {
     // node
     NodeId id;
@@ -50,6 +57,7 @@ struct Config {
     std::vector<PeerSpec> peers;
     std::vector<std::string> follows;
     std::vector<RuleSpec> allow;
+    DiscoverSpec discover;
 };
 
 struct ConfigError {

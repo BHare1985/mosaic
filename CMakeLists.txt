@@ -183,8 +183,10 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # The ZeroMQ transport is the one place ZeroMQ may appear; keeping it out of this target is what makes
 # "the core builds without ZeroMQ" a property rather than a hope.
 list(FILTER sources EXCLUDE REGEX "source/net/zmq_transport\\.cpp$")
-# The daemon (ZPL config via czmq today) is its own target, never part of the core library.
+# The daemon (ZPL config via czmq today) and anything else that needs czmq are their own targets, never
+# part of the core library.
 list(FILTER sources EXCLUDE REGEX "source/daemon/")
+list(FILTER sources EXCLUDE REGEX "source/net/czmq_")
 if (NOT MOSAIC_SQLITE_TARGET)
     # No SQLite available: the durable backend is not part of this build.
     list(FILTER sources EXCLUDE REGEX "source/store/sqlite_log_store\\.cpp$")
@@ -254,7 +256,7 @@ endif ()
 # The daemon verifies records, so it needs real signatures: without libsodium there is nothing to verify
 # with (the only signer left is a test double). The core library keeps building either way.
 if (MOSAIC_WITH_CZMQ AND MOSAIC_WITH_SODIUM AND TARGET czmq-static AND TARGET sodium)
-    add_library(MosaicDaemon source/daemon/config.cpp source/daemon/daemon.cpp)
+    add_library(MosaicDaemon source/daemon/config.cpp source/daemon/daemon.cpp source/net/czmq_discovery.cpp)
     target_compile_features(MosaicDaemon PUBLIC cxx_std_20)
     target_link_libraries(MosaicDaemon PUBLIC ${PROJECT_NAME} PRIVATE czmq-static)
     if (TARGET MosaicZmq)

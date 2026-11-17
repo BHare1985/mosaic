@@ -11,3 +11,4 @@ fetch() { # name url
 fetch zguide   https://github.com/booksbyus/zguide
 fetch dafka    https://github.com/zeromq/dafka
 fetch malamute https://github.com/zeromq/malamute
+fetch zyre     https://github.com/zeromq/zyre

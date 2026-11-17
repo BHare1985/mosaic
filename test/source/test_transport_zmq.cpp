@@ -20,6 +20,20 @@ void settle()
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
 }
+
+/// With CURVE, libzmq blocks a handshake until the ZAP handler answers, so a caller that only sleeps
+/// would stall every connection. This services the handlers while time passes.
+std::function<void()> settle_with(std::vector<ZmqTransport*> transports)
+{
+    return [transports] {
+        for (int i = 0; i < 6; ++i) {
+            for (auto* transport : transports)
+                if (transport)
+                    transport->service_handshakes();
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+    };
+}
 } // namespace
 
 TEST_CASE("transport conformance: ZeroMQ over loopback")
@@ -183,20 +197,70 @@ TEST_CASE("transport conformance: ZeroMQ with CURVE")
         pair.owner = std::make_shared<Holder>(Holder { a, b });
         pair.a = a.get();
         pair.b = b.get();
-        pair.settle = settle;
+        pair.settle = settle_with({ a.get(), b.get() });
         return pair;
     };
     mosaic::test::run_transport_conformance(factory);
 }
 
-// CURVE authenticates the *server* to the client: a client configured with the wrong server key cannot
-// establish a session at all, so nothing is delivered. That is enforceable today and is what an
-// untrusted endpoint looks like.
-//
-// Pinning the *client's* key (so a peer cannot claim another's identity to the server) needs a ZAP
-// handler: this libzmq does not expose the peer key as message metadata. It is tracked as SEC-1b, and
-// PeerPins already holds the policy that handler will consult.
-TEST_CASE("CURVE refuses a peer whose server key is not the expected one")
+// CURVE authenticates the server to the client; the handshake decision authenticates the client to the
+// server. Together a peer cannot claim an identity it does not hold (SEC-1b).
+TEST_CASE("a peer presenting an unlisted key is refused at handshake")
+{
+    REQUIRE(ZmqTransport::curve_available());
+    const auto a_node = make_node();
+    const auto b_node = make_node();
+    const auto imposter_node = make_node();
+
+    const std::string pins_path = "test-zmq-pins.txt";
+    std::remove(pins_path.c_str());
+    {
+        PeerPins pins(PeerPins::Mode::Closed);
+        pins.pin("b", b_node.curve.public_z85); // only b's key may connect
+        REQUIRE(pins.save(pins_path));
+    }
+
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    a_cfg.link_policy = ZmqLinkPolicy::Closed;
+    a_cfg.curve = ZmqCurveConfig { true, a_node.curve.public_z85, a_node.curve.secret_z85, pins_path };
+    ZmqTransport a(a_cfg);
+
+    // The imposter speaks CURVE correctly and addresses a properly, but is not the listed key.
+    ZmqConfig imposter_cfg;
+    imposter_cfg.id = "b";
+    imposter_cfg.curve = ZmqCurveConfig { true, imposter_node.curve.public_z85, imposter_node.curve.secret_z85, "" };
+    ZmqTransport imposter(imposter_cfg);
+    imposter.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), a_node.curve.public_z85 });
+
+    const auto settle_imposter = settle_with({ &a, &imposter });
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        imposter.send("a", HeadMsg { LogKey { "w", "c" }, static_cast<std::uint64_t>(attempt), Hash { } });
+        settle_imposter();
+        CHECK_FALSE(a.poll().has_value()); // refused at the handshake
+    }
+    CHECK(a.curve_rejects() > 0);
+
+    // The genuine holder of the listed key is admitted.
+    ZmqConfig b_cfg;
+    b_cfg.id = "b";
+    b_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
+    ZmqTransport b(b_cfg);
+    b.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), a_node.curve.public_z85 });
+
+    const auto settle_genuine = settle_with({ &a, &b });
+    bool delivered = false;
+    for (int attempt = 0; attempt < 30 && !delivered; ++attempt) {
+        b.send("a", HeadMsg { LogKey { "w", "c" }, 42, Hash { } });
+        settle_genuine();
+        while (auto envelope = a.poll())
+            delivered = true;
+    }
+    CHECK(delivered);
+    std::remove(pins_path.c_str());
+}
+
+TEST_CASE("CURVE refuses a client configured with the wrong server key")
 {
     REQUIRE(ZmqTransport::curve_available());
     const auto a_node = make_node();
@@ -208,34 +272,18 @@ TEST_CASE("CURVE refuses a peer whose server key is not the expected one")
     a_cfg.curve = ZmqCurveConfig { true, a_node.curve.public_z85, a_node.curve.secret_z85, "" };
     ZmqTransport a(a_cfg);
 
-    // b is configured with the *wrong* server key for a, so the CURVE handshake must fail.
     ZmqConfig b_cfg;
     b_cfg.id = "b";
     b_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
     ZmqTransport b(b_cfg);
     b.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), stranger.curve.public_z85 });
 
+    const auto settle_all = settle_with({ &a, &b });
     for (int attempt = 0; attempt < 10; ++attempt) {
         b.send("a", HeadMsg { LogKey { "w", "c" }, 1, Hash { } });
-        settle();
-        CHECK_FALSE(a.poll().has_value()); // nothing crosses an unauthenticated link
+        settle_all();
+        CHECK_FALSE(a.poll().has_value());
     }
-
-    // With the right key on both ends, the same call gets through.
-    ZmqConfig c_cfg;
-    c_cfg.id = "c";
-    c_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
-    ZmqTransport c(c_cfg);
-    c.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), a_node.curve.public_z85 });
-
-    bool delivered = false;
-    for (int attempt = 0; attempt < 30 && !delivered; ++attempt) {
-        c.send("a", HeadMsg { LogKey { "w", "c" }, 7, Hash { } });
-        settle();
-        while (auto envelope = a.poll())
-            delivered = true;
-    }
-    CHECK(delivered);
 }
 
 #endif // MOSAIC_HAS_SODIUM

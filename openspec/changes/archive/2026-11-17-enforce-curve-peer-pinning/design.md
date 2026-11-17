@@ -42,25 +42,18 @@ transport misconfiguration cannot silently disable enforcement.
 - **Operators surprised by closed mode** -> the failure is visible (`curve_rejects`) and logged in the CLI demo documentation.
 - **ZAP domain semantics** -> we accept any domain; the identity check is what matters here.
 
-## Implementation findings (first attempt, reverted)
+## Implementation findings
 
-An attempt at D1 was made, run, and reverted so the tree stayed green. What it established:
+The first attempt was reverted on a wrong conclusion; the second found the real cause and D1 stands.
 
-- **The ZAP reply contract is exactly seven frames**: an empty address delimiter, `"1.0"`, the request id, a three-character
-  status code, a status text, a user id, and a metadata frame. Fewer frames makes libzmq fail the handshake with
-  `ZMQ_PROTOCOL_ERROR_ZAP_MALFORMED_REPLY`, which looks exactly like "the peer never connected". The request side is
-  `[version][request_id][domain][address][identity][mechanism][credentials...]`, and for CURVE the credentials are the client's
-  32-byte public key.
-- **The identity frame is empty for a connecting DEALER**, so a pin keyed by node id has to fall back to the address (or the key
-  itself). That is a policy question this change has to answer, not a bug.
-- **The failure is not the servicing model.** A libzmq-only repro with real `zmq_curve_keypair` pairs fails the same way with a
-  dedicated handler thread as with in-loop servicing: requests arrive, the documented seven-frame `200` reply is sent, and the
-  handshake is still refused (`HANDSHAKE_FAILED_PROTOCOL`). So the reply shape needs frame-level investigation against
-  libzmq's `zap_client.cpp` and its own example handler before anything else is attempted.
-- **Serving ZAP from `poll()` did not work.** With the handler enabled, requests arrived and were answered `200` (the sends
-  succeeded), yet no traffic flowed; disabling the handler restored delivery immediately. So D1 as written is unproven, and the
-  likely shape is a dedicated handler with its own thread - which contradicts the single-threaded rule and needs a deliberate
-  decision rather than being slipped in.
+- **D1 is valid.** Serving ZAP from `poll()` works. The earlier "in-loop servicing does not deliver traffic" observation was a
+  symptom of the malformed reply below, not of the servicing model: a minimal libzmq repro now delivers in both modes.
+- **The reply is six frames**, matching czmq's `zauth`: version, request id, status code, status text, user id, metadata. REP
+  prepends the request's envelope, so an explicit empty delimiter frame shifts every index and libzmq reports
+  `ZAP_MALFORMED_REPLY` - which looks exactly like "the peer never connected".
+- **The handshake does not expose the peer's identity**, so pinning cannot be keyed on a configured node id. `PeerPins::decide`
+  therefore keys open mode on the peer address (pin on first sight, refuse a change) and closed mode on the presented key
+  (it must match a provisioned entry). Both are unit-tested.
 
 ## Open Questions
 

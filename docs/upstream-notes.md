@@ -57,15 +57,29 @@ peer's configured node id at handshake time. Pinning must fall back to the peer 
 
 Not filed upstream (D4). Recorded because it cost real time and is not in the RFC text.
 
-## Finding: ZAP replies are rejected even in the documented shape
+## Finding: a ZAP reply is SIX frames, not seven (my bug, not libzmq's)
 
-A minimal libzmq-only repro (real `zmq_curve_keypair` pairs, ROUTER server + DEALER client, handler bound to
-`inproc://zeromq.zap.01`) shows the handler receiving `[version][request_id][domain][address][identity][mechanism][32-byte key]`
-and replying with the seven documented frames - empty delimiter, `"1.0"`, request id, `"200"`, text, user id, metadata. The
-handshake is still refused, and the monitor reports `ZMQ_EVENT_HANDSHAKE_FAILED_PROTOCOL`. It behaves identically with the
-handler on its own thread and served from the main loop, so the servicing model is not the problem.
+I first concluded libzmq was rejecting a correct reply. It was not: I was sending an empty address-delimiter frame as the
+first of seven, and REP sockets already hold the request's envelope and prepend it themselves. The extra frame shifted every
+index libzmq checks, which surfaced as `ZMQ_PROTOCOL_ERROR_ZAP_MALFORMED_REPLY`.
 
-Unresolved. The next step is to read `zap_client.cpp`'s `parse_metadata` and the mechanism's expectations frame by frame, or to
-compare against libzmq's own test/example handler, rather than guessing at the reply. Recorded here because two sessions could
-otherwise burn on the same dead end.
+The correct reply, matching czmq's `zauth`, is six frames:
 
+```
+"1.0" | request id | 3-char status code | status text | user id | metadata
+```
+
+The request, for reference, is `version, request_id, domain, address, identity, mechanism, credentials...` (seven for CURVE,
+the last being the client's 32-byte public key).
+
+Two other things cost time and are worth writing down:
+
+- **The monitor is the only place the reason appears.** `ZMQ_EVENT_HANDSHAKE_FAILED_PROTOCOL` carries the protocol error in
+  the event's *value* field, and `zmq_event_t` is packed: for a 6-byte event message the value sits at byte offset 2, not 4.
+  Reading the wrong offset shows `0x2000` (the event id again) and looks like a libzmq bug.
+- **The handshake does not know the peer's identity.** The identity frame is empty at ZAP time (identity is exchanged after
+  the handshake), so a policy cannot key on a configured node id there. Pin by address in open mode, or check the presented
+  key against a provisioned list in closed mode.
+
+Not an upstream bug, and nothing to file. Recorded because the failure mode ("sleeps forever, no traffic, no error") gives no
+hint about the cause.

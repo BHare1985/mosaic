@@ -71,6 +71,11 @@ public:
     std::optional<Envelope> poll() override;
     std::vector<NodeId> peers() const override;
 
+    /// Serve pending CURVE handshake decisions (ZAP). poll() calls this first; it is exposed because a
+    /// caller that is not polling yet (a test, a CLI waiting for its first message) must not stall a
+    /// peer that is mid-handshake.
+    void service_handshakes();
+
     /// Wire a peer discovered after construction (DISC-1): opens its SUB and DEALER and applies the
     /// subscriptions already registered. Idempotent for an id that is already wired.
     void add_peer(const ZmqPeerEndpoint& peer);

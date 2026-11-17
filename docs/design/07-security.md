@@ -10,11 +10,10 @@
    transport, so a record stays verifiable after being stored and forwarded by untrusted nodes.
 2. **Transport security** (SEC-1): ZeroMQ CURVE, on by default for any real link. Protects confidentiality and lets a client
    prove it is talking to the server whose key it expects.
-   **Enforcement point for the peer's own key (SEC-1b).** Pinning the *client's* key - so a peer cannot present another
-   node's identity to a server - has to happen in a ZAP handler: this libzmq does not expose the peer's CURVE key as message
-   metadata, and `zmq_curve` without ZAP accepts any client key. Until SEC-1b lands, `PeerPins` holds the policy and the
-   transport counts every message it accepted without an observable peer key (`curve_unauthenticated`), so the gap is
-   measurable rather than assumed.
+   **Peer-key enforcement (SEC-1b, done).** The client's key is decided at the handshake by a ZAP handler served from the
+   transport's own poll loop, so an unlisted or changed key never completes a connection. Open mode pins on first sight of a
+   peer address and refuses a later change; closed mode admits only provisioned keys. Keying on the peer's *identity* is not
+   possible: ZeroMQ exchanges identity after the handshake, so the ZAP request's identity frame is empty.
 3. **Authorization** (later): which writer may write which channel; which peer may follow which pattern.
 
 ## One identity, two representations (decided)

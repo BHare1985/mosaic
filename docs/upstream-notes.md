@@ -44,3 +44,15 @@ On this build, `zmq_msg_gets(msg, "User-Id")` returns nothing for messages recei
 configuration, so a server cannot learn which key a client authenticated with from the message itself. CURVE peer pinning
 therefore needs a ZAP handler (ZAP-1 style allow-list), which this project tracks as SEC-1b. Not reported upstream - possibly
 our usage, possibly a documentation gap around when metadata is attached.
+
+## Finding: libzmq's ZAP reply must be exactly seven frames
+
+`src/zap_client.cpp` reads a fixed `zap_reply_frame_count = 7` and expects the last frame without `more`. The reply is
+`[empty address delimiter]["1.0"][request id][3-char status code][status text][user id][metadata]`. A five-frame reply (the
+obvious reading of RFC 27) fails the handshake with `ZMQ_PROTOCOL_ERROR_ZAP_MALFORMED_REPLY`, and from the application's side
+that is indistinguishable from "the peer never connected" - no error surfaces on the socket that refused.
+
+Also observed: the ZAP *request's* identity frame is empty for a connecting DEALER, so a handler cannot key a policy on the
+peer's configured node id at handshake time. Pinning must fall back to the peer address or the key itself.
+
+Not filed upstream (D4). Recorded because it cost real time and is not in the RFC text.

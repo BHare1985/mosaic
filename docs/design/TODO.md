@@ -115,6 +115,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green | ✅
 | CI-4 | `clang-format` pass over the whole tree + a format check in CI | S | – | `clang-format --dry-run --Werror` clean on every tracked source. The config said `UseTab: Always` while `conventions.md` and all code use 4 spaces, so the gate never passed; the config is fixed (now `UseTab: Never`) and 7 files still carry drift: `core/record.h`, `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`, `test/malamute.cpp` | ✅
 | DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed | ✅
+| DOC-2 | Reference documentation builds: m.css + doxygen from the public headers and the design set, warnings are errors, and the build is part of the check | M | DOC-1 | `./scripts/docs.sh` produces a site; an undocumented public symbol or a broken reference fails it; `./scripts/ci.sh` runs it | ✅ |
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 

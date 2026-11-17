@@ -12,7 +12,7 @@
   scenarios. The reasoning behind those specifications is in `docs/design/`, starting with `00-overview.md`, and
   the work items are on the board in `docs/design/TODO.md`.
 
-  @section modules The modules
+  @section modulemap The modules
 
   - core: records, hashing, signing seams, keystore
   - store: the persistence seam (memory, SQLite) and fork evidence

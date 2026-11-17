@@ -53,6 +53,14 @@ if [ "$MODE" != "fast" ]; then
     fi
 fi
 
+step "documentation"
+if ! ./scripts/docs.sh > /tmp/ci-docs.log 2>&1; then
+    tail -12 /tmp/ci-docs.log >&2
+    fail "documentation"
+else
+    grep -E '^docs:' /tmp/ci-docs.log | tail -1
+fi
+
 step "format"
 if command -v clang-format >/dev/null 2>&1; then
     dirty=0

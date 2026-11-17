@@ -138,3 +138,43 @@ TEST_CASE("the printed defaults are themselves a valid config")
 }
 
 #endif // MOSAIC_HAS_CZMQ
+
+#ifdef MOSAIC_HAS_CZMQ
+TEST_CASE("a quoted curve key survives a '#' in the value, and a truncated one is rejected")
+{
+    // Z85 keys legitimately contain '#', which ZPL treats as a comment unless the value is quoted. This is
+    // the failure that made a two-process daemon test silently deliver nothing.
+    const auto quoted = write_temp("test-config-quoted.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+peer
+    id = beta
+    endpoint = 127.0.0.1:6100
+    curve = "Wu{9<Z=*2?-]ru6:P*ytm=W(7[pZTYM&7Gv)#.=j"
+)");
+    const auto good = load_config(quoted);
+    REQUIRE(good.ok());
+    REQUIRE(good.config.peers.size() == 1);
+    CHECK(good.config.peers.front().curve_public == "Wu{9<Z=*2?-]ru6:P*ytm=W(7[pZTYM&7Gv)#.=j");
+    std::remove(quoted.c_str());
+
+    const auto unquoted = write_temp("test-config-unquoted.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+peer
+    id = beta
+    endpoint = 127.0.0.1:6100
+    curve = Wu{9<Z=*2?-]ru6:P*ytm=W(7[pZTYM&7Gv)#.=j
+)");
+    const auto bad = load_config(unquoted);
+    REQUIRE_FALSE(bad.ok()); // truncated at '#' -> 33 chars -> named as an error
+    bool named = false;
+    for (const auto& error : bad.errors)
+        if (error.where == "peer.curve")
+            named = true;
+    CHECK(named);
+    std::remove(unquoted.c_str());
+}
+#endif

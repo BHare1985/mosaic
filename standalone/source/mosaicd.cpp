@@ -14,14 +14,24 @@
 
 namespace {
 volatile std::sig_atomic_t g_stop = 0;
-void on_signal(int) { g_stop = 1; }
+volatile std::sig_atomic_t g_dump = 0;
+
+// A handler may only set a flag; the loop decides what to do. SIGUSR1 asks for the counters now.
+void on_signal(int signal)
+{
+    if (signal == SIGUSR1)
+        g_dump = 1;
+    else
+        g_stop = 1;
+}
 
 int usage()
 {
     std::cerr << "usage:\n"
                  "  mosaicd <config>\n"
                  "  mosaicd --check <config>\n"
-                 "  mosaicd --defaults\n";
+                 "  mosaicd --defaults\n"
+                 "  mosaicd --no-curve <config>   diagnostic: plaintext links\n";
     return 2;
 }
 
@@ -37,17 +47,28 @@ int main(int argc, char** argv)
 {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
+    std::signal(SIGUSR1, on_signal);
 
-    if (argc == 2 && std::string(argv[1]) == "--defaults") {
+    // Diagnostic: run the link in plaintext, to separate a configuration/delivery problem from a
+    // key-material problem. Same flag as the CLI's.
+    bool no_curve = false;
+    int first = 1;
+    if (argc > 1 && std::string(argv[1]) == "--no-curve") {
+        no_curve = true;
+        first = 2;
+    }
+    if (argc == first + 1 && std::string(argv[first]) == "--defaults") {
         std::cout << mosaic::daemon::render_defaults();
         return 0;
     }
-    if (argc == 3 && std::string(argv[1]) == "--check")
-        return report(mosaic::daemon::load_config(argv[2]));
-    if (argc != 2)
+    if (argc == first + 2 && std::string(argv[first]) == "--check")
+        return report(mosaic::daemon::load_config(argv[first + 1]));
+    if (argc != first + 1)
         return usage();
 
-    const auto result = mosaic::daemon::load_config(argv[1]);
+    auto result = mosaic::daemon::load_config(argv[first]);
+    if (no_curve)
+        result.config.curve = false;
     if (!result.ok())
         return report(result); // every problem at once, before a socket or a store is opened
 
@@ -68,11 +89,20 @@ int main(int argc, char** argv)
             std::cout << ' ' << writer;
         std::cout << '\n';
     }
+    if (daemon->curve_enabled())
+        std::cout << "curve " << daemon->curve_public() << '\n';
+    for (const auto& peer : result.config.peers)
+        std::cout << "peer " << peer.id << " curve " << (peer.curve_public.empty() ? "(none)" : peer.curve_public)
+                  << '\n';
     if (result.config.min_replicas != 0)
         std::cout << "min_replicas " << result.config.min_replicas << '\n';
     std::cout.flush();
 
-    const auto outcome = daemon->run([] { return g_stop != 0; });
+    const auto outcome = daemon->run([] { return g_stop != 0; }, [&daemon] {
+        if (g_dump != 0) {
+            g_dump = 0;
+            daemon->dump_status();
+        } });
     std::cout << "stopped" << '\n';
     return outcome == mosaic::daemon::RunResult::Stopped ? 0 : 1;
 }

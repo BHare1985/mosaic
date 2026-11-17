@@ -15,6 +15,9 @@
 - **Normative behaviour:** capability specs in `openspec/specs/` state what the system must do; this doc set and the
   module READMEs explain the reasoning. Change behaviour through an OpenSpec change (`openspec/changes/`), not by editing
   a doc. Work items stay in [TODO.md](TODO.md), and a `TODO(ID)` comment cites that board, never a spec requirement.
+- **Where a dependency may live:** `libzmq` only in the ZeroMQ transport, `czmq` only in `MosaicDaemon` and the `mosaicd`
+  binary, `libsodium` only behind the crypto seams. Two build configurations (`core`, `no-crypto`) must keep working with none of
+  them, which is the check that keeps this honest rather than aspirational.
 - **Dependencies:** `core`..`node` use only the standard library. Third-party code needs maintainer approval and
   must sit behind an interface (e.g. libsodium behind `Hasher`/`Signer`).
 - **Comments:** explain *why* and cite design docs/TODO ids (`// TODO(FLOW-2): ...`). Every TODO id must exist in

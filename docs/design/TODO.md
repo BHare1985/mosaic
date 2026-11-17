@@ -107,6 +107,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | CLI-1 | `Mosaic pub` / `Mosaic tail` | M | ZMQ-1 | Publish on host A, tail on host B | ✅
+| CLI-4 | `mosaicd` daemon: ZPL config via czmq (zconfig), defaults printer, validation, run loop, status and SIGUSR1 | M | CLI-1 | Config documented and validated whole; a subscriber daemon replicates from a publishing CLI over CURVE and resumes after restart | ✅ |
 | CLI-2 | `Mosaic verify <store>` verifies every chain in a store | S | STORE-1 | Detects tampered record | ✅
 | CLI-3 | `Mosaic keygen` | S | CORE-2 | Writes keypair with safe permissions | ✅
 | CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README | ✅

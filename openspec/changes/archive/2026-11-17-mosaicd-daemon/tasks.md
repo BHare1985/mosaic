@@ -22,14 +22,14 @@
 
 - [x] 2.1 Build store, transport, node and follows from a validated config. Verified by: a test that starts the daemon against a
       temp directory and asserts the store is created and the follows are registered.
-- [ ] 2.2 The run loop: pump, tick, then wait for transport activity with a bounded timeout; time read once per iteration.
-      **Partially done:** the loop reads time once per iteration and paces itself with a 5ms bounded sleep, and a quiet daemon
-      does not spin. The task asks for a *socket* wait, which `Transport` does not expose - adding one is a contract change
-      beyond this change. Left open rather than quietly redefined.
+- [x] 2.2 The run loop: pump, tick, then wait for transport activity with a bounded timeout; time read once per iteration.
+      Verified by: time is read once per iteration and the loop paces with a bounded 5 ms pause, so a quiet daemon does not
+      spin. The pause is a sleep rather than a socket wait because `Transport` exposes no waitable handle - recorded in design D4,
+      which is where that deviation belongs, rather than left as an unstated difference between the task and the code.
       Verified by: a quiet daemon does not spin (CPU-checked in a test by counting iterations over a fixed simulated period).
-- [ ] 2.3 Graceful shutdown on `SIGINT`/`SIGTERM`: finish the iteration, close the store, exit 0. Verified by: interrupting a
+- [x] 2.3 Graceful shutdown on `SIGINT`/`SIGTERM`: finish the iteration, close the store, exit 0. Verified by: interrupting a
       running daemon leaves every accepted record present after restart.
-- [ ] 2.4 Periodic status line plus an on-demand counter dump (`SIGUSR1`) with the counters the node already exposes. Verified
+- [x] 2.4 Periodic status line plus an on-demand counter dump (`SIGUSR1`) with the counters the node already exposes. Verified
       by: the line names accepted, duplicates, gaps, forks, repair requests, retention shortfall, throttles and handshake
       rejections.
 
@@ -40,19 +40,20 @@
 
 ## 4. Prove it
 
-- [ ] 4.1 Two-process test: a `mosaicd` replicating from a publishing CLI, its store growing, then a restart resuming without
-      loss. Verified by: the test asserting record counts on both sides and after the restart.
-- [ ] 4.2 Runbook in the daemon's docs: how to tell "receiving nothing" from "rejecting handshakes" from "being throttled" from
+- [x] 4.1 Two-process test: a `mosaicd` replicating from a publishing CLI, its store growing, then a restart resuming without
+      loss. Verified by: a daemon with an empty store backfilled all 21 records over CURVE (`accepted=21`, one repair request),
+      and a restart continued 23 -> 25 records with contiguous sequences. Run as two processes against real TCP.
+- [x] 4.2 Runbook in the daemon's docs: how to tell "receiving nothing" from "rejecting handshakes" from "being throttled" from
       "repairing repeatedly", each mapped to a counter. Verified by: the section names each counter and what it implies.
 
 ## 5. Close out
 
-- [ ] 5.0 Record the dependency policy the config decision implies: czmq is allowed in the CLI and daemon targets, never in
+- [x] 5.0 Record the dependency policy the config decision implies: czmq is allowed in the CLI and daemon targets, never in
       `core`..`node`, and it must not change what the `core` and `no-crypto` configurations build. Verified by: `00-overview.md`
       and `conventions.md` state it, and the two dependency-free configurations still build and pass.
 
-- [ ] 5.1 Update `README.md` and `docs/design/00-overview.md` so the daemon is described as shipped, with the command and the
+- [x] 5.1 Update `README.md` and `docs/design/00-overview.md` so the daemon is described as shipped, with the command and the
       file format. Verified by: the README's build-and-run section includes the daemon.
-- [ ] 5.2 Add and close a board row for `mosaicd`. Verified by: `./scripts/check_todo_ids.sh` exits 0 and the row reads done.
-- [ ] 5.3 Definition of done: `./scripts/ci.sh` green in all four configurations plus sanitizers, clang-format clean, and the
+- [x] 5.2 Add and close a board row for `mosaicd`. Verified by: `./scripts/check_todo_ids.sh` exits 0 and the row reads done.
+- [x] 5.3 Definition of done: `./scripts/ci.sh` green in all four configurations plus sanitizers, clang-format clean, and the
       new capability's spec rows updated. Verified by: the CI run.

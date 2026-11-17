@@ -63,10 +63,15 @@ safety.
 The table is the single source of truth: it fills absent settings and renders the commented file. *Alternative:* documenting the
 defaults in a Markdown table - rejected: it drifts, and the drift is invisible until someone deploys with a stale value.
 
-**D4 - The loop is the CLI's loop, with a poll timeout instead of a sleep.**
-`pump`, `tick`, then wait on the transport with a bounded timeout so a quiet node does not spin and a busy one does not add
-latency. Time comes from a monotonic clock read once per iteration, which is the only clock the process owns - the library still
-takes `now_ms` as a parameter.
+**D4 - The loop paces itself; `Transport` has no socket wait to block on.**
+`pump`, `tick`, then a bounded 5 ms pause, with time from a monotonic clock read once per iteration - the only clock the process
+owns; the library still takes `now_ms` as a parameter.
+
+The pause is a sleep, not a socket wait, because `Transport` exposes no waitable handle: `poll()` is explicitly non-blocking and
+returns at most one message. That satisfies what this decision is for - a quiet node does not spin, a busy one adds at most 5 ms
+of latency - without widening the transport contract inside an operability change. A real wait is worth having (it would remove
+the 5 ms floor and let the loop react the instant a message lands) and belongs with a change that can argue the contract change
+for every implementation, including the simulator.
 
 **D5 - Signals set a flag; the loop decides when to stop.**
 A handler only sets a `volatile sig_atomic_t`. The loop checks it at the top of an iteration, finishes that iteration, closes the

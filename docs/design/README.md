@@ -19,6 +19,7 @@ Read in order. Each doc says what is **implemented** (✅), **stubbed** (🟡) o
 | 06 | [jobs](06-jobs.md) | Calling services over logs, rendezvous ranking, retries |
 | 07 | [security](07-security.md) | Identity, signatures, CURVE, threat model |
 | 08 | [testing strategy](08-testing-strategy.md) | Test layers, conformance suites, definition of done |
+| 09 | [operations](09-operations.md) | Running `mosaicd`: config file, what the counters mean, what it does not do |
 | – | **[TODO](TODO.md)** | **Task board for junior developers, with IDs referenced from the code** |
 
 Background and decisions: [../direction.md](../direction.md), [../decentralized-broker-2026.md](../decentralized-broker-2026.md),

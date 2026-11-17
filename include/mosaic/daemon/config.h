@@ -41,6 +41,9 @@ struct Config {
     std::uint32_t max_head_patterns = 64;
     std::uint32_t max_requests_per_interval = 32;
     // log
+    /// Encrypt links. On by default; the only reason to turn it off is a diagnostic or a loopback test,
+    /// so it is stated in the config rather than implied by whether a keystore happens to have a key.
+    bool curve = true;
     std::string level = "info";
     std::uint32_t status_interval_ms = 10000;
 

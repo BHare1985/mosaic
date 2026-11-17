@@ -49,6 +49,20 @@ cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./build/standalone/Mosaic match 'storage.*.shard7' storage.eu.shard7
 ```
 
+## Running a node
+
+The daemon reads a ZPL config (ZeroMQ RFC 4) and runs until interrupted. `mosaicd --defaults` prints a commented file
+generated from the daemon's own defaults, so the documented values cannot drift from the running ones.
+
+```bash
+mosaicd --defaults > mosaicd.zpl   # then fill in node.id, node.store, node.keys, peers and follows
+mosaicd --check mosaicd.zpl        # every problem at once, before any socket is opened
+mosaicd mosaicd.zpl
+kill -USR1 <pid>                   # dump the counters now
+```
+
+What the counters mean, and what to check when a node is not converging: [docs/design/09-operations.md](docs/design/09-operations.md).
+
 ## Two hosts, end to end
 
 Verified over real TCP with CURVE enabled: one process publishes, another tails, and a restarted tail replays its own

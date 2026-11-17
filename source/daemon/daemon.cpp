@@ -2,13 +2,13 @@
 
 #include <chrono>
 #include <cstdlib>
-#include <sstream>
 #include <iostream>
 #include <mosaic/core/keystore.h>
-#include <mosaic/node/node.h>
-#include <mosaic/node/channel_rules.h>
-#include <mosaic/store/sqlite_log_store.h>
 #include <mosaic/net/zmq_transport.h>
+#include <mosaic/node/channel_rules.h>
+#include <mosaic/node/node.h>
+#include <mosaic/store/sqlite_log_store.h>
+#include <sstream>
 #include <thread>
 
 namespace mosaic::daemon {
@@ -25,6 +25,8 @@ struct Daemon::Impl {
     std::uint64_t last_status_ms = 0;
     std::string pub;
     std::string router;
+    bool curve_on = false;
+    std::string curve_public;
 };
 
 Daemon::Daemon()
@@ -75,9 +77,12 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
         endpoint.curve_public_z85 = peer.curve_public;
         transport_config.peers.push_back(endpoint);
     }
-    if (const auto curve = curve_identity_from_keystore(*keystore))
-        transport_config.curve = ZmqCurveConfig { true, curve->public_z85, curve->secret_z85, "" };
+    if (config.curve)
+        if (const auto curve = curve_identity_from_keystore(*keystore))
+            transport_config.curve = ZmqCurveConfig { true, curve->public_z85, curve->secret_z85, "" };
 
+    self.curve_on = transport_config.curve.enabled;
+    self.curve_public = transport_config.curve.public_z85;
     self.transport = std::make_unique<ZmqTransport>(transport_config);
     self.pub = self.transport->pub_endpoint();
     self.router = self.transport->router_endpoint();
@@ -121,7 +126,7 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
     return daemon;
 }
 
-RunResult Daemon::run(const std::function<bool()>& stop)
+RunResult Daemon::run(const std::function<bool()>& stop, const std::function<void()>& on_iteration)
 {
     auto& self = *impl_;
     const auto started = std::chrono::steady_clock::now();
@@ -145,6 +150,9 @@ RunResult Daemon::run(const std::function<bool()>& stop)
 
         // A bounded wait: the transport's poll is non-blocking and has no socket-wait, so the loop paces
         // itself. A quiet daemon therefore does not spin, and a busy one adds at most this much latency.
+        if (on_iteration)
+            on_iteration();
+
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         (void)last_tick;
     }
@@ -167,7 +175,11 @@ std::string Daemon::status_line() const
     return out.str();
 }
 
-bool Daemon::curve_enabled() const { return impl_->transport && impl_->transport->curve_available(); }
+bool Daemon::curve_enabled() const { return impl_->curve_on && impl_->transport->curve_available(); }
+
+std::string Daemon::curve_public() const { return impl_->curve_on ? impl_->curve_public : std::string { }; }
+
+void Daemon::dump_status() const { std::cout << status_line() << std::endl; }
 
 std::string Daemon::pub_endpoint() const { return impl_->pub; }
 

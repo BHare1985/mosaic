@@ -251,7 +251,9 @@ endif ()
 
 # ---- Daemon target (czmq: ZPL config; discovery next) ----
 
-if (MOSAIC_WITH_CZMQ AND TARGET czmq-static)
+# The daemon verifies records, so it needs real signatures: without libsodium there is nothing to verify
+# with (the only signer left is a test double). The core library keeps building either way.
+if (MOSAIC_WITH_CZMQ AND MOSAIC_WITH_SODIUM AND TARGET czmq-static AND TARGET sodium)
     add_library(MosaicDaemon source/daemon/config.cpp source/daemon/daemon.cpp)
     target_compile_features(MosaicDaemon PUBLIC cxx_std_20)
     target_link_libraries(MosaicDaemon PUBLIC ${PROJECT_NAME} PRIVATE czmq-static)

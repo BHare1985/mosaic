@@ -268,6 +268,9 @@ std::optional<Runtime> make_runtime(const Options& options, std::vector<std::str
     runtime.verifier = std::make_unique<Ed25519Verifier>();
     if (!options.allow.empty()) {
         runtime.rules = std::make_unique<ChannelRules>();
+        for (const auto& peer : options.peers)
+            std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                      << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
         for (const auto& [pattern, writers] : options.allow) {
             if (!runtime.rules->allow(pattern, writers)) {
                 error = "invalid --allow-writer pattern: " + pattern;
@@ -319,6 +322,9 @@ int run_pub(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& peer : options.peers)
+        std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                  << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
     for (const auto& [pattern, writers] : options.allow) {
         std::cout << "allow " << pattern << " =";
         for (const auto& writer : writers)
@@ -390,6 +396,9 @@ int run_tail(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& peer : options.peers)
+        std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                  << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
     for (const auto& [pattern, writers] : options.allow) {
         std::cout << "allow " << pattern << " =";
         for (const auto& writer : writers)

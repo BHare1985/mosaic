@@ -7,6 +7,27 @@ stops, and what it reports while it runs - so deployment is a file and a process
 
 ## ADDED Requirements
 
+### Requirement: Configuration is written in ZPL
+
+Configuration files MUST use ZPL (ZeroMQ RFC 4) - indentation-defined sections, `name = value` properties, `#` comments - so that a
+file Mosaic reads is one the surrounding ZeroMQ tooling can read too. A ZPL file written for another tool MUST parse without
+modification, and values MUST support `${NAME}` expansion from the environment so secrets and paths need not live in the file.
+
+#### Scenario: A ZPL file from other tooling parses
+
+- **WHEN** a configuration file written for czmq-style tooling is given to the daemon
+- **THEN** its sections and properties are read with the same meaning
+
+#### Scenario: Environment expansion works in values
+
+- **WHEN** a value contains `${MOSAIC_KEY_DIR}`
+- **THEN** the variable is expanded before validation, and an unset variable is an error naming it
+
+#### Scenario: Indentation defines structure
+
+- **WHEN** properties are nested under a section by indentation
+- **THEN** they are read as that section's properties, and a property that steps out of its section is not silently inherited
+
 ### Requirement: Every operational setting can be set from a config file
 
 A configuration file MUST be able to set the node's identity, store location, listen address, peer list, followed patterns, and
@@ -30,8 +51,8 @@ and MUST refuse to start. An unknown key MUST be an error: a typo MUST NOT silen
 
 #### Scenario: A typo stops the daemon
 
-- **WHEN** the file contains a key the daemon does not know
-- **THEN** startup fails, the offending key is named, and no socket or store is opened
+- **WHEN** the file contains a property the daemon does not know
+- **THEN** startup fails, the offending property and its section are named, and no socket or store is opened
 
 #### Scenario: All problems are reported at once
 

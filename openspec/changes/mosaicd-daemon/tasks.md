@@ -2,15 +2,20 @@
 
 ## 1. Configuration
 
-- [ ] 1.1 Write the config parser: flat `key = value`, dotted names, `#` comments, repeated keys building a list, unknown keys
-      reported. Verified by: unit tests for a valid file, a repeated key, a comment, a missing value and an unknown key.
-- [ ] 1.2 Add the defaults table and have the parser fill absent settings from it. Verified by: a file naming only identity,
+- [ ] 1.1 Write the ZPL parser (RFC 4): indentation-defined sections, `name = value` properties, `#` comments, a repeated
+      section name building a list, and `${NAME}` expansion from the environment. Verified by: unit tests for nesting, a repeated
+      section, a comment, a missing value, an unset variable, and a property that steps out of its section.
+- [ ] 1.2 Cross-check the parser against the reference implementation: in the ecosystem build, load one fixture with czmq's
+      `zconfig` and with ours and assert the same tree. Verified by: the comparison running where czmq is available, and reported
+      as skipped (not silently absent) where it is not.
+- [ ] 1.3 Add the defaults table and have the parser fill absent settings from it. Verified by: a file naming only identity,
       store and a peer yields a complete config equal to the documented defaults elsewhere.
-- [ ] 1.3 Validate everything at once: unknown keys, unparsable numbers, out-of-range values and missing required settings are
-      collected and reported together. Verified by: a file with three faults lists all three and exits non-zero.
-- [ ] 1.4 `mosaicd --defaults` prints a commented config from that table. Verified by: feeding the output back (with identity,
-      store and peers filled in) starts the daemon and reports the same values.
-- [ ] 1.5 `mosaicd --check <config>` validates and exits without opening a socket. Verified by: a good file exits 0 and a bad
+- [ ] 1.4 Validate everything at once: unknown sections or properties, unparsable numbers, out-of-range values and missing
+      required settings are collected and reported together. Verified by: a file with three faults lists all three and exits
+      non-zero.
+- [ ] 1.5 `mosaicd --defaults` prints a commented ZPL config from that table. Verified by: feeding the output back (with
+      identity, store and peers filled in) starts the daemon and reports the same values.
+- [ ] 1.6 `mosaicd --check <config>` validates and exits without opening a socket. Verified by: a good file exits 0 and a bad
       one exits non-zero with its errors.
 
 ## 2. The daemon

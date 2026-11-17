@@ -16,15 +16,41 @@ it is doing; the CLI and the daemon reading the same file.
 
 ## Decisions
 
-**D1 - A flat `key = value` file, parsed by us, with dotted names.**
-`node.id = a`, `limits.max_record_bytes = 262144`, `peer.b = 127.0.0.1:6200,<curve>`. Repetition builds a list. `#` starts a
-comment. No nesting, no quoting rules, no parser dependency.
-*Alternatives:* TOML/YAML (a library dependency in the tool for a twelve-field file, and YAML's failure modes are its own
-project); JSON (no comments, which an operator-facing file needs). *Trade-off:* no nesting means longer keys - acceptable for a
-flat configuration, and it keeps the parser under a page.
+**D1 - The config format is ZPL (ZeroMQ RFC 4), parsed in-tree.**
+The same format czmq's `zconfig` reads, and that zproject, malamute and zyre use: indentation defines sections, `name = value` sets
+a property, `#` comments, and a repeated section name builds a list. A Mosaic config is therefore legible to the ecosystem's
+tooling, and to anyone who has ever configured a ZeroMQ project.
 
-**D2 - Unknown keys are errors, and all errors are reported together.**
-A typo in `min_replicas` must not be a silent default; that is how someone ends up running without the floor they configured.
+```zpl
+node
+    id = a
+    store = /var/lib/mosaic/a.db
+    keys = /etc/mosaic/a.key
+    listen = 127.0.0.1:6200
+limits
+    max_record_bytes = 262144
+    min_replicas = 2
+peer
+    id = b
+    endpoint = 127.0.0.1:6100
+    curve = ${B_CURVE_KEY}
+follow
+    events.>
+```
+
+*Alternatives:* czmq's `zconfig` class as a mandatory dependency - rejected: czmq is fetched only in the ecosystem build, so the
+daemon would stop building in the configurations CI runs, for a parser of about 150 lines. TOML/YAML - rejected: a dependency, and
+a format no other ZeroMQ tool speaks. JSON - rejected: no comments, and an operator file needs them.
+*Trade-off:* we own the parser, so we own its bugs. That is why the suite cross-checks against czmq's `zconfig` wherever czmq is
+present (D8), turning "ZPL-compatible" into something tested rather than claimed.
+
+**D1a - `${NAME}` is expanded from the environment, and an unset variable is an error.**
+Paths and CURVE keys are exactly what operators keep out of files in a repository. czmq offers the same through
+`zconfig_resolve`; we expand on load and refuse to start on an unset variable rather than substituting an empty string into a key.
+
+**D2 - Unknown sections and properties are errors, and all errors are reported together.**
+A typo in `limits.min_replicas` must not be a silent default; that is how someone ends up running without the floor they
+configured.
 Validation collects every problem before exiting, because fixing one-at-a-time against a long restart loop is punishment, not
 safety.
 
@@ -46,14 +72,20 @@ One structured line per interval at info level (`accepted`, `duplicates`, `gaps`
 `throttled`, `handshake_rejects`), and a full dump on demand. *Alternative:* a Prometheus endpoint - deferred: it is a protocol,
 a binder and a parser for a capability nobody has asked for yet, and the counters are the substance.
 
+**D8 - ZPL compatibility is tested against the reference implementation where it is available.**
+The ecosystem build already fetches and links czmq into the tests. In that configuration the suite loads one fixture with czmq's
+`zconfig` and with our parser and asserts the same tree, so a divergence from the real ZPL implementation fails CI instead of
+surfacing in a deployment. In configurations without czmq the fixture is checked against expected values only, and the comparison
+is reported as skipped rather than silently absent.
+
 **D7 - The CLI reads the same file but ignores daemon-only keys.**
 So one file can describe a deployment and the operator can still run `Mosaic tail --config mosaicd.conf events.>`. Explicit
 flags win, so scripts stay predictable. Unknown keys are still errors - a typo is a typo in both tools.
 
 ## Risks / Trade-offs
 
-- **A hand-written parser is a place to introduce bugs** -> it is a page of code with tests for every failure mode, and the
-  alternative is a dependency the project has avoided everywhere else.
+- **A hand-written ZPL parser is a place to introduce bugs** -> tests for every failure mode, plus the cross-check against
+  czmq's `zconfig` in the ecosystem build, which is the reference implementation of the same RFC.
 - **A daemon invites scope creep (reload, metrics, plugins)** -> the non-goals list what is deliberately absent, and reload is
   explicitly a restart.
 - **Two configuration paths (file and flags) can diverge** -> the precedence rule is stated in the spec and tested, and both read

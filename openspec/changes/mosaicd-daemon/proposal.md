@@ -18,12 +18,16 @@ to see what it is doing.
 
 - `mosaicd <config>`: a daemon that opens identity, store and transport from a config file, follows its patterns, and runs the
   pump/tick loop until told to stop.
-- A configuration format that names every knob with its default, so the defaults are discoverable rather than implied by code.
+- Configuration in **ZPL** (ZeroMQ RFC 4) - the format czmq's `zconfig`, zproject, malamute and zyre all read - with sections for
+  node, limits, peers and follows. Using the ecosystem's format instead of inventing one means a file Mosaic reads is a file the
+  surrounding tooling already understands, and operators do not learn a second dialect.
 - Validation that reports **all** errors at once and exits before opening a socket, including unknown keys - a typo must not be
   a silent default.
 - `mosaicd --defaults` prints a fully commented config generated from the same defaults the code uses, so documentation cannot
   drift from behaviour.
 - `mosaicd --check <config>` validates and exits, for use in deployment scripts and tests.
+- Compatibility is proven, not asserted: where czmq is available (the ecosystem build), the suite parses a file with czmq's
+  reference `zconfig` and compares it with our own parse of the same file.
 - Graceful shutdown on `SIGINT`/`SIGTERM`: finish the current step, close the store, exit 0.
 - Periodic status on the configured log level, plus an on-demand dump (`SIGUSR1`) of the counters that now exist - ingest
   outcomes, repair activity, retention shortfall, throttles, handshake rejections.

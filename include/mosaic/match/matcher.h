@@ -29,11 +29,19 @@ public:
     std::optional<SubId> add(std::string_view pattern);
     void remove(SubId id);
 
+    /// Remove by pattern text. False when no active subscription has that exact pattern. Safer than mapping a
+    /// position in `patterns()` onto an id, which only holds when ids are dense.
+    bool remove_pattern(std::string_view pattern);
+
     /// All subscriptions matching `channel`, in ascending SubId order.
     std::vector<SubId> match(std::string_view channel) const;
     /// The per-message question: does anything match? Answered without materialising the id list, because the
     /// node and the transport ask it for every arriving record (MATCH-1 measured the difference).
     bool matches_any(std::string_view channel) const;
+
+    /// The patterns currently subscribed, in id order. What a node advertises to peers, and what a test can
+    /// assert after removals.
+    std::vector<std::string> patterns() const;
 
     static bool valid(std::string_view pattern);
     std::size_t size() const { return subs_.size() - free_.size(); }

@@ -603,3 +603,42 @@ TEST_CASE("the seed sweep helper reports the first failing seed")
     CHECK_FALSE(clean.has_value());
     CHECK(seed_count() > 0);
 }
+
+TEST_CASE("unfollow stops delivery, and a batch publishes in order")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(99);
+    Peer writer(net, "writer", hasher, alice), follower(net, "follower", hasher, alice);
+
+    REQUIRE(follower.node.follow("events.>"));
+    REQUIRE(follower.node.follow("metrics.>"));
+    CHECK(follower.node.following().size() == 2);
+
+    writer.node.publish(alice, "events.a", "t", bytes("one"), 0);
+    step(net, 0, { &writer, &follower });
+    REQUIRE(follower.received.size() == 1);
+
+    CHECK(follower.node.unfollow("events.>"));
+    CHECK_FALSE(follower.node.unfollow("events.>")); // already gone
+    CHECK(follower.node.following().size() == 1);
+
+    writer.node.publish(alice, "events.a", "t", bytes("two"), 10);
+    step(net, 50, { &writer, &follower });
+    CHECK(follower.received.size() == 1); // events.a is no longer followed
+
+    // The other pattern still works.
+    writer.node.publish(alice, "metrics.cpu", "t", bytes("three"), 60);
+    step(net, 100, { &writer, &follower });
+    CHECK(follower.received.size() == 2);
+
+    // A batch occupies consecutive sequences, in the order given.
+    std::vector<Bytes> payloads { bytes("b0"), bytes("b1"), bytes("b2") };
+    std::size_t written = 0;
+    {
+        Peer batcher(net, "batcher", hasher, alice);
+        written = batcher.node.publish_batch(alice, "events.z", "t", payloads, 200);
+    }
+    CHECK(written == 3);
+    REQUIRE(follower.node.follow("events.z"));
+}

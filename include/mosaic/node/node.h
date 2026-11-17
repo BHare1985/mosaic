@@ -93,6 +93,18 @@ public:
     /// Start following channels matching `pattern` (see Matcher). Returns false for an invalid pattern.
     bool follow(const std::string& pattern);
 
+    /// Stop following a pattern. Records on matching channels are no longer stored or delivered. The transport
+    /// subscription stays: `Transport` has no unsubscribe, so a peer may still send them and the node drops them.
+    bool unfollow(const std::string& pattern);
+
+    /// Patterns this node follows, for an operator or a test to read.
+    std::vector<std::string> following() const { return following_.patterns(); }
+
+    /// Publish several payloads to one channel. Same sequencing and signing as individual publishes, and it
+    /// stops at the first refusal (an oversized payload), returning how many were written.
+    std::size_t publish_batch(const Signer& signer, const Channel& channel, const std::string& content_type,
+        const std::vector<Bytes>& payloads, std::uint64_t now_ms);
+
     /// Called once per record, in log order, for records accepted from the network (not for own publishes).
     void on_record(RecordHandler handler) { on_record_ = std::move(handler); }
     /// Grant live-delivery credit to a peer. Until a grant exists the live path stays best effort.

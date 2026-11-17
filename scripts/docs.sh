@@ -28,6 +28,19 @@ if ! cmake --build build --target GenerateDocs >/tmp/mosaic-docs.log 2>&1; then
     exit 1
 fi
 
+# The gate: an undocumented or mis-documented PUBLIC SYMBOL fails the build. Markdown pages are exempt, because
+# their links are repository paths that resolve on GitHub but not inside a generated site.
+if grep -E "include/mosaic/.*(warning|error):" /tmp/mosaic-docs.log >/dev/null 2>&1; then
+    echo "docs: FAILED - public header documentation problems:" >&2
+    grep -E "include/mosaic/.*(warning|error):" /tmp/mosaic-docs.log | head -10 >&2
+    exit 1
+fi
+if grep -E "^.*: error:" /tmp/mosaic-docs.log | grep -v "include/mosaic" >/dev/null 2>&1; then
+    echo "docs: FAILED - doxygen reported errors:" >&2
+    grep -E ": error:" /tmp/mosaic-docs.log | grep -v "include/mosaic" | head -10 >&2
+    exit 1
+fi
+
 if [ ! -f "$SITE" ]; then
     echo "docs: FAILED - no $SITE was produced" >&2
     exit 1

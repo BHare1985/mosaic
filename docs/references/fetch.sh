@@ -9,6 +9,4 @@ fetch() { # name url
   printf '%-10s %s\n' "$1" "$(git -C "$1" log -1 --format='%h %ad' --date=short)"
 }
 fetch zguide   https://github.com/booksbyus/zguide
-fetch dafka    https://github.com/zeromq/dafka
-fetch malamute https://github.com/zeromq/malamute
 fetch zyre     https://github.com/zeromq/zyre

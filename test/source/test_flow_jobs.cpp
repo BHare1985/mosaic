@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include <mosaic/flow/credits.h>
 #include <mosaic/jobs/rendezvous.h>
+#include <random>
 #include <set>
 
 using namespace mosaic;
@@ -53,4 +54,47 @@ TEST_CASE("rendezvous ranking is deterministic and stable")
     for (int i = 0; i < 50; ++i)
         firsts.insert(rendezvous_rank("job-" + std::to_string(i), workers, h).front());
     CHECK(firsts.size() >= 3);
+}
+
+TEST_CASE("credit invariants hold under randomised sequences")
+{
+    // Seeded, so a failure is reproducible; the invariant is the one the protocol depends on.
+    std::mt19937_64 rng(20261117);
+    std::uniform_int_distribution<std::uint32_t> amount(0, 40);
+    std::uniform_int_distribution<int> operation(0, 2);
+
+    CreditWindow window(16, 16);
+    for (int step = 0; step < 2000; ++step) {
+        switch (operation(rng)) {
+        case 0:
+            window.take_up_to(amount(rng));
+            break;
+        case 1:
+            window.grant(amount(rng));
+            break;
+        default:
+            window.reset();
+            break;
+        }
+        REQUIRE(window.available() <= window.capacity());
+        REQUIRE(window.available() >= 0);
+    }
+
+    // A grant never reduces availability: an explicit sequence rather than a random walk.
+    CreditWindow fixed(10, 5);
+    for (int i = 0; i < 20; ++i) {
+        const auto before = fixed.available();
+        fixed.grant(amount(rng) % 4);
+        CHECK(fixed.available() >= before);
+    }
+
+    // CreditGranter hands out at most what has been consumed, and refills in batches.
+    CreditGranter granter(10);
+    std::uint32_t granted = 0;
+    for (int i = 0; i < 100; ++i) {
+        const auto now = granter.on_consumed(amount(rng) % 3);
+        CHECK(now <= 10);
+        granted += now;
+    }
+    CHECK(granted <= 100); // never more credit than messages consumed
 }

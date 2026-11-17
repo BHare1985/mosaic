@@ -3,7 +3,7 @@
 **Purpose:** a job system built on top of logs and channels, with no central broker. `rendezvous_rank()`
 picks the runner deterministically, `job.h` defines the envelope and its encoding, and `runtime.h`
 provides `JobWorker` (run when ranked) and `JobRequester` (wait for the first result).
-Design: [06-jobs](../../../docs/design/06-jobs.md), contract: `openspec/specs/jobs/service-calls`.
+Design: 06-jobs (`docs/design/06-jobs.md`), contract: `openspec/specs/jobs/service-calls`.
 
 **Rules**
 - Jobs may depend on everything below them; nothing below may depend on jobs. Logs don't know jobs exist.

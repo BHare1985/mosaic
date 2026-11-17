@@ -29,6 +29,18 @@ bool Node::follow(const std::string& pattern)
     return true;
 }
 
+std::size_t Node::publish_batch(const Signer& signer, const Channel& channel, const std::string& content_type,
+    const std::vector<Bytes>& payloads, std::uint64_t now_ms)
+{
+    std::size_t written = 0;
+    for (const auto& payload : payloads) {
+        if (!publish(signer, channel, content_type, payload, now_ms))
+            break; // refused (oversized or not ours to write): stop rather than silently skip
+        ++written;
+    }
+    return written;
+}
+
 std::optional<Record> Node::publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload,
     std::uint64_t now_ms)
 {
@@ -508,6 +520,17 @@ bool Node::accept_payload(const NodeId& peer)
         ++counters_.version_rejects;
         return false;
     }
+    return true;
+}
+
+bool Node::unfollow(const std::string& pattern)
+{
+    // Remove it from our own matcher: everything below (storage, the app callback, repair) is gated on that
+    // matcher, so this is the whole behavioural change. The transport subscription remains, because the
+    // contract has no unsubscribe; a peer may keep sending and we drop it on arrival.
+    if (!following_.remove_pattern(pattern))
+        return false;
+    patterns_.erase(std::remove(patterns_.begin(), patterns_.end(), pattern), patterns_.end());
     return true;
 }
 

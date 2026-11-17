@@ -5,7 +5,7 @@ subscriptions *don't* match (inverted bitmap index). Used by `Node` (what do I f
 this publish?), and later by the ZeroMQ transport.
 
 **Files:** `matcher.h`. Pattern language is documented in the header and in
-[03-matching-and-channels](../../../docs/design/03-matching-and-channels.md).
+03-matching-and-channels (`docs/design/03-matching-and-channels.md`).
 
 **Rules**
 - No dependencies at all (not even core).

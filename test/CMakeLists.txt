@@ -32,10 +32,6 @@ endif ()
 # ---- Create binary ----
 
 file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
-if (NOT TARGET mlm-static)
-    # ZeroMQ ecosystem not built here: skip its compile-check test
-    list(FILTER sources EXCLUDE REGEX "malamute\\.cpp$")
-endif ()
 if (NOT TARGET MosaicZmq)
     # No ZeroMQ transport in this configuration: its conformance run has nothing to test
     list(FILTER sources EXCLUDE REGEX "test_transport_zmq\\.cpp$")
@@ -57,9 +53,6 @@ if (TARGET mosaic_sqlite3)
     target_link_libraries(${PROJECT_NAME} mosaic_sqlite3)
 elseif (TARGET SQLite::SQLite3)
     target_link_libraries(${PROJECT_NAME} SQLite::SQLite3)
-endif ()
-if (TARGET mlm-static)
-    target_link_libraries(${PROJECT_NAME} mlm-static)
 endif ()
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 

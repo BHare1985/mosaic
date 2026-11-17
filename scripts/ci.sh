@@ -65,6 +65,7 @@ step "format"
 if command -v clang-format >/dev/null 2>&1; then
     dirty=0
     for f in $(git ls-files '*.cpp' '*.h' | grep -E '^(include|source|test|standalone|fuzz)/'); do
+        [ -f "$f" ] || continue # a file deleted in the working tree is not a formatting failure
         clang-format --dry-run --Werror "$f" >/dev/null 2>&1 || { echo "needs formatting: $f"; dirty=1; }
     done
     [ "$dirty" -eq 0 ] || fail "format"

@@ -118,6 +118,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed | ✅
 | DOC-2 | Reference documentation builds: m.css + doxygen from the public headers and the design set, warnings are errors, and the build is part of the check | M | DOC-1 | `./scripts/docs.sh` produces a site; an undocumented public symbol or a broken reference fails it; `./scripts/ci.sh` runs it | ✅ |
 | DOC-3 | Merge the docs generator into `docs/site/`, publish the site to GitHub Pages, link the prior art and add the guarantees/design pages | M | DOC-2 | One folder for documentation and its generator; the site deploys from `scripts/docs.sh` output; no bare upstream mention | ✅ |
+| STYLE-1 | One written C++ style enforced by `.clang-format` (LLVM base, 100 cols) and `.clang-tidy` (correctness gated, naming enforced), with targeted `std::` imports in `.cpp` files | M | – | Format gated in CI; correctness lint clean; headers keep `std::` | ✅ |
+| STYLE-2 | Work through the clang-tidy style backlog: braces on single-statement bodies (the largest family), `nodiscard`, designated initialisers, `contains`, const-array indexing, implicit bool conversions. `MOSAIC_LINT_STYLE=1 ./scripts/ci.sh` prints the count | M | STYLE-1 | The style count reaches zero and the lint step gates style as well as correctness | ⬜ |
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 

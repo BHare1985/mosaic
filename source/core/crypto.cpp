@@ -1,8 +1,5 @@
 #include <mosaic/core/crypto.h>
 
-#ifdef MOSAIC_HAS_SODIUM
-#include <sodium.h>
-
 using std::make_pair;
 using std::move;
 using std::nullopt;
@@ -12,6 +9,10 @@ using std::size_t;
 using std::uint32_t;
 using std::uint64_t;
 using std::uint8_t;
+
+#ifdef MOSAIC_HAS_SODIUM
+#include <sodium.h>
+
 #endif
 
 namespace mosaic {
@@ -82,9 +83,9 @@ Hash sha256(const uint8_t* data, size_t size) {
     }
 
     Hash out;
-    for (int i = 0; i < 8; ++i)
-        for (int j = 0; j < 4; ++j)
-            out.bytes[static_cast<size_t>(i * 4 + j)] = static_cast<uint8_t>(h[i] >> (24 - 8 * j));
+    for (size_t i = 0; i < 8; ++i)
+        for (size_t j = 0; j < 4; ++j)
+            out.bytes[i * 4 + j] = static_cast<uint8_t>(h[i] >> (24 - 8 * j));
     return out;
 }
 
@@ -93,15 +94,18 @@ Hash sha256(const Bytes& data) {
 }
 
 bool hash_algo_supported(HashAlgo algo) {
+    // Whether BLAKE2b exists is a property of the build, not of the algorithm's name: one branch,
+    // one answer.
+#ifdef MOSAIC_HAS_SODIUM
+    const bool have_blake2b = true;
+#else
+    const bool have_blake2b = false;
+#endif
     switch (algo) {
         case HashAlgo::Sha256:
             return true;
         case HashAlgo::Blake2b:
-#ifdef MOSAIC_HAS_SODIUM
-            return true;
-#else
-            return false;
-#endif
+            return have_blake2b;
     }
     return false;
 }

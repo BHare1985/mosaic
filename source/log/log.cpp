@@ -35,6 +35,8 @@ optional<Head> LogWriter::head() const {
     if (!seq)
         return nullopt;
     auto last = store_.get(key_, *seq);
+    if (!last)
+        return nullopt;  // the store claims a head it cannot serve: no head rather than a crash
     return Head{*seq, record_hash(*last, hasher_)};
 }
 
@@ -62,7 +64,10 @@ optional<Head> ReplicaLog::head(const LogKey& key) const {
     auto seq = store_.head_seq(key);
     if (!seq)
         return nullopt;
-    return Head{*seq, record_hash(*store_.get(key, *seq), hasher_)};
+    const auto last = store_.get(key, *seq);
+    if (!last)
+        return nullopt;  // a head the store cannot serve is no head at all
+    return Head{*seq, record_hash(*last, hasher_)};
 }
 
 IngestResult ReplicaLog::ingest(const Record& record) {

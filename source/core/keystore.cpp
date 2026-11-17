@@ -11,9 +11,6 @@
 #include <fstream>
 #include <sstream>
 
-#ifndef _WIN32
-#include <sys/stat.h>
-
 using std::getline;
 using std::ifstream;
 using std::nullopt;
@@ -23,6 +20,10 @@ using std::remove;
 using std::rename;
 using std::size_t;
 using std::string;
+
+#ifndef _WIN32
+#include <sys/stat.h>
+
 #endif
 
 namespace mosaic {

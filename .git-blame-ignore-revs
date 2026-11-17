@@ -1,5 +1,0 @@
-# Mechanical reformat: LLVM formatting plus the std:: import pass.
-# Tells git blame to skip these so authorship survives them.
-#
-#   git config blame.ignoreRevsFile .git-blame-ignore-revs
-40730ba731385b440db6f619c498ddd73d343222

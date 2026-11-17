@@ -7,13 +7,14 @@
 #include <fstream>
 #include <string>
 
-#ifndef _WIN32
-#include <sys/stat.h>
-
 using std::ofstream;
 using std::remove;
 using std::string;
 using std::uint8_t;
+
+#ifndef _WIN32
+#include <sys/stat.h>
+
 #endif
 
 using namespace mosaic;

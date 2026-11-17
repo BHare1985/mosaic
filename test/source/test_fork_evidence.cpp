@@ -7,11 +7,12 @@
 #include <cstdio>
 #include <doctest/doctest.h>
 
+using std::remove;
+using std::string;
+
 #ifdef MOSAIC_HAS_SQLITE
 #include <mosaic/store/sqlite_log_store.h>
 
-using std::remove;
-using std::string;
 #endif
 
 using namespace mosaic;

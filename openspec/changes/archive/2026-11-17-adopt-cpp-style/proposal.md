@@ -23,7 +23,7 @@ enforcing it costs little and stops it from decaying.
 - **`std::` noise, Option 1:** `using namespace ...` stays banned everywhere (including `.cpp` files), but a `.cpp` file may
   import the specific names it uses - `using std::string;` - which is what removes most of the repetition. Headers never carry
   using-declarations: a header that imports a name into `namespace mosaic` changes what every includer sees.
-- One mechanical reformat of the whole tree, plus a `.git-blame-ignore-revs` entry so `git blame` can skip it.
+- One mechanical reformat of the whole tree, as its own commit so the diff says one thing.
 - The format gate in `scripts/ci.sh` stays; a `clang-tidy` step is added that reports **skipped** when the tool is absent, the
   same policy the documentation step uses.
 - **Not** in scope: renaming existing types or files, adopting a different brace style for lambdas, or turning `WarningsAsErrors`
@@ -36,7 +36,7 @@ fix that touches code is behaviour-preserving and reviewed as such.
 
 ## Impact
 
-- `.clang-format` (replaced), `.clang-tidy` (new), `.git-blame-ignore-revs` (new).
+- `.clang-format` (replaced), `.clang-tidy` (new).
 - Every `.h`/`.cpp` in `include/`, `source/`, `test/`, `standalone/`, `fuzz/` reformatted once; `.cpp` files additionally lose
   their `std::` prefixes where a using-declaration imports the name.
 - `docs/design/conventions.md`: the style section. `scripts/ci.sh`: the lint step.

@@ -8,6 +8,30 @@
   - `.clang-tidy`: `bugprone`, `clang-analyzer`, `cppcoreguidelines`, `modernize`, `performance` and `readability`, with the
     naming table below enforced per construct. Excluded checks are listed in the file with the reason next to each.
 
+### Running it
+
+```bash
+# format: rewrite in place, or check without writing
+clang-format -i source/node/node.cpp
+clang-format --dry-run --Werror $(git ls-files 'include/**/*.h' 'source/**/*.cpp')
+
+# lint: needs a compilation database, which the build now writes (CMAKE_EXPORT_COMPILE_COMMANDS)
+cmake -S test -B build/ci-core -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF
+run-clang-tidy -p build/ci-core -j "$(nproc)" -quiet 'source/.*\.cpp'
+```
+
+In CI (`./scripts/ci.sh`):
+
+- **format** is gated: any unformatted file fails.
+- **lint** is gated on **correctness only** - `bugprone-*` and `clang-analyzer-*` - because a bug is a bug whether or not
+  anybody reads the style. The style and modernisation suggestions are *reported*, not gated: they are tracked as STYLE-2 on the
+  [TODO board](TODO.md). Set `MOSAIC_LINT_STYLE=1` to see the count locally.
+- Both steps are optional tools: if `clang-format` or `clang-tidy` is missing, the step says `SKIPPED` and how to install it
+  rather than passing silently.
+
+The parallel runner matters: serial `clang-tidy` over the whole tree takes minutes; `run-clang-tidy -j` takes under a minute,
+which is the difference between a gate people run and one they ignore.
+
 ### Naming
 
 | Construct | Convention | Example |

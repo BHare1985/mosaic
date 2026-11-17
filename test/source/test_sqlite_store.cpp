@@ -10,15 +10,16 @@
 
 #include "store_conformance.h"
 
-#ifdef MOSAIC_HAS_SQLITE
-#include <sqlite3.h>
-
 namespace chrono = std::chrono;
 using std::move;
 using std::remove;
 using std::string;
 using std::uint8_t;
 using std::vector;
+
+#ifdef MOSAIC_HAS_SQLITE
+#include <sqlite3.h>
+
 #endif
 
 using namespace mosaic;

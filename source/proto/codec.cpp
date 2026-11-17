@@ -51,7 +51,11 @@ optional<Record> read_record(ByteReader& reader, const Bytes& body) {
 
     Record record;
     reader.get_u8();  // record format version; only version 1 exists
-    record.hash_algo = static_cast<HashAlgo>(reader.get_u8());
+    const auto algorithm = reader.get_u8();
+    if (algorithm < static_cast<uint8_t>(HashAlgo::Sha256) ||
+        algorithm > static_cast<uint8_t>(HashAlgo::Blake2b))
+        return nullopt;  // an unknown tag is a malformed record, not an algorithm we can guess at
+    record.hash_algo = static_cast<HashAlgo>(algorithm);
     record.writer = reader.get_string();
     record.channel = reader.get_string();
     record.seq = reader.get_u64();

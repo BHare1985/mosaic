@@ -404,6 +404,182 @@ TEST_CASE("a node with no callback is a pure replica and still serves repairs")
         CHECK(follower.received[static_cast<std::size_t>(i)] == std::to_string(i));
 }
 
+TEST_CASE("replicas acknowledge, and the writer releases records once enough have")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(31);
+
+    NodeConfig writer_cfg;
+    writer_cfg.min_replicas = 2;
+    writer_cfg.control_interval_ms = 100;
+    Peer writer(net, "writer", hasher, alice, writer_cfg);
+    Peer r1(net, "r1", hasher, alice), r2(net, "r2", hasher, alice);
+    r1.node.follow("events.>");
+    r2.node.follow("events.>");
+
+    for (int i = 0; i < 5; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+
+    std::uint64_t now = 0;
+    for (int step_count = 0; step_count < 200 && writer.node.retained_records() > 0; ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &r1, &r2 });
+    }
+
+    CHECK(writer.node.counters().acks_received >= 2); // at least one from each replica
+    CHECK(writer.node.retained_records() == 0); // both acknowledged everything, so nothing is held
+    CHECK(writer.node.retention_shortfalls().empty());
+    CHECK(r1.node.counters().acks_sent >= 1);
+}
+
+TEST_CASE("retention reports the shortfall instead of blocking when replicas are missing")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(33);
+
+    NodeConfig writer_cfg;
+    writer_cfg.min_replicas = 2; // two replicas required...
+    writer_cfg.retention_limit = 2; // ...and only two records may be held while waiting
+    writer_cfg.control_interval_ms = 100;
+    Peer writer(net, "writer", hasher, alice, writer_cfg);
+    Peer r1(net, "r1", hasher, alice), r2(net, "r2", hasher, alice);
+    r1.node.follow("events.>");
+    r2.node.follow("events.>");
+
+    for (int i = 0; i < 3; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+
+    std::uint64_t now = 0;
+    for (int step_count = 0; step_count < 100; ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &r1, &r2 });
+    }
+    REQUIRE(writer.node.retained_records() == 0); // both replicas confirmed the first records
+
+    // One replica dies; from here the floor of two can never be met again.
+    net.partition("writer", "r2");
+    for (int i = 3; i < 9; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), now);
+
+    for (int step_count = 0; step_count < 200 && writer.node.retention_shortfalls().empty(); ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &r1 });
+    }
+
+    // A dead replica becomes a visible counter, not an outage and not silent retention growth.
+    CHECK(writer.node.counters().retention_shortfall > 0);
+    REQUIRE(writer.node.retention_shortfalls().size() == 1);
+    CHECK(writer.node.retention_shortfalls().front().channel == "events.a");
+    CHECK(writer.node.retained_records() <= writer_cfg.retention_limit);
+    // The log itself survives: the replica that stayed has every record, so nothing was lost with the dead one.
+    REQUIRE(r1.node.head({ "alice", "events.a" }).has_value());
+    CHECK(r1.node.head({ "alice", "events.a" })->seq == 8);
+}
+
+TEST_CASE("a newcomer finds the log from a replica while the writer is offline")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(37);
+
+    NodeConfig cfg;
+    cfg.control_interval_ms = 100;
+    Peer writer(net, "writer", hasher, alice, cfg), replica(net, "replica", hasher, alice, cfg);
+    replica.node.follow("events.>");
+
+    for (int i = 0; i < 8; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+
+    std::uint64_t now = 0;
+    for (int step_count = 0; step_count < 200 && !replica.node.head({ "alice", "events.a" }); ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &replica });
+    }
+    REQUIRE(replica.node.head({ "alice", "events.a" })->seq == 7);
+
+    // The writer goes away: the newcomer can never learn a head from it.
+    net.partition("writer", "late");
+    Peer late(net, "late", hasher, alice, cfg);
+    late.node.follow("events.>");
+
+    for (int step_count = 0; step_count < 200 && late.received.size() < 8; ++step_count) {
+        now += 50;
+        step(net, now, { &replica, &late }); // the writer is not pumped at all
+    }
+
+    CHECK(replica.node.counters().heads_answered > 0);
+    // Requests are rate-limited rather than sent on every tick: 200 steps x 50ms against a 100ms control
+    // interval cannot produce hundreds of requests.
+    CHECK(late.node.counters().heads_requested > 0);
+    CHECK(late.node.counters().heads_requested <= 20);
+    REQUIRE(late.received.size() == 8);
+    for (int i = 0; i < 8; ++i)
+        CHECK(late.received[static_cast<std::size_t>(i)] == std::to_string(i));
+}
+
+TEST_CASE("granted live credit paces delivery, and the rest is repaired")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(41);
+
+    NodeConfig cfg;
+    cfg.control_interval_ms = 100;
+    Peer writer(net, "writer", hasher, alice, cfg), follower(net, "follower", hasher, alice, cfg);
+    follower.node.follow("events.>");
+    follower.node.grant_live_credit("writer", 4); // only four live records may be pushed
+
+    for (int i = 0; i < 12; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+
+    std::uint64_t now = 0;
+    for (int step_count = 0; step_count < 200 && follower.received.size() < 12; ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &follower });
+    }
+
+    // Everything arrives in the end - the live path dropped what credit did not cover and repair made
+    // up the difference, which is the whole point of pacing without blocking.
+    REQUIRE(follower.received.size() == 12);
+    CHECK(follower.node.counters().credit_drops > 0);
+    for (int i = 0; i < 12; ++i)
+        CHECK(follower.received[static_cast<std::size_t>(i)] == std::to_string(i));
+}
+
+TEST_CASE("a follower too far behind switches to repair and still converges")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(43);
+
+    NodeConfig cfg;
+    cfg.slow_follower_threshold = 2; // deliberately easy to exceed
+    cfg.control_interval_ms = 100;
+    Peer writer(net, "writer", hasher, alice, cfg), follower(net, "follower", hasher, alice, cfg);
+    follower.node.follow("events.>");
+
+    // Make the follower genuinely behind: while the link is broken it misses ten records, and the next
+    // live record it sees is ten sequences ahead. That is the case the rule exists for.
+    net.partition("writer", "follower");
+    for (int i = 0; i < 10; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+    step(net, 50, { &writer, &follower });
+    REQUIRE(follower.received.empty());
+    net.heal("writer", "follower");
+    writer.node.publish(alice, "events.a", "t", bytes("ten"), 100); // arrives live, ten ahead
+
+    std::uint64_t now = 100;
+    for (int step_count = 0; step_count < 300 && follower.received.size() < 11; ++step_count) {
+        now += 50;
+        step(net, now, { &writer, &follower });
+    }
+
+    CHECK(follower.node.counters().slow_follower_switches > 0);
+    REQUIRE(follower.received.size() == 11);
+}
+
 TEST_CASE("converges under loss, duplication and jitter (seed sweep)")
 {
     const auto count = seed_count();

@@ -603,7 +603,7 @@ int main(int argc, char** argv) {
     const string command = argv[1];
 
     if (command == "version") {
-        cout << "Mosaic, version " << MOSAIC_VERSION << '\n';
+        cout << "Mosaic, version " << kVersion << '\n';
         return 0;
     }
     if (command == "match" && argc == 4) {

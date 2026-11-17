@@ -38,6 +38,10 @@ void JobWorker::on_record(const Record& record)
         const auto slots = static_cast<std::uint32_t>(ranking.size());
         const auto slot_ms = slots == 0 ? request->timeout_ms : request->timeout_ms / slots;
 
+        if (pending_.size() >= max_pending) {
+            ++pending_overflow; // bounded queue, counted overflow: never an unbounded map
+            return;
+        }
         Due due;
         due.request = *request;
         due.delay_ms = rank * slot_ms; // rank 0 runs immediately, rank 1 after one slot, and so on

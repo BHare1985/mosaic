@@ -38,6 +38,12 @@ public:
     std::size_t pending() const { return pending_.size(); }
     std::uint64_t runs() const { return runs_; }
 
+    /// Most requests this worker will hold while waiting for its turn. A peer that publishes requests faster
+    /// than they retire must not be able to grow this set without bound (bound-peer-requests).
+    std::size_t max_pending = 1024;
+    /// Requests dropped because that bound was reached.
+    std::uint64_t pending_overflow = 0;
+
 private:
     struct Due {
         JobRequest request;

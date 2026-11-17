@@ -29,6 +29,12 @@ struct NodeConfig {
     std::uint32_t slow_follower_threshold = 512;
     /// Minimum spacing for head requests and acknowledgements, per peer and per log.
     std::uint32_t control_interval_ms = 500;
+    /// Largest payload this node will accept or publish (matches the wire format's record limit).
+    std::uint32_t max_record_bytes = 256 * 1024;
+    /// Most patterns a single head request may contain. A peer asking about everything costs a matcher build.
+    std::uint32_t max_head_patterns = 64;
+    /// Most requests of one kind a peer may have answered per control interval.
+    std::uint32_t max_requests_per_interval = 32;
 };
 
 /// Cumulative counters, so tests assert on behaviour instead of eyeballing logs (NODE-1).
@@ -53,6 +59,9 @@ struct NodeCounters {
     std::uint64_t heads_requested = 0; // GetHeads exchanges we started
     std::uint64_t heads_answered = 0; // GetHeads exchanges we served
     std::uint64_t slow_follower_switches = 0; // times we stopped trusting the live path for a log
+    std::uint64_t oversized_records = 0; // refused: payload above max_record_bytes
+    std::uint64_t head_requests_refused = 0; // refused: more patterns than a request may carry
+    std::uint64_t requests_throttled = 0; // per-peer budgets: requests dropped for arriving too fast
 };
 
 /// The glue that makes the building blocks one system. A Node is simultaneously:
@@ -94,7 +103,10 @@ public:
     void on_fork(RecordHandler handler) { on_fork_ = std::move(handler); }
 
     /// Append to our own log on `channel` and announce it. The signer must outlive the Node.
-    Record publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload, std::uint64_t now_ms);
+    /// Empty when the payload exceeds the configured limit - a caller must not be able to create a log its
+    /// own peers would refuse (bound-peer-requests).
+    std::optional<Record> publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload,
+        std::uint64_t now_ms);
 
     /// Handle everything waiting in the transport.
     void pump(std::uint64_t now_ms);
@@ -131,11 +143,13 @@ private:
     void handle(const NodeId& from, const Message& message, std::uint64_t now_ms);
     void handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms);
     void handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms);
-    void handle_fetch(const NodeId& from, const FetchMsg& fetch);
+    void handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t now_ms);
     void handle_ack(const NodeId& from, const AckMsg& ack);
-    void handle_get_heads(const NodeId& from, const GetHeadsMsg& request);
+    void handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std::uint64_t now_ms);
     void handle_direct_head(const NodeId& from, const DirectHeadMsg& head, std::uint64_t now_ms);
     void handle_credit(const NodeId& from, const CreditMsg& credit);
+    /// Per-peer budget: true when this peer may have another request of this kind right now.
+    bool admit_request(const NodeId& peer, std::uint64_t now_ms);
     /// Announce what we hold for the patterns we follow, so a newcomer can find logs without the writer.
     void request_heads(std::uint64_t now_ms);
     /// Send an acknowledgement for logs we hold, rate-limited per peer.
@@ -178,6 +192,7 @@ private:
     std::map<LogKey, NodeId> source_peer_; // where a log's records actually came from (acks go there)
     std::map<NodeId, std::uint64_t> last_heads_request_ms_;
     std::vector<std::string> patterns_; // what we follow, replayed to peers when asking for heads
+    std::map<NodeId, std::pair<std::uint64_t, std::uint32_t>> request_budget_; // peer -> (window start, used)
     NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;

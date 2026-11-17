@@ -216,7 +216,9 @@ TEST_CASE("forged records are rejected, counted and reported once")
     Peer writer(net, "writer", hasher, alice), follower(net, "follower", hasher, alice);
     follower.node.follow("events.>");
 
-    const auto genuine = writer.node.publish(alice, "events.a", "t", bytes("real"), 0);
+    const auto genuine_opt = writer.node.publish(alice, "events.a", "t", bytes("real"), 0);
+    REQUIRE(genuine_opt.has_value()); // publish reports refusal instead of writing
+    const Record genuine = *genuine_opt;
     step(net, 0, { &writer, &follower });
     REQUIRE(follower.received.size() == 1);
 

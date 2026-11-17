@@ -230,7 +230,11 @@ int run_pub(int argc, char** argv)
         now += 1;
         const auto record = runtime->node->publish(signer, channel, "text/plain",
             Bytes(line.begin(), line.end()), now);
-        std::cout << "seq " << record.seq << " hash " << to_hex(record_hash_tagged(record).value()) << '\n';
+        if (!record) {
+            std::cerr << "refused: payload exceeds the record size limit\n";
+            return 1;
+        }
+        std::cout << "seq " << record->seq << " hash " << to_hex(record_hash_tagged(*record).value()) << '\n';
         std::cout.flush();
         // Give the live path a moment to reach subscribers before the next line is published.
         for (int i = 0; i < 10; ++i) {
@@ -372,7 +376,8 @@ int run_sim(int argc, char** argv)
         for (int step = 0; step < 4000 && delivered < records; ++step) {
             now += 50;
             if (published < records) {
-                writer.publish(signer, "events.a", "text/plain", Bytes(std::to_string(published).begin(), std::to_string(published).end()), now);
+                static_cast<void>(writer.publish(signer, "events.a", "text/plain",
+                    Bytes(std::to_string(published).begin(), std::to_string(published).end()), now));
                 ++published;
             }
             net.advance(now);

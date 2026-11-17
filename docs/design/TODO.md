@@ -19,7 +19,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M1 — trustworthy sim** | CORE-3, STORE-0, ~~NET-0~~ ✅, ~~SIM-1~~ ✅, ~~SIM-2~~ ✅, ~~NODE-1~~ ✅, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
 | **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, SEC-1 🟡 (encryption yes, ZAP pinning is SEC-1b), ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
-| **M4 — resilience** | ACK-1, HEADS-1, FLOW-2, FLOW-3, FLOW-4, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery |
+| **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery still open |
 | **M5 — jobs** | JOBS-1..4 | call a service by name over the same network |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
 
@@ -56,8 +56,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|---|---|
 | FLOW-1 | Property tests for `CreditWindow`/`CreditGranter` (no overflow, clamping, never negative) | S | – | Randomized sequences; invariant `available <= capacity` |
 | FLOW-2 | Per-request credit accounting in Node (replace `reset()` on timeout) | M | – | Sim: delayed (not lost) responses do not inflate credit; window never exceeds capacity | ✅
-| FLOW-3 | Handle `CreditMsg`; credit-gated streaming path | L | ENC-1 recommended | A slow consumer is dropped to FETCH mode and keeps up; producers never block (sim scenario) |
-| FLOW-4 | Slow-follower rule: if behind by > N, ignore live `RecordMsg` and catch up by FETCH only | M | – | Sim: follower slower than writer converges without unbounded memory |
+| FLOW-3 | Handle `CreditMsg`; credit-gated streaming path | L | ENC-1 recommended | A slow consumer is dropped to FETCH mode and keeps up; producers never block (sim scenario) | ✅
+| FLOW-4 | Slow-follower rule: if behind by > N, ignore live `RecordMsg` and catch up by FETCH only | M | – | Sim: follower slower than writer converges without unbounded memory | ✅
 
 ## proto
 | ID | Task | Size | Depends | Acceptance criteria |
@@ -65,8 +65,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ENC-1 | Binary encode/decode of all messages and Records | L | design note | Round-trip + fuzz tests; strict bounds; golden test vectors checked in; `std::optional<Message>` decoder | ✅
 | ENC-2 | Unknown message id/version handling | S | ENC-1 | Unknown ids ignored, counted; version mismatch reported | ✅
 | HELLO-1 | Handle `HelloMsg` (version + patterns), keep per-peer follow set | S | MATCH-2 | Peers learn who follows what; used by jobs worker discovery | 🟡 version + codec done; pattern advertisement moved to JOBS-2
-| ACK-1 | Replica sends `AckMsg`; writer tracks acked seq and `min_replicas`; unacked retention | L | design note | Writer keeps records until `min_replicas` ACKs (fixes Dafka's missing setting); sim with replica loss |
-| HEADS-1 | `GetHeadsMsg`/`DirectHeadMsg` | M | HELLO-1 | Newcomer learns heads while the writer is offline and fetches from other replicas |
+| ACK-1 | Replica sends `AckMsg`; writer tracks acked seq and `min_replicas`; unacked retention | L | design note | Writer keeps records until `min_replicas` ACKs (fixes Dafka's missing setting); sim with replica loss | ✅
+| HEADS-1 | `GetHeadsMsg`/`DirectHeadMsg` | M | HELLO-1 | Newcomer learns heads while the writer is offline and fetches from other replicas | ✅
 
 ## net
 | ID | Task | Size | Depends | Acceptance criteria |

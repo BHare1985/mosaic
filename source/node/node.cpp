@@ -24,6 +24,7 @@ bool Node::follow(const std::string& pattern)
 {
     if (!following_.add(pattern))
         return false;
+    patterns_.push_back(pattern);
     transport_.subscribe(pattern);
     return true;
 }
@@ -51,6 +52,10 @@ void Node::tick(std::uint64_t now_ms)
 {
     // 0. Version handshake: every peer we can address hears our version until it answers with its own.
     greet_peers(now_ms);
+
+    // 0b. Control-plane work: find logs we are missing, and tell writers what we hold.
+    request_heads(now_ms);
+    acknowledge(now_ms);
 
     // 1. HEAD heartbeats for logs we write.
     for (auto& [key, slot] : writers_) {
@@ -92,11 +97,11 @@ void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_
                    [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
                    [&](const FetchMsg& m) { handle_fetch(from, m); },
                    [&](const HelloMsg& m) { handle_hello(from, m); },
-                   // TODO(ACK-1, HEADS-1, FLOW-3): still defined but not handled.
-                   [&](const AckMsg&) { },
-                   [&](const GetHeadsMsg&) { },
-                   [&](const DirectHeadMsg&) { },
-                   [&](const CreditMsg&) { },
+                   [&](const AckMsg& m) { handle_ack(from, m); },
+                   [&](const GetHeadsMsg& m) { handle_get_heads(from, m); },
+                   [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
+                   [&](const CreditMsg& m) { handle_credit(from, m); },
+
                },
         message);
 }
@@ -105,15 +110,33 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
 {
     if (!accept_payload(from))
         return;
+    if (!direct && live_credit_enabled_[from]) {
+        // Credit was granted on this link, so live delivery is paced; a record we cannot afford is lost
+        // and repaired, never queued (FLOW-3).
+        if (live_credits_[from].take_up_to(1) == 0) {
+            ++counters_.credit_drops;
+            return;
+        }
+    }
     if (!following_.matches_any(record.channel))
         return;
 
     const LogKey key = record.key();
     if (direct)
         consume_credit(from, key, record.seq);
+    else if (record.seq > next_seq(key) + config_.slow_follower_threshold) {
+        // Too far behind to keep up with a firehose: stop trusting live delivery for this log and let
+        // the repair path do the work, which bounds our backlog by our own request size (FLOW-4).
+        // The comparison is against this record's own sequence: the head we know is updated below.
+        ++counters_.slow_follower_switches;
+        request_fetch(key, from, now_ms);
+        return;
+    }
 
     auto& known = remote_head_[key];
     known = std::max(known, record.seq);
+    if (source_peer_.find(key) == source_peer_.end())
+        source_peer_[key] = from;
 
     switch (replica_.ingest(record)) {
     case IngestResult::Accepted:
@@ -217,6 +240,170 @@ std::uint32_t Node::credit_available(const NodeId& peer) const
     const auto it = peer_credits_.find(peer);
     // Nothing has been spent for a peer we never fetched from, so the whole window is available.
     return it == peer_credits_.end() ? config_.fetch_window : it->second.available();
+}
+
+void Node::grant_live_credit(const NodeId& peer, std::uint32_t credits)
+{
+    live_credit_enabled_[peer] = true;
+    auto& window = live_credits_.try_emplace(peer, credits, credits).first->second;
+    window.grant(credits);
+}
+
+std::uint32_t Node::retained_records() const
+{
+    std::uint32_t total = 0;
+    for (const auto& [key, slot] : writers_) {
+        const auto head = store_.head_seq(key);
+        if (!head)
+            continue;
+        const auto released = released_through_.find(key);
+        const Seq floor = released == released_through_.end() ? 0 : released->second;
+        if (*head > floor)
+            total += static_cast<std::uint32_t>(*head - floor);
+    }
+    return total;
+}
+
+std::vector<LogKey> Node::retention_shortfalls() const
+{
+    std::vector<LogKey> out;
+    for (const auto& [key, at] : shortfall_at_)
+        out.push_back(key);
+    return out;
+}
+
+void Node::handle_ack(const NodeId& from, const AckMsg& ack)
+{
+    ++counters_.acks_received;
+    auto& known = acked_[{ ack.key, from }];
+    // Idempotent and monotonic: a duplicate or stale acknowledgement can never regress or double count.
+    known = std::max(known, ack.seq);
+    advance_retention(ack.key);
+}
+
+void Node::advance_retention(const LogKey& key)
+{
+    if (config_.min_replicas == 0)
+        return;
+    const auto head = store_.head_seq(key);
+    if (!head)
+        return;
+
+    // The floor moves to the highest sequence that at least min_replicas replicas have confirmed.
+    Seq candidate = released_through_.count(key) ? released_through_[key] : 0;
+    for (Seq seq = candidate; seq <= *head; ++seq) {
+        std::uint32_t replicas = 0;
+        for (const auto& [entry, acked] : acked_)
+            if (entry.first == key && acked >= seq)
+                ++replicas;
+        if (replicas < config_.min_replicas)
+            break;
+        candidate = seq;
+    }
+    released_through_[key] = candidate;
+
+    // Released means "no longer waiting", not "deleted": the store keeps the record.
+    const Seq still_held = *head - candidate;
+    if (still_held > config_.retention_limit) {
+        released_through_[key] = *head - config_.retention_limit;
+        shortfall_at_[key] = *head;
+        ++counters_.retention_shortfall;
+    }
+}
+
+void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request)
+{
+    Matcher patterns;
+    for (const auto& pattern : request.patterns)
+        if (!patterns.add(pattern))
+            return; // an invalid pattern is a caller error: answer nothing rather than guess
+
+    ++counters_.heads_answered;
+    std::uint32_t answered = 0;
+    for (const auto& key : store_.keys()) {
+        if (answered >= config_.max_serve)
+            break;
+        if (!patterns.matches_any(key.channel))
+            continue;
+        const auto head = store_.head_seq(key);
+        if (!head)
+            continue;
+        const auto last = store_.get(key, *head);
+        if (!last)
+            continue;
+        const auto hash = record_hash_tagged(*last);
+        if (!hash)
+            continue;
+        transport_.send(from, DirectHeadMsg { key, *head, *hash });
+        ++answered;
+    }
+}
+
+void Node::handle_direct_head(const NodeId& from, const DirectHeadMsg& head, std::uint64_t now_ms)
+{
+    if (!following_.matches_any(head.key.channel))
+        return;
+    auto& known = remote_head_[head.key];
+    known = std::max(known, head.seq);
+    if (next_seq(head.key) <= head.seq)
+        request_fetch(head.key, from, now_ms);
+}
+
+void Node::handle_credit(const NodeId& from, const CreditMsg& credit)
+{
+    live_credit_enabled_[from] = true;
+    live_credits_.try_emplace(from, credit.credits * 4, credit.credits).first->second.grant(credit.credits);
+}
+
+void Node::request_heads(std::uint64_t now_ms)
+{
+    for (const auto& peer : transport_.peers()) {
+        auto& last = last_heads_request_ms_[peer];
+        if (last != 0 && now_ms - last < config_.control_interval_ms)
+            continue;
+        last = now_ms;
+        ++counters_.heads_requested;
+        // Ask for everything we follow: the answer is a set of heads, which is exactly what a newcomer
+        // needs when the writer is not around to announce them.
+        std::vector<std::string> patterns;
+        for (const auto& pattern : patterns_)
+            patterns.push_back(pattern);
+        if (!patterns.empty())
+            transport_.send(peer, GetHeadsMsg { patterns });
+    }
+}
+
+void Node::acknowledge(std::uint64_t now_ms)
+{
+    // Only logs we do not write: a writer is not its own replica.
+    for (const auto& key : store_.keys()) {
+        if (writers_.count(key))
+            continue;
+        if (!following_.matches_any(key.channel))
+            continue;
+        auto& last = last_ack_ms_[key];
+        if (last != 0 && now_ms - last < config_.control_interval_ms)
+            continue;
+        const auto head = store_.head_seq(key);
+        if (!head)
+            continue;
+        const auto source = source_peer_.find(key);
+        if (source == source_peer_.end())
+            continue; // nothing arrived from a peer yet, so there is nobody to acknowledge to
+        last = now_ms;
+        // Acknowledge to the peer that supplied the log. The writer *identity* is not an address.
+        transport_.send(source->second, AckMsg { key, *head });
+        ++counters_.acks_sent;
+    }
+}
+
+Seq Node::behind_by(const LogKey& key) const
+{
+    const auto known = remote_head_.find(key);
+    if (known == remote_head_.end())
+        return 0;
+    const auto next = next_seq(key);
+    return known->second >= next ? known->second - next + 1 : 0;
 }
 
 void Node::greet_peers(std::uint64_t now_ms)

@@ -29,8 +29,13 @@ bool Node::follow(const std::string& pattern)
     return true;
 }
 
-Record Node::publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload, std::uint64_t now_ms)
+std::optional<Record> Node::publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload,
+    std::uint64_t now_ms)
 {
+    if (payload.size() > config_.max_record_bytes) {
+        ++counters_.oversized_records;
+        return std::nullopt; // a writer must not create history its own peers would refuse
+    }
     const LogKey key { signer.id(), channel };
     auto it = writers_.find(key);
     if (it == writers_.end()) {
@@ -95,10 +100,10 @@ void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_
                    [&](const RecordMsg& m) { handle_record(from, m.record, false, now_ms); },
                    [&](const DirectRecordMsg& m) { handle_record(from, m.record, true, now_ms); },
                    [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
-                   [&](const FetchMsg& m) { handle_fetch(from, m); },
+                   [&](const FetchMsg& m) { handle_fetch(from, m, now_ms); },
                    [&](const HelloMsg& m) { handle_hello(from, m); },
                    [&](const AckMsg& m) { handle_ack(from, m); },
-                   [&](const GetHeadsMsg& m) { handle_get_heads(from, m); },
+                   [&](const GetHeadsMsg& m) { handle_get_heads(from, m, now_ms); },
                    [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
                    [&](const CreditMsg& m) { handle_credit(from, m); },
 
@@ -120,6 +125,11 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
     }
     if (!following_.matches_any(record.channel))
         return;
+
+    if (record.payload.size() > config_.max_record_bytes) {
+        ++counters_.oversized_records;
+        return; // refused before the store, the callback or the chain
+    }
 
     const LogKey key = record.key();
     if (direct)
@@ -179,9 +189,11 @@ void Node::handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t no
         request_fetch(head.key, from, now_ms);
 }
 
-void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch)
+void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t now_ms)
 {
     if (!accept_payload(from))
+        return;
+    if (!admit_request(from, now_ms))
         return;
     const auto count = std::min(fetch.count, config_.max_serve);
     for (auto& record : store_.read(fetch.key, fetch.from, count))
@@ -311,8 +323,14 @@ void Node::advance_retention(const LogKey& key)
     }
 }
 
-void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request)
+void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std::uint64_t now_ms)
 {
+    if (request.patterns.size() > config_.max_head_patterns) {
+        ++counters_.head_requests_refused; // refused whole: a matcher is never built for a hostile request
+        return;
+    }
+    if (!admit_request(from, now_ms))
+        return;
     Matcher patterns;
     for (const auto& pattern : request.patterns)
         if (!patterns.add(pattern))
@@ -404,6 +422,25 @@ Seq Node::behind_by(const LogKey& key) const
         return 0;
     const auto next = next_seq(key);
     return known->second >= next ? known->second - next + 1 : 0;
+}
+
+bool Node::admit_request(const NodeId& peer, std::uint64_t now_ms)
+{
+    // A sliding window per peer: cheap, bounded, and it never disconnects anyone. Requests over budget are
+    // dropped and counted, so one bursty peer looks bursty rather than partitioned.
+    if (config_.max_requests_per_interval == 0)
+        return true;
+    auto& [window_start, used] = request_budget_[peer];
+    if (used == 0 || now_ms - window_start >= config_.control_interval_ms) {
+        window_start = now_ms;
+        used = 0;
+    }
+    if (used >= config_.max_requests_per_interval) {
+        ++counters_.requests_throttled;
+        return false;
+    }
+    ++used;
+    return true;
 }
 
 void Node::greet_peers(std::uint64_t now_ms)

@@ -29,6 +29,14 @@ stay supported as an **import/export format**, because the rest of the ZeroMQ ec
 interoperating with those tools is worth more than the convenience of not writing a converter. That converter belongs to the
 transport change (SEC-1), not to this one.
 
+## What an authenticated peer may cost (implemented)
+
+Encryption and pinning decide *who* may connect; they say nothing about how much a connected peer may ask for. The bounds live
+in `NodeConfig` and are enforced before anything is stored or executed: a payload above `max_record_bytes` is refused on ingest
+and on publish, a head request carrying more than `max_head_patterns` patterns is refused whole (no matcher is built for it),
+per-peer request budgets throttle with a counter rather than a disconnect, and a worker's pending job set is bounded. Exceeding a
+budget is visible (`oversized_records`, `head_requests_refused`, `requests_throttled`, `pending_overflow`), never silent.
+
 ## Threat model (first draft; owner: maintainer to review)
 | Actor | Can | Cannot / mitigation |
 |---|---|---|

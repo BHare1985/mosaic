@@ -56,6 +56,13 @@ elseif (TARGET SQLite::SQLite3)
 endif ()
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
+# The anti-drift check: the test compares this with the generated header.
+get_target_property(MOSAIC_VERSION_FROM_CMAKE Mosaic INTERFACE_MOSAIC_VERSION)
+if (NOT MOSAIC_VERSION_FROM_CMAKE)
+    set(MOSAIC_VERSION_FROM_CMAKE "${Mosaic_VERSION}")
+endif ()
+target_compile_definitions(${PROJECT_NAME} PRIVATE MOSAIC_EXPECTED_VERSION="${MOSAIC_VERSION_FROM_CMAKE}")
+
 # enable compiler warnings
 if (NOT TEST_INSTALLED_VERSION)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")

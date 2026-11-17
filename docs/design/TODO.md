@@ -1,5 +1,7 @@
 # TODO board
 
+_Describes 0.6.0._
+
 Rules for picking up a task:
 1. Read [00-overview](00-overview.md), [conventions](conventions.md), the module README and the design doc named in the task.
 2. Size: **S** ≈ 1 day, **M** ≈ 2–4 days, **L** ≈ 1–2 weeks. Ask before starting an L: it needs a short design note first.
@@ -120,6 +122,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | DOC-3 | Merge the docs generator into `docs/site/`, publish the site to GitHub Pages, link the prior art and add the guarantees/design pages | M | DOC-2 | One folder for documentation and its generator; the site deploys from `scripts/docs.sh` output; no bare upstream mention | ✅ |
 | STYLE-1 | One written C++ style enforced by `.clang-format` (LLVM base, 100 cols) and `.clang-tidy` (correctness gated, naming enforced), with targeted `std::` imports in `.cpp` files | M | – | Format gated in CI; correctness lint clean; headers keep `std::` | ✅ |
 | STYLE-2 | Work through the clang-tidy style backlog: braces on single-statement bodies (the largest family), `nodiscard`, designated initialisers, `contains`, const-array indexing, implicit bool conversions. `MOSAIC_LINT_STYLE=1 ./scripts/ci.sh` prints the count | M | STYLE-1 | The style count reaches zero and the lint step gates style as well as correctness | ⬜ |
+| VERSION-1 | Versioning: `0.<closed milestones>.0` with CMake as the source of truth, an `inline constexpr` generated header, a drift test, a CHANGELOG and a version line in each design doc | M | – | `Mosaic version` reports 0.6.0; bumping CMake alone fails the test; the docs state which version they describe | ✅ |
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 

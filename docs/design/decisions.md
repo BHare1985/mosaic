@@ -1,5 +1,7 @@
 # Decisions
 
+_Describes 0.6.0._
+
 Recorded 2026-11-09 by the maintainer. These are settled; change them only by adding a new dated entry.
 
 | # | Decision | Consequence |
@@ -31,3 +33,12 @@ maintain and no upstream repository involved.
 
 Consequence: the site is exactly what the last workflow run produced, so it cannot hold a stale committed copy; and the only
 repository setting it needs is *Settings → Pages → Source: GitHub Actions*.
+
+## 2026-11-17 — the version number counts milestones
+The project reported `0.1.0` from its template through nineteen capability specs, a transport on a real network, durability,
+resilience, jobs and a daemon: a number that told a reader nothing. **The rule is now `0.<closed milestones>.0`**, so six closed
+milestones (M0 scaffold through M5 jobs) make this **0.6.0**, and closing M6 makes 0.7.0. Patches carry fixes only.
+
+Consequences: CMake's `project(VERSION ...)` is the only place the number is written; the generated header carries it as
+`inline constexpr` values plus `kMilestonesClosed` (so the rule is visible in code); a test fails if the header and CMake disagree;
+and each document in this set states the version it describes.

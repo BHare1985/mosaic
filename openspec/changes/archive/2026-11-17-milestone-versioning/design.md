@@ -31,9 +31,13 @@ need `inline constexpr` values, not only macros; the `MOSAIC_VERSION` macro is k
 a Markdown file. A `static_assert` compares the parsed components against `kVersion` at compile time, so a hand-edit that leaves the
 string and components disagreeing fails the build.
 
-**D4 - A test compares the header to CMake, in both directions.**
-A doctest case asserts `kVersion` matches the version CMake substituted; CMake passes its own `PROJECT_VERSION` into the test
-target as a definition, so a bump in one place without the other is a red test rather than a wrong `Mosaic version` output.
+**D4 - The compile fails if the header stops being generated from CMake.**
+Two `static_assert`s in the header: the parsed `kVersion` string must equal the numeric components, and the `MOSAIC_VERSION`
+macro must equal `kVersion`. Verified by hardcoding a version in `cmake/version.h.in` - the build stops with both assertions
+failing.
+*What this does not catch, and what does:* a bump in `CMakeLists.txt` alone is **correct** - CMake is the single source and both
+the header and the test definition are generated from it. Drift between the number and the prose (CHANGELOG, the "Describes
+0.6.0" lines) cannot be a test; it is a review item, stated once in `conventions.md`.
 
 **D5 - The changelog is written from the archive, not from memory.**
 Every archived change has a summary; the 0.6.0 entry lists what those changes delivered, in the language the proposals used. That

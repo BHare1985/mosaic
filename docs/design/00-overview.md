@@ -1,5 +1,7 @@
 # 00 — Overview
 
+_Describes 0.6.0._
+
 ## Goal
 A small, dependency-light library (C++20) for **brokerless, verifiable, replicated logs** with
 **channel-based subscription**, **credit-based flow control** and an optional **job/service layer**, designed

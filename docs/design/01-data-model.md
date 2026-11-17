@@ -1,5 +1,7 @@
 # 01 — Data model (✅ implemented, in-memory)
 
+_Describes 0.6.0._
+
 ## Record
 ```
 Record { writer, channel, seq, prev, timestamp_ms, content_type, payload, sig }

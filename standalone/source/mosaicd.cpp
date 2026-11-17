@@ -9,6 +9,7 @@
 
 #include <mosaic/daemon/config.h>
 #include <mosaic/daemon/daemon.h>
+#include <mosaic/version.h>
 
 #include <csignal>
 #include <iostream>

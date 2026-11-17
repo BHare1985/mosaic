@@ -1,5 +1,11 @@
 # Conventions
 
+_Describes 0.6.0._
+
+- **Versioning:** `0.<closed milestones>.0` - the minor number is the count of milestones closed on the [TODO board](TODO.md),
+  and the patch component carries fixes only. `project(Mosaic VERSION ...)` in `CMakeLists.txt` is the single source of truth; the
+  header it generates (`mosaic/version.h`) carries `kVersion`, the components and `kMilestonesClosed`, and a test compares it
+  against CMake so the two cannot drift. `0.x` minors may break; `1.0.0` waits for a frozen API.
 - **Language:** C++20, GCC and Clang. Warnings are errors on our targets (`-Wall -Wextra -Wpedantic -Werror`).
 - **Style:** two configs, both at the repository root, both described here so nobody has to read YAML to know the rule.
   - `.clang-format` (LLVM base): 4 spaces, no tabs, 100 columns, attached braces, left-aligned pointers, no namespace

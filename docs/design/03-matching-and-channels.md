@@ -1,5 +1,7 @@
 # 03 — Matching & channels (✅ matcher implemented; ZeroMQ mapping ⬜)
 
+_Describes 0.6.0._
+
 ## Channels
 A channel is a dotted name: `storage.eu.shard7`. Segments are non-empty; `*` and `>` are reserved for patterns.
 Convention for naming: `<domain>.<scope>.<name>`; jobs use `svc.<service>` and `res.<requester>` ([06](06-jobs.md)).

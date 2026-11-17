@@ -1,5 +1,7 @@
 # 05 — Node & Transport
 
+_Describes 0.6.0._
+
 ## Node (✅ `include/mosaic/node/node.h`)
 One class, three roles (writer, replica, responder). Configuration (`NodeConfig`): `head_interval_ms`, `fetch_batch`,
 `fetch_window`, `fetch_timeout_ms`, `max_serve`. Driving loop (owned by the app/CLI):

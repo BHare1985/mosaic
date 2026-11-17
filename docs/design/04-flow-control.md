@@ -1,5 +1,7 @@
 # 04 — Flow control (🟡 repair path ✅, live path ⬜)
 
+_Describes 0.6.0._
+
 ## Principles
 1. **The receiver controls the rate.** It hands out credit; the sender spends it and never sends at zero.
 2. **Drop, don't block.** One slow consumer must not slow producers or other consumers ([Malamute](https://github.com/zeromq/malamute)'s design notes, IP congestion

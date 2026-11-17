@@ -11,11 +11,14 @@ It descends from [Dafka](https://github.com/zeromq/dafka) (brokerless log) and [
 (channels, services, flow control), implementing the parts of Malamute's design that were only ever on paper. Not wire-compatible
 with either.
 
-> **Status: early, but the record layer is real.** Logs, matching, credits and the node state machine are implemented and
-> tested in an in-process simulator (convergence across seeded sweeps at 30% loss, 10% duplication and jitter). Records are
-> signed with **Ed25519** and travel in a versioned binary format with permanent message ids and a total decoder, when built
-> with libsodium (`-DMOSAIC_WITH_SODIUM=ON`, the default). Still to do: the ZeroMQ transport, CURVE on the link, durable
-> storage, peer discovery. Do not use for real data until CURVE lands: records are authenticated, links are not.
+> **Status: it runs between two machines.** Signed, hash-chained logs; pattern subscriptions; credit-paced repair; a versioned
+> binary wire format with permanent message ids and a total decoder; Ed25519 identities; a durable SQLite store that survives a
+> torn tail; the ZeroMQ transport with CURVE; and a CLI that publishes and tails across processes - all verified over real TCP.
+> Convergence is proven by a seeded sweep under 30% loss, 10% duplication and jitter (`Mosaic sim`).
+>
+> Still to do before real data: **peer-key pinning needs a ZAP handler** (SEC-1b) - links are encrypted and the server is
+> authenticated, but a server cannot yet verify which key a client presented, so identity is pinned only where observable.
+> Also open: gossip/beacon discovery, writer-offline head exchange (HEADS-1), retention, and the ACK/min-replica rule.
 
 ## Why
 Local-first sync, edge/on-prem event streams, tamper-evident audit logs, and job/agent buses all want a durable, replayable

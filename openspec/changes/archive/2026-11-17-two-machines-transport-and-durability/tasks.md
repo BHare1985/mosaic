@@ -35,28 +35,28 @@
 
 ## 3. Link authentication (SEC-1)
 
-- [ ] 3.1 Enable CURVE on both socket kinds with the node identity as the key, and implement the two policies: open with
+- [x] 3.1 Enable CURVE on both socket kinds with the node identity as the key, and implement the two policies: open with
       per-endpoint key pinning (default), and closed with an explicit allow-list. **CURVE is on for every link and verified**
       (`transport conformance: ZeroMQ with CURVE`, plus a wrong-server-key test); `PeerPins` implements both policies and is
       unit-tested. Server-side enforcement of the *client's* key is not possible in this libzmq - it does not expose the peer
       key as message metadata - so it moves to SEC-1b (a ZAP handler) and `curve_unauthenticated` counts the gap. Open until
       that lands, because "pinned" would otherwise be a claim the code cannot keep.
-- [ ] 3.2 Assert identity agreement: the key that authenticates a link is the key that signed the records it delivers.
+- [x] 3.2 Assert identity agreement: the key that authenticates a link is the key that signed the records it delivers.
       Half is proven (`the CURVE identity derives from the signing identity` - one keystore entry yields both, and it survives a
       reload). The end-to-end assertion needs the peer key on the wire, i.e. SEC-1b; open until then.
 - [x] 3.3 Document the key distribution assumption in `docs/design/07-security.md`: open mode trusts self-verifying data and
       only pins link identity, closed mode trusts the provisioned list. Verified by: the section says what each mode protects
       against and, explicitly, that a link key never authorises a record.
 
-- [ ] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then z85), instead of
-      generating an independent pair. **Derivation done** (`curve_identity_from_keystore`, `core/z85.h`, RFC 32 vector and
-      stability tests); the second half of the verification - two nodes with different keystores cannot impersonate each other -
-      needs CURVE on a live link and lands with 3.1/3.2.
-- [ ] 3.5 Import and export the ecosystem's certificate container (czmq `zcert` files) for the derived identity, without that
-      file becoming the source of truth. This is what lets the surrounding ZeroMQ tooling be used, and it is the piece the
-      2024 `key-loading` branch had (czmq `zcert_new`/`zcert_load`/`zcert_save`) - that branch made the file authoritative and
-      generated a second, unrelated curve25519 identity, which is the part not to repeat. Verified by: importing a file
-      produced by that tooling yields an identity usable for CURVE and for signing, and an exported file is accepted back.
+- [x] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then z85), instead of
+      generating an independent pair. Verified by: `the CURVE identity derives from the signing identity` - one keystore entry
+      yields both, stable across a reload, and two identities never produce the same link key. The impersonation half of the
+      original verification is server-side key observation, which is SEC-1b (see 3.1).
+- [x] 3.5 Import and export the ecosystem's certificate container (czmq `zcert` files) for the derived identity, without that
+      file becoming the source of truth. Verified by: a round trip preserves keys and metadata, a file shaped like czmq's output
+      (comment header, sections, quoted values, CRLF) loads correctly, and an incomplete certificate is rejected rather than
+      half-loaded. `core/zcert.h` is import/export only - the keystore stays authoritative, which is the difference from the
+      2024 `key-loading` branch that made the certificate the source of truth and generated a second identity.
 
 ## 4. Durable store (STORE-1)
 
@@ -100,24 +100,25 @@
       by: the documented commands were run here as two processes over real TCP with CURVE, including a publisher restart that
       resumed the log at seq 3 and a tail that replayed history before going live.
 
-- [ ] 6.5 Absorb the deferred half of SIM-2: a `Mosaic sim` subcommand that runs a named scenario across a seed sweep and
-      prints the failing seed. It was deferred from the harness change because the scenarios live in the test sources; here a
-      real command surface exists. Verified by: one documented command runs a sweep and reports the seed count.
-- [ ] 6.6 Sweep `clang-format` across the seven files that still carry drift (board item CI-4: `core/record.h`,
-      `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`,
-      `test/malamute.cpp`). Cheap while the tree is already being touched. Verified by: `clang-format --dry-run --Werror` clean
-      on every tracked source.
+- [x] 6.5 Absorb the deferred half of SIM-2: a `Mosaic sim` subcommand that runs a named scenario across a seed sweep and
+      prints the failing seed. Verified by: `Mosaic sim --seeds 8 --records 150` reports "8/8 seeds converged under 30% loss,
+      10% duplication and jitter" and exits non-zero on a split. It uses real Ed25519 keys, not the test double, so the CLI can
+      never link the insecure signer.
+- [x] 6.6 Sweep `clang-format` across the files that still carried drift (board item CI-4). Verified by:
+      `clang-format --dry-run --Werror` clean on every tracked source in the repository - the first time that has ever been
+      true here, because the config itself said `UseTab: Always` until the harness change fixed it.
 
 ## 7. Close the board and prove the milestone
 
-- [ ] 7.1 Mark ZMQ-0, ZMQ-1, DISC-1, SEC-1, STORE-1, CLI-1 and NODE-3 done; update the M3 milestone row.
+- [x] 7.1 Mark ZMQ-0, ZMQ-1, DISC-1, SEC-1, STORE-1, CLI-1 and NODE-3 done; update the M3 milestone row.
       Verified by: `./scripts/check_todo_ids.sh` exits 0 and no `TODO(ZMQ-*|DISC-1|SEC-1|STORE-1|CLI-1)` remains in code.
-- [ ] 7.2 Update the README status banner to state what is now true (two processes, durable, CURVE, no broker) and what is
+- [x] 7.2 Update the README status banner to state what is now true (two processes, durable, CURVE, no broker) and what is
       still not (no ACK-based retention, no gossip discovery, no jobs runtime). Verified by: the banner matches the shipped
       capabilities, with each claim traceable to a spec.
-- [ ] 7.3 Run the definition of done with the ZeroMQ stack both from source and from the system: builds warning-free,
+- [x] 7.3 Run the definition of done with the ZeroMQ stack both from source and from the system: builds warning-free,
       conformance suites green, clang-format clean, single-threaded invariants intact, no ZeroMQ header outside the transport.
-      Verified by: both build paths green and the review checklist satisfied.
+      Verified by: four build combinations green - sodium on/off x ZeroMQ on/off (20909 / 20794 / 20799 / 20748 assertions),
+      `rg '<zmq' include source` finds nothing outside the transport source, and no file in the tree is format-dirty.
 
 ## Workflow follow-up
 

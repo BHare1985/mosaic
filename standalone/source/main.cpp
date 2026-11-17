@@ -20,8 +20,10 @@
 #include <mosaic/core/keystore.h>
 #include <mosaic/log/log.h>
 #include <mosaic/match/matcher.h>
+#include <mosaic/net/sim_network.h>
 #include <mosaic/net/zmq_transport.h>
 #include <mosaic/node/node.h>
+#include <mosaic/store/memory_log_store.h>
 #include <mosaic/store/sqlite_log_store.h>
 #include <mosaic/version.h>
 #include <optional>
@@ -45,6 +47,7 @@ int usage()
                  "  Mosaic keygen <path>\n"
                  "  Mosaic pub <channel> [options]\n"
                  "  Mosaic tail <pattern[,pattern...]> [options]\n"
+                 "  Mosaic sim [--seeds N] [--records N]\n"
                  "\n"
                  "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
                  "         --peer <id=host:port,curve-z85>   (repeatable)\n";
@@ -321,6 +324,74 @@ int run_tail(int argc, char** argv)
     return 0;
 }
 
+/// `Mosaic sim`: the convergence self-check, runnable without a network or a test binary. It uses the
+/// same SimNetwork the suite uses, so the operator is exercising the shipped code path (task 6.5).
+int run_sim(int argc, char** argv)
+{
+    int seeds = 8;
+    int records = 200;
+    for (int i = 2; i < argc; ++i) {
+        const std::string flag = argv[i];
+        if (flag == "--seeds" && i + 1 < argc)
+            seeds = std::atoi(argv[++i]);
+        else if (flag == "--records" && i + 1 < argc)
+            records = std::atoi(argv[++i]);
+        else
+            return usage();
+    }
+
+    // Real keys, not the test double: the CLI must never link the insecure signer.
+    const auto keys = ed25519_generate();
+    if (!keys) {
+        std::cerr << "sim needs crypto support (MOSAIC_WITH_SODIUM=OFF)\n";
+        return 1;
+    }
+    const Ed25519Signer signer(keys->first, keys->second);
+    const Ed25519Verifier verifier;
+
+    int converged = 0;
+    for (int seed = 1; seed <= seeds; ++seed) {
+        SimNetwork net(static_cast<std::uint64_t>(seed));
+        net.set_loss(0.3);
+        net.set_duplicate(0.1);
+        net.set_delay(0, 120);
+
+        Sha256Hasher hasher;
+        MemoryLogStore writer_store, follower_store;
+        SimTransport writer_net(net, "writer"), follower_net(net, "follower");
+        Node writer(NodeConfig { .id = "writer" }, writer_net, writer_store, hasher, verifier);
+        Node follower(NodeConfig { .id = "follower" }, follower_net, follower_store, hasher, verifier);
+        int delivered = 0;
+        follower.on_record([&delivered](const Record&) { ++delivered; });
+        follower.follow("events.>");
+
+        std::uint64_t now = 0;
+        int published = 0;
+        for (int step = 0; step < 4000 && delivered < records; ++step) {
+            now += 50;
+            if (published < records) {
+                writer.publish(signer, "events.a", "text/plain", Bytes(std::to_string(published).begin(), std::to_string(published).end()), now);
+                ++published;
+            }
+            net.advance(now);
+            writer.pump(now);
+            writer.tick(now);
+            follower.pump(now);
+            follower.tick(now);
+        }
+        const auto wh = writer.head({ signer.id(), "events.a" });
+        const auto fh = follower.head({ signer.id(), "events.a" });
+        const bool ok = wh && fh && wh->seq == fh->seq && wh->hash == fh->hash && delivered == records;
+        if (ok)
+            ++converged;
+        else
+            std::cout << "seed " << seed << " did not converge (delivered " << delivered << " of " << records
+                      << ", dropped " << net.dropped() << ")\n";
+    }
+    std::cout << converged << "/" << seeds << " seeds converged under 30% loss, 10% duplication and jitter\n";
+    return converged == seeds ? 0 : 1;
+}
+
 int run_keygen(int argc, char** argv)
 {
     if (argc != 3)
@@ -371,5 +442,7 @@ int main(int argc, char** argv)
         return run_pub(argc, argv);
     if (command == "tail")
         return run_tail(argc, argv);
+    if (command == "sim")
+        return run_sim(argc, argv);
     return usage();
 }

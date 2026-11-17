@@ -18,7 +18,8 @@ namespace {
         }
     }
 
-    template <class T> T& at_grow(std::vector<T>& v, std::size_t i)
+    template <class T>
+    T& at_grow(std::vector<T>& v, std::size_t i)
     {
         if (v.size() <= i)
             v.resize(i + 1);

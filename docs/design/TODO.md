@@ -90,7 +90,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## security
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| SEC-1 | CURVE + ZAP allow-list on the ZeroMQ transport | M | ZMQ-1, CORE-2 | Unlisted key cannot connect (test) |
+| SEC-1 | CURVE + ZAP allow-list on the ZeroMQ transport | M | ZMQ-1, CORE-2 | Unlisted key cannot connect (test) | 🟡 CURVE on every link; peer-key pinning needs SEC-1b (ZAP)
 | SEC-1b | ZAP handler for CURVE peer keys, so `PeerPins` is enforced at the handshake (open = pin on first use, closed = allow-list) | M | SEC-1 | An unlisted key cannot complete a handshake; a key that changed under a known identity is refused and counted; `curve_unauthenticated` stays 0 |
 | SEC-2 | Bad-peer scoring and rate limits | M | NODE-1 | Peer sending N bad records is ignored for T seconds (sim) |
 | SEC-3 | Writer key rotation (link record) | M | CORE-2, design note | Old log points to new log; verifier follows the link |
@@ -112,7 +112,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README |
 | CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) |
 | CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green |
-| CI-4 | `clang-format` pass over the whole tree + a format check in CI | S | – | `clang-format --dry-run --Werror` clean on every tracked source. The config said `UseTab: Always` while `conventions.md` and all code use 4 spaces, so the gate never passed; the config is fixed (now `UseTab: Never`) and 7 files still carry drift: `core/record.h`, `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`, `test/malamute.cpp` |
+| CI-4 | `clang-format` pass over the whole tree + a format check in CI | S | – | `clang-format --dry-run --Werror` clean on every tracked source. The config said `UseTab: Always` while `conventions.md` and all code use 4 spaces, so the gate never passed; the config is fixed (now `UseTab: Never`) and 7 files still carry drift: `core/record.h`, `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`, `test/malamute.cpp` | ✅
 | DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed |
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |

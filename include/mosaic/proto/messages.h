@@ -27,7 +27,7 @@ struct DirectRecordMsg {
 struct HeadMsg {
     LogKey key;
     Seq seq = 0;
-    Hash hash {};
+    Hash hash { };
 };
 
 /// Request `count` records of a log starting at `from`. `count` is also the requester's credit:
@@ -53,7 +53,7 @@ struct GetHeadsMsg {
 struct DirectHeadMsg {
     LogKey key;
     Seq seq = 0;
-    Hash hash {};
+    Hash hash { };
 };
 
 /// Explicit credit grant for streaming paths. (FLOW-3, not yet handled.)

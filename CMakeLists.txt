@@ -68,31 +68,32 @@ if (MOSAIC_WITH_ZMQ)
     elseif (TARGET ZeroMQ::libzmq)
         set(MOSAIC_ZMQ_TARGET ZeroMQ::libzmq)
     elseif (MOSAIC_BUILD_ZMQ_FROM_SOURCE)
-        # libzmq's generated Findsodium.cmake requires pkg-config before it looks for sodium, and its
-        # find_path/find_library calls skip work when these are already set. A stub pkg-config plus
-        # explicit paths makes a CPM-fetched libsodium usable; a system libzmq needs none of this.
-        # Logged in docs/upstream-notes.md.
-        set(PKG_CONFIG_EXECUTABLE "${PROJECT_SOURCE_DIR}/cmake/no-pkg-config.sh"
-                CACHE FILEPATH "stub: see cmake/no-pkg-config.sh" FORCE)
-        set(SODIUM_INCLUDE_DIRS "${libsodium_SOURCE_DIR}/libsodium/src/libsodium/include"
-                CACHE PATH "libsodium headers fetched by CPM" FORCE)
-        set(SODIUM_LIBRARIES "${libsodium_BINARY_DIR}/libsodium.a"
-                CACHE FILEPATH "libsodium built by CPM" FORCE)
+        # libzmq cannot build CURVE without libsodium, so a build without the crypto dependency gets a
+        # libzmq without CURVE rather than a build failure. curve_available() then reports false and
+        # nothing pretends to be encrypted.
+        if (MOSAIC_WITH_SODIUM)
+            # libzmq's generated Findsodium.cmake requires pkg-config before it looks for sodium, and its
+            # find_path/find_library calls skip work when these are already set. A stub pkg-config plus
+            # explicit paths makes a CPM-fetched libsodium usable; a system libzmq needs none of this.
+            # Logged in docs/upstream-notes.md.
+            set(PKG_CONFIG_EXECUTABLE "${PROJECT_SOURCE_DIR}/cmake/no-pkg-config.sh"
+                    CACHE FILEPATH "stub: see cmake/no-pkg-config.sh" FORCE)
+            set(SODIUM_INCLUDE_DIRS "${libsodium_SOURCE_DIR}/libsodium/src/libsodium/include"
+                    CACHE PATH "libsodium headers fetched by CPM" FORCE)
+            set(SODIUM_LIBRARIES "${libsodium_BINARY_DIR}/libsodium.a"
+                    CACHE FILEPATH "libsodium built by CPM" FORCE)
+            set(MOSAIC_ZMQ_CURVE_OPTIONS "ENABLE_CURVE ON" "WITH_LIBSODIUM ON" "WITH_LIBSODIUM_STATIC ON")
+        else ()
+            set(MOSAIC_ZMQ_CURVE_OPTIONS "ENABLE_CURVE OFF")
+        endif ()
         CPMAddPackage(
                 NAME libzmq
                 GIT_TAG v4.3.5
                 GITHUB_REPOSITORY zeromq/libzmq
                 OPTIONS
                 "BUILD_SHARED OFF"
-                # SEC-1 needs CURVE. libzmq only builds it with a crypto backend, and its
-                # Findsodium.cmake hard-requires pkg-config, which a CPM-fetched libsodium cannot
-                # satisfy. The from-source build therefore uses libzmq's bundled tweetnacl for the
-                # CURVE handshake (deprecated upstream, functionally fine) while Mosaic's own
-                # signatures still use libsodium directly. A distro libzmq found by
-                # find_package() is normally built against libsodium and needs none of this.
-                "ENABLE_CURVE ON"
-                "WITH_LIBSODIUM ON"
-                "WITH_LIBSODIUM_STATIC ON"
+                # SEC-1: CURVE only when a crypto backend is present (see above).
+                ${MOSAIC_ZMQ_CURVE_OPTIONS}
         )
         if (TARGET libzmq-static)
             set(MOSAIC_ZMQ_TARGET libzmq-static)

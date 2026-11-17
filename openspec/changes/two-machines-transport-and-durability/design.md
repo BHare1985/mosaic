@@ -85,6 +85,24 @@ duplicated in the tool.
 *Alternative:* a CLI that talks to the node's internals directly - rejected: it would test a different code path than the library
 user gets.
 
+**D8 - Build outputs are separated per configuration.**
+Found while reporting on the previous change: the fast loop (`test/` into `build/test`) and the `all/` build both produce
+`build/test/MosaicTests`, so whichever ran last wins and a "full stack" run can silently execute the core-only binary. That is
+not a cosmetic problem - it makes CI and human verification untrustworthy for exactly the property this change is about.
+*Alternative:* document it - rejected; a build system that can report a false green is worse than one that fails.
+
+**D9 - libsodium is an implementation detail while building, and a declared requirement when packaging.**
+`PRIVATE $<BUILD_INTERFACE:sodium>` keeps the third-party target out of `install(EXPORT)`, which is what lets the core build be
+dependency-free in principle. The moment the library is packaged for a consumer, that has to become either an exported
+requirement or an explicit statement that consumers supply libsodium. Decided here rather than discovered by the first
+downstream user.
+
+**D10 - The certificate converter is import/export, and the key bytes are derived.**
+The transport must speak the ecosystem's certificate container because the surrounding ZeroMQ tooling does, but the file cannot
+be authoritative: czmq's container generates its own curve25519 pair, and this design requires the link identity to be the
+record identity. Hence derive (`crypto_sign_ed25519_sk_to_curve25519` → `sodium_bin2z85`) and convert only at the edges. The
+2024 `key-loading` branch took the other route and is the reference for the file format, not for the decision.
+
 ## Risks / Trade-offs
 
 - **Most of this is untestable in the fast loop** → every new requirement gets a conformance or loopback test that runs in the

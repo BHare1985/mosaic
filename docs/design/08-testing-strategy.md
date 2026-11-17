@@ -8,7 +8,7 @@
 | Contract/conformance | `MemoryLogStore contract` (to become a reusable suite: STORE-0, NET-0) | every backend/transport behaves the same |
 | Simulation | `test_node_sim.cpp` (late joiner, 30% loss + 10% dup convergence, forged records) | whole-system properties |
 | Compat | `malamute.cpp` (needs ZeroMQ stack) | "ZeroMQ still compiles and works in 2026" |
-| Fuzz | ⬜ decoder (ENC-1) | hostile input |
+| Fuzz | seeded mutation test over every message (`test_codec.cpp`), plus an opt-in libFuzzer target in `fuzz/` | hostile input |
 
 ## The headline property
 > Whatever the network does (loss, duplication, delay, reorder, partitions), after it heals every follower's log is identical

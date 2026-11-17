@@ -50,7 +50,18 @@ respond for any log it holds, not only the writer. (This is what makes stores op
 `kProtocolVersion = 1` carried in `HelloMsg` (HELLO-1). Unknown message ids are ignored, not errors (ENC-2). A breaking
 change bumps the version and ships behind negotiation. Do not renumber ids.
 
-## Wire encoding (ENC-1, not started)
-Requirements: length-prefixed, big-endian, bounded sizes (reject > `max_record_bytes`), one id byte per message, strict decoder
-that returns `std::optional<Message>` and never reads out of bounds. Needs fuzz + round-trip tests. Reuse the framing helpers
-in `source/core/record.cpp` (`put_u32` etc.) by moving them into a shared header. Record on the wire = `canonical_bytes` + `u32 sig_len` + `sig`.
+## Wire encoding (ENC-1, ✅ implemented in `proto/codec.h`)
+
+Framing: `u32 payload_size | u8 message_id | payload`, where `payload_size` counts the id byte and the payload. Records on
+the wire are `canonical_bytes | u32 sig_size | sig`, so a receiver recomputes the hash from the bytes it actually received.
+
+- **Ids are permanent**: 1 RecordMsg, 2 HeadMsg, 3 FetchMsg, 4 DirectRecordMsg, 5 HelloMsg, 6 AckMsg, 7 CreditMsg,
+  8 GetHeadsMsg, 9 DirectHeadMsg; 128+ is experimental. Messages that are defined but unimplemented already own their id, so
+  implementing one later is additive. A test pins the table.
+- **Bounded before allocation**: a frame longer than `kMaxFrameBytes` is rejected from its header alone, and every inner
+  length is validated against the bytes remaining.
+- **Total decoder**: `decode_message` returns a status (`Ok`, `Truncated`, `Oversized`, `UnknownId`, `Malformed`,
+  `UnsupportedVersion`) and never throws, reads out of bounds or yields a partial value. Unknown ids are ignored and counted;
+  an unsupported version is reported rather than decoded.
+- **The format is pinned** by committed golden vectors, so an encoder change fails the suite instead of silently moving the
+  wire. Fuzzing is a seeded mutation test in the fast loop plus an opt-in libFuzzer target in `fuzz/`.

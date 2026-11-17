@@ -3,13 +3,19 @@
 ## Record
 ```
 Record { writer, channel, seq, prev, timestamp_ms, content_type, payload, sig }
-hash = SHA-256(canonical_bytes(record))          // sig excluded
+hash = H(hash_algo)(canonical_bytes(record))      // sig excluded; H named by the record's own tag
 sig  = Sign(writer_key, hash)
 prev = hash of record seq-1 (all-zero when seq == 0)
 ```
-`canonical_bytes` (frozen, format byte 1): `u8 1 | writer | channel | u64 seq | 32B prev | u64 timestamp_ms |
-content_type | payload`, integers big-endian, each variable field prefixed by a `u32` length. Length prefixes make the
-encoding unambiguous (tested). `timestamp_ms` is the writer's claim, not trusted for ordering.
+`canonical_bytes` (frozen, format version 1): `u8 1 | u8 hash_algo | writer | channel | u64 seq | 32B prev |
+u64 timestamp_ms | content_type | payload`, integers big-endian, each variable field prefixed by a `u32` length. Length
+prefixes make the encoding unambiguous, and a decoder rejects any encoding that does not re-encode identically (both tested).
+`hash_algo` is `1` for SHA-256 and `2` for BLAKE2b; it is inside the hashed bytes so a verifier reads the algorithm from the
+record instead of from a build setting, and a log written under one algorithm stays verifiable after the default changes.
+`timestamp_ms` is the writer's claim, not trusted for ordering.
+
+**When building a record by hand** (tests, tools, future ACK/jobs work) you must stamp `hash_algo` yourself: `LogWriter` does
+it from its hasher, but a struct literal defaults to the build's default algorithm and will then hash under the wrong function.
 
 A **log** is `(writer, channel)`. Ordering exists **only inside a log**. There is no cross-log order.
 

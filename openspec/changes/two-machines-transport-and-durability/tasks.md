@@ -10,6 +10,15 @@
 - [ ] 1.3 Assert the confinement rule in the build: no ZeroMQ header may be included outside the transport source. Verified
       by: a grep check in the build or a review note; `rg -n "<zmq" include source --glob '!source/net/zmq*'` returns nothing.
 
+- [ ] 1.4 Give the fast loop and the `all/` build separate output directories. Today both write
+      `build/test/MosaicTests`, so whichever built last silently wins: a "full stack" run can execute the core-only binary
+      and report a green that never touched ZeroMQ. Verified by: building both in one session and getting two distinct
+      binaries with distinct case counts (the `all/` build includes the Malamute compile check).
+- [ ] 1.5 Decide and record how libsodium reaches a consumer of the packaged library. It is currently linked
+      `PRIVATE $<BUILD_INTERFACE:sodium>` to keep it out of `install(EXPORT)`; that is right for building Mosaic and wrong for
+      anyone consuming it. Verified by: either the export carries sodium as a deliberate requirement, or the CMake comment and
+      `docs/design/00-overview.md` say plainly that consumers must supply it.
+
 ## 2. ZeroMQ transport, loopback first (ZMQ-1)
 
 - [ ] 2.1 Implement `ZmqTransport` with PUB for live publication and ROUTER/DEALER for unicast, one poll set, non-blocking
@@ -32,8 +41,23 @@
 - [ ] 3.3 Document the key distribution assumption (who holds whose public key) in `docs/design/07-security.md`. Verified by:
       the section names the trust assumption and what it does not protect against.
 
+- [ ] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then
+      `sodium_bin2z85`), instead of generating an independent pair. Verified by: a test where the key that authenticates a link
+      and the `WriterId` that signs records come from one keystore entry, and a second test proving two nodes with different
+      keystore entries cannot impersonate each other.
+- [ ] 3.5 Import and export the ecosystem's certificate container (czmq `zcert` files) for the derived identity, without that
+      file becoming the source of truth. This is what lets the surrounding ZeroMQ tooling be used, and it is the piece the
+      2024 `key-loading` branch had (czmq `zcert_new`/`zcert_load`/`zcert_save`) - that branch made the file authoritative and
+      generated a second, unrelated curve25519 identity, which is the part not to repeat. Verified by: importing a file
+      produced by that tooling yields an identity usable for CURVE and for signing, and an exported file is accepted back.
+
 ## 4. Durable store (STORE-1)
 
+- [ ] 4.0 Extract the store conformance suite before writing a second store (board item STORE-0): turn the inline
+      `MemoryLogStore contract` case into `run_store_conformance(factory)` in the style of
+      `run_transport_conformance`, covering contiguous appends, bounded ordered reads, empty unknown log, enumeration and
+      immutability. Without it the next store has nothing to be measured against - the same trap FLOW-2 was. Verified by:
+      `MemoryLogStore` runs through it, and adding a store costs one test case.
 - [ ] 4.1 Implement a SQLite `LogStore` (one table keyed by writer, channel and sequence, WAL, one transaction per append).
       Verified by: it passes the store conformance suite that `MemoryLogStore` passes.
 - [ ] 4.2 Commit before reporting success, and resume at head plus one after reopen. Verified by: a test that appends, kills
@@ -61,6 +85,14 @@
       per line with no duplicates.
 - [ ] 6.4 Document the two-host demonstration in `README.md` (publish on A, tail on B) and verify it manually once. Verified
       by: the documented commands work as written on two processes.
+
+- [ ] 6.5 Absorb the deferred half of SIM-2: a `Mosaic sim` subcommand that runs a named scenario across a seed sweep and
+      prints the failing seed. It was deferred from the harness change because the scenarios live in the test sources; here a
+      real command surface exists. Verified by: one documented command runs a sweep and reports the seed count.
+- [ ] 6.6 Sweep `clang-format` across the seven files that still carry drift (board item CI-4: `core/record.h`,
+      `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`,
+      `test/malamute.cpp`). Cheap while the tree is already being touched. Verified by: `clang-format --dry-run --Werror` clean
+      on every tracked source.
 
 ## 7. Close the board and prove the milestone
 

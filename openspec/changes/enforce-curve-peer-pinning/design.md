@@ -53,6 +53,10 @@ An attempt at D1 was made, run, and reverted so the tree stayed green. What it e
   32-byte public key.
 - **The identity frame is empty for a connecting DEALER**, so a pin keyed by node id has to fall back to the address (or the key
   itself). That is a policy question this change has to answer, not a bug.
+- **The failure is not the servicing model.** A libzmq-only repro with real `zmq_curve_keypair` pairs fails the same way with a
+  dedicated handler thread as with in-loop servicing: requests arrive, the documented seven-frame `200` reply is sent, and the
+  handshake is still refused (`HANDSHAKE_FAILED_PROTOCOL`). So the reply shape needs frame-level investigation against
+  libzmq's `zap_client.cpp` and its own example handler before anything else is attempted.
 - **Serving ZAP from `poll()` did not work.** With the handler enabled, requests arrived and were answered `200` (the sends
   succeeded), yet no traffic flowed; disabling the handler restored delivery immediately. So D1 as written is unproven, and the
   likely shape is a dedicated handler with its own thread - which contradicts the single-threaded rule and needs a deliberate

@@ -56,3 +56,16 @@ Also observed: the ZAP *request's* identity frame is empty for a connecting DEAL
 peer's configured node id at handshake time. Pinning must fall back to the peer address or the key itself.
 
 Not filed upstream (D4). Recorded because it cost real time and is not in the RFC text.
+
+## Finding: ZAP replies are rejected even in the documented shape
+
+A minimal libzmq-only repro (real `zmq_curve_keypair` pairs, ROUTER server + DEALER client, handler bound to
+`inproc://zeromq.zap.01`) shows the handler receiving `[version][request_id][domain][address][identity][mechanism][32-byte key]`
+and replying with the seven documented frames - empty delimiter, `"1.0"`, request id, `"200"`, text, user id, metadata. The
+handshake is still refused, and the monitor reports `ZMQ_EVENT_HANDSHAKE_FAILED_PROTOCOL`. It behaves identically with the
+handler on its own thread and served from the main loop, so the servicing model is not the problem.
+
+Unresolved. The next step is to read `zap_client.cpp`'s `parse_metadata` and the mechanism's expectations frame by frame, or to
+compare against libzmq's own test/example handler, rather than guessing at the reply. Recorded here because two sessions could
+otherwise burn on the same dead end.
+

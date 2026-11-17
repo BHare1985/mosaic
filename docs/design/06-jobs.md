@@ -1,4 +1,4 @@
-# 06 — Jobs / services over logs (🟡 ranking ✅, rest ⬜)
+# 06 — Jobs / services over logs (✅ ranking, envelopes, worker and requester; JOBS-4 open)
 
 Malamute's "service" pattern without a broker. A job is just records on channels, so it inherits verification,
 replication, replay and flow control.
@@ -17,7 +17,8 @@ requester                                   workers (follow svc.resize)
 - **Deterministic assignment** with no coordination: `rendezvous_rank` (✅). Removing a worker only reassigns its own jobs.
 - **At-least-once.** A slow rank[0] and a rank[1] may both run the job. Handlers must be idempotent by `job_id`; the
   requester accepts the first result per `job_id` and ignores later ones.
-- **Worker set** = peers that follow `svc.<service>` (from `HelloMsg.patterns`, HELLO-1). Until then, a static list.
+- **Worker set** = peers that follow `svc.<service>` (from `HelloMsg.patterns`, HELLO-1). Until then, a static list, which is
+  what `JobWorker` takes. Deriving it is JOBS-4 and needs its own decision about what a peer advertises.
 - **Capacity:** workers advertise credit; ranking skips workers with none (JOBS-4, depends on FLOW-3).
 - **Results are records** on the requester's own channel, so the requester can replay them after a restart.
 - **Not provided:** exactly-once, cancellation, priorities, streaming results. Consider later, one at a time.

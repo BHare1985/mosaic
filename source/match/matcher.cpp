@@ -130,6 +130,36 @@ void Matcher::remove(SubId id)
     free_.push_back(id);
 }
 
+bool Matcher::matches_any(std::string_view channel) const
+{
+    const auto segs = split(channel);
+    const std::size_t m = segs.size();
+
+    Bits acc;
+    if (m < exact_.size())
+        acc = exact_[m];
+    for (std::size_t k = 0; k < m && k < tail_.size(); ++k)
+        acc.or_with(tail_[k]);
+    if (acc.none())
+        return false; // nothing of this length: the cheapest exit, and the common case for unrelated channels
+
+    Bits open;
+    for (std::size_t i = 0; i < m && !acc.none(); ++i) {
+        if (i < tail_.size())
+            open.or_with(tail_[i]);
+        Bits allowed = open;
+        if (i < star_.size())
+            allowed.or_with(star_[i]);
+        if (i < literal_.size()) {
+            const auto it = literal_[i].find(std::string(segs[i]));
+            if (it != literal_[i].end())
+                allowed.or_with(it->second);
+        }
+        acc.and_with(allowed);
+    }
+    return !acc.none();
+}
+
 std::vector<Matcher::SubId> Matcher::match(std::string_view channel) const
 {
     const auto segs = split(channel);

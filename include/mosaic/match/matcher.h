@@ -31,7 +31,9 @@ public:
 
     /// All subscriptions matching `channel`, in ascending SubId order.
     std::vector<SubId> match(std::string_view channel) const;
-    bool matches_any(std::string_view channel) const { return !match(channel).empty(); }
+    /// The per-message question: does anything match? Answered without materialising the id list, because the
+    /// node and the transport ask it for every arriving record (MATCH-1 measured the difference).
+    bool matches_any(std::string_view channel) const;
 
     static bool valid(std::string_view pattern);
     std::size_t size() const { return subs_.size() - free_.size(); }

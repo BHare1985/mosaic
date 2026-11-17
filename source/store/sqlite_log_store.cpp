@@ -2,6 +2,7 @@
 
 #include <mosaic/proto/codec.h>
 
+#include <map>
 #include <sqlite3.h>
 
 namespace mosaic {
@@ -103,12 +104,13 @@ struct SqliteLogStore::Impl {
     }
 };
 
-SqliteLogStore::SqliteLogStore(std::unique_ptr<Impl> impl)
+SqliteLogStore::SqliteLogStore(std::unique_ptr<Impl> impl, Durability durability)
     : impl_(std::move(impl))
+    , durability_(durability)
 {
 }
 
-std::optional<std::unique_ptr<SqliteLogStore>> SqliteLogStore::open(const std::string& path)
+std::optional<std::unique_ptr<SqliteLogStore>> SqliteLogStore::open(const std::string& path, Durability durability)
 {
     auto impl = std::make_unique<Impl>();
     impl->path = path;
@@ -120,7 +122,8 @@ std::optional<std::unique_ptr<SqliteLogStore>> SqliteLogStore::open(const std::s
         return std::nullopt;
     }
     // WAL for concurrent readers, FULL so a successful commit is on disk before we report it.
-    if (!impl->exec("PRAGMA journal_mode=WAL") || !impl->exec("PRAGMA synchronous=FULL")
+    const char* sync = durability == Durability::Batched ? "PRAGMA synchronous=NORMAL" : "PRAGMA synchronous=FULL";
+    if (!impl->exec("PRAGMA journal_mode=WAL") || !impl->exec(sync)
         || !impl->exec("CREATE TABLE IF NOT EXISTS records ("
                        " writer TEXT NOT NULL, channel TEXT NOT NULL, seq INTEGER NOT NULL,"
                        " blob BLOB NOT NULL, PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")
@@ -132,10 +135,55 @@ std::optional<std::unique_ptr<SqliteLogStore>> SqliteLogStore::open(const std::s
                        " PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")) {
         return std::nullopt;
     }
-    return std::unique_ptr<SqliteLogStore>(new SqliteLogStore(std::move(impl)));
+    return std::unique_ptr<SqliteLogStore>(new SqliteLogStore(std::move(impl), durability));
 }
 
 SqliteLogStore::~SqliteLogStore() = default;
+
+AppendResult SqliteLogStore::append_batch(const std::vector<Record>& records)
+{
+    if (records.empty())
+        return AppendResult::Ok;
+    if (!impl_->exec("BEGIN IMMEDIATE"))
+        return AppendResult::NotNext;
+
+    // Every record must be next in its own log, in order - the same rule as appending one at a time. Any
+    // failure rolls the whole batch back, so a batch never half-applies.
+    Statement statement(impl_->db, "INSERT INTO records (writer, channel, seq, blob) VALUES (?1, ?2, ?3, ?4)");
+    if (!statement.ok()) {
+        impl_->exec("ROLLBACK");
+        return AppendResult::NotNext;
+    }
+    std::map<LogKey, Seq> expected; // what each log should be at, advanced as the batch goes
+    for (const auto& record : records) {
+        const LogKey key = record.key();
+        auto it = expected.find(key);
+        if (it == expected.end()) {
+            const auto head = impl_->head_seq(key);
+            it = expected.emplace(key, head ? *head + 1 : 0).first;
+        }
+        if (record.seq != it->second) {
+            impl_->exec("ROLLBACK");
+            return AppendResult::NotNext;
+        }
+        it->second = it->second + 1;
+
+        sqlite3_reset(statement.handle);
+        statement.bind_text(1, key.writer);
+        statement.bind_text(2, key.channel);
+        statement.bind_int64(3, static_cast<std::int64_t>(record.seq));
+        statement.bind_blob(4, encode_record(record));
+        if (!statement.step_done()) {
+            impl_->exec("ROLLBACK");
+            return AppendResult::NotNext;
+        }
+    }
+    if (!impl_->exec("COMMIT")) {
+        impl_->exec("ROLLBACK");
+        return AppendResult::NotNext;
+    }
+    return AppendResult::Ok;
+}
 
 AppendResult SqliteLogStore::append(const Record& record)
 {

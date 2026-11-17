@@ -17,10 +17,21 @@
 
 namespace mosaic {
 
+/// What an append promises before it reports success. Named rather than a boolean: "fast" is not a
+/// specification, and a deployment has to know what a crash can lose.
+enum class Durability {
+    PerRecord, // synchronous=FULL: success means on disk (the default)
+    Batched, // synchronous=NORMAL: durable against process death, not immediately against power loss
+};
+
 class SqliteLogStore final : public LogStore, public ForkEvidenceStore {
 public:
     /// Open or create the database at `path` ("":memory:" for a scratch store). Empty on failure.
-    static std::optional<std::unique_ptr<SqliteLogStore>> open(const std::string& path);
+    static std::optional<std::unique_ptr<SqliteLogStore>> open(const std::string& path,
+        Durability durability = Durability::PerRecord);
+
+    /// The mode this store is running in, for an operator to see.
+    Durability durability() const { return durability_; }
 
     ~SqliteLogStore() override;
 
@@ -28,6 +39,8 @@ public:
     SqliteLogStore& operator=(const SqliteLogStore&) = delete;
 
     AppendResult append(const Record& record) override;
+    /// One transaction for the whole batch: a repair of a large range is one commit, not one per record.
+    AppendResult append_batch(const std::vector<Record>& records) override;
     std::optional<Seq> head_seq(const LogKey& key) const override;
     std::optional<Record> get(const LogKey& key, Seq seq) const override;
     std::vector<Record> read(const LogKey& key, Seq from, std::size_t count) const override;
@@ -40,8 +53,9 @@ public:
 
 private:
     struct Impl;
-    explicit SqliteLogStore(std::unique_ptr<Impl> impl);
+    SqliteLogStore(std::unique_ptr<Impl> impl, Durability durability);
     std::unique_ptr<Impl> impl_;
+    Durability durability_ = Durability::PerRecord;
 };
 
 } // namespace mosaic

@@ -32,6 +32,11 @@ public:
     /// Up to `count` records starting at `from`, in order. Empty if `from` is past the head.
     virtual std::vector<Record> read(const LogKey& key, Seq from, std::size_t count) const = 0;
 
+    /// Append several records. A backend that can do better than N transactions SHOULD override this (one
+    /// commit for a whole repair batch), but the behaviour MUST be exactly that of appending them one at a
+    /// time: stop at the first record that is not next, and report it.
+    virtual AppendResult append_batch(const std::vector<Record>& records);
+
     /// Every log this store holds, in key order.
     virtual std::vector<LogKey> keys() const = 0;
 

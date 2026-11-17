@@ -155,6 +155,7 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
     switch (replica_.ingest(record)) {
     case IngestResult::Accepted:
         ++counters_.accepted;
+        ingested_logs_.insert(key);
         if (on_record_)
             on_record_(record);
         if (direct && next_seq(key) <= known)
@@ -309,16 +310,17 @@ void Node::advance_retention(const LogKey& key)
     if (!head)
         return;
 
-    // The floor moves to the highest sequence that at least min_replicas replicas have confirmed.
+    // The floor is the highest sequence that at least min_replicas replicas have confirmed - which is just
+    // the min_replicas-th largest acknowledgement. Collecting and selecting is O(r log r) in the number of
+    // replicas; the previous version walked every sequence in the range and counted acks per sequence.
     Seq candidate = released_through_.count(key) ? released_through_[key] : 0;
-    for (Seq seq = candidate; seq <= *head; ++seq) {
-        std::uint32_t replicas = 0;
-        for (const auto& [entry, acked] : acked_)
-            if (entry.first == key && acked >= seq)
-                ++replicas;
-        if (replicas < config_.min_replicas)
-            break;
-        candidate = seq;
+    std::vector<Seq> acks;
+    for (const auto& [entry, acked] : acked_)
+        if (entry.first == key)
+            acks.push_back(acked);
+    if (acks.size() >= config_.min_replicas && config_.min_replicas > 0) {
+        std::sort(acks.begin(), acks.end(), std::greater<Seq>());
+        candidate = std::max(candidate, acks[config_.min_replicas - 1]);
     }
     released_through_[key] = candidate;
 
@@ -401,8 +403,9 @@ void Node::request_heads(std::uint64_t now_ms)
 
 void Node::acknowledge(std::uint64_t now_ms)
 {
-    // Only logs we do not write: a writer is not its own replica.
-    for (const auto& key : store_.keys()) {
+    // Only logs we have actually accepted records for: a writer is not its own replica, and walking the
+    // store's inventory here would be a full scan every tick.
+    for (const auto& key : ingested_logs_) {
         if (writers_.count(key))
             continue;
         if (!following_.matches_any(key.channel))

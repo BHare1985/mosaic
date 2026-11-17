@@ -8,6 +8,8 @@
 #include <zmq.h>
 
 #include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 
@@ -193,6 +195,8 @@ struct ZmqTransport::Impl {
         std::string status = "400";
         std::string text = "denied";
         std::string user_id;
+        PinVerdict verdict = PinVerdict::NotListed;
+        std::string who;
 
         if (mechanism != "CURVE" || frames.size() < 7 || frames[6].size() != 32) {
             text = "unsupported mechanism"; // NULL is refused too: this transport is encrypted or nothing
@@ -200,8 +204,8 @@ struct ZmqTransport::Impl {
             const auto key_z85 = z85_encode(reinterpret_cast<const std::uint8_t*>(frames[6].data()), frames[6].size());
             // The handshake does not expose the peer's configured identity, so open mode pins by address
             // and closed mode checks the key against what was provisioned (PeerPins::decide).
-            const auto who = identity.empty() ? address : identity;
-            const auto verdict = pin_store().decide(who, key_z85);
+            who = identity.empty() ? address : identity;
+            verdict = pin_store().decide(who, key_z85);
             if (verdict == PinVerdict::Allowed || verdict == PinVerdict::AllowedAndPinned) {
                 status = "200";
                 text = "ok";
@@ -214,6 +218,9 @@ struct ZmqTransport::Impl {
             }
         }
 
+        if (std::getenv("MOSAIC_ZAP_TRACE"))
+            std::fprintf(stderr, "[zap] identity=[%s] addr=%s verdict(%s)=%s -> %s\n", identity.c_str(), address.c_str(),
+                who.c_str(), to_string(verdict), status.c_str());
         const auto send = [&](const std::string& data, bool more) { return zap->send_frame(data.data(), data.size(), more); };
         const bool sent = send("1.0", true) && send(request_id, true) && send(status, true) && send(text, true)
             && send(user_id, true) && send("", false);
@@ -343,11 +350,14 @@ void ZmqTransport::publish(const Channel& channel, Message message)
 {
     const Bytes frame = encode_message(message);
     // Three frames: the channel (so PUB-side filtering works), who sent it, and the message.
+    const bool trace = std::getenv("MOSAIC_SEND_TRACE") != nullptr;
     if (!impl_->pub->send_frame(channel.data(), channel.size(), true)
         || !impl_->pub->send_frame(impl_->config.id.data(), impl_->config.id.size(), true)
         || !impl_->pub->send_frame(frame.data(), frame.size(), false)) {
         ++impl_->dropped; // queue limit reached: a drop is counted, never a block
     }
+    if (trace)
+        std::fprintf(stderr, "[send] channel=%s dropped=%zu\n", channel.c_str(), impl_->dropped);
 }
 
 void ZmqTransport::send(const NodeId& to, Message message)
@@ -425,6 +435,8 @@ std::optional<Envelope> ZmqTransport::poll()
         // No pin check on the live path: this end is the CURVE *client* here, so the server's key was
         // already chosen at connect (ZMQ_CURVE_SERVERKEY). Pinning is a server-side policy over client
         // identities, which is exactly where a peer could otherwise claim any name it likes.
+        if (std::getenv("MOSAIC_SEND_TRACE"))
+            std::fprintf(stderr, "[recv] channel=%s bytes=%zu\n", channel.c_str(), payload.size());
         // The byte-prefix subscription let this through; the real pattern decides.
         if (!impl_->matcher.matches_any(channel))
             continue;

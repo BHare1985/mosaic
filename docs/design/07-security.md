@@ -14,7 +14,13 @@
    transport's own poll loop, so an unlisted or changed key never completes a connection. Open mode pins on first sight of a
    peer address and refuses a later change; closed mode admits only provisioned keys. Keying on the peer's *identity* is not
    possible: ZeroMQ exchanges identity after the handshake, so the ZAP request's identity frame is empty.
-3. **Authorization** (later): which writer may write which channel; which peer may follow which pattern.
+3. **Authorization** (implemented, writes only): which writer may write which channel. `ChannelRules` maps a channel pattern to the
+   writer identities allowed there, enforced on ingest before storage and on publish before the log is extended, so a writer
+   cannot create history its readers would reject. Open by default - a channel without a rule accepts any verified writer - and
+   closing `svc.>` is one line, which is what makes the job layer safe to expose: without it, any key holder could publish a
+   request and have a worker run it. Rejections are counted per rule, and a forbidden log is remembered so its head announcements
+   do not make us fetch records we would refuse. Rules are configuration per node today; a replicated membership channel is the
+   follow-up, and it needs key rotation (SEC-3) before revocation means anything.
 
 ## One identity, two representations (decided)
 

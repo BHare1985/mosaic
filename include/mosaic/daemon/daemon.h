@@ -43,6 +43,10 @@ namespace daemon {
         /// line the periodic summary prints.
         void dump_status() const;
 
+        /// How many peers were learned from discovery rather than configuration, and which source is active.
+        std::size_t discovered_peers() const;
+        const char* discovery_kind() const;
+
         /// Whether this daemon's links are actually encrypted. It reports what the running transport does,
         /// not what libzmq supports: a daemon that silently runs plaintext is the worst failure mode here.
         bool curve_enabled() const;

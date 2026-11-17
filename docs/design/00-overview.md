@@ -30,6 +30,11 @@ layers that consume logs; none may be required to use a log.
     └───────────────────────────────┘
 ```
 
+**Threads.** Everything in `core`..`node` is single-threaded and lock-free; that is what makes a simulation deterministic and a
+failure reproducible. The one exception is a czmq actor (today: `zbeacon`, inside `MosaicDaemon`): it owns its own thread, and
+everything it learns crosses into the node loop as a *value* on its actor pipe, which the loop drains non-blockingly. No state is
+shared, so no lock exists. Any future thread must follow the same rule or not exist.
+
 ### Dependency rules (enforce in review)
 **Third-party code — three dependencies, each confined.** `libzmq` behind `Transport` (the `MosaicZmq` target); `czmq` behind
 the daemon and CLI only (ZPL config today, discovery next), never in `core`..`node` and never in the `core` / `no-crypto`

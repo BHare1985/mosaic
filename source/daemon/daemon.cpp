@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <mosaic/core/keystore.h>
+#include <mosaic/net/czmq_discovery.h>
+#include <mosaic/net/peer_discovery.h>
 #include <mosaic/net/zmq_transport.h>
 #include <mosaic/node/channel_rules.h>
 #include <mosaic/node/node.h>
@@ -20,6 +22,9 @@ struct Daemon::Impl {
     std::unique_ptr<Sha256Hasher> hasher;
     std::unique_ptr<Ed25519Verifier> verifier;
     std::unique_ptr<ChannelRules> rules;
+    std::unique_ptr<CzmqDiscovery> discovery;
+    PeerBook discovered; // dial each peer once, bound the set, forget silent ones
+    bool discovery_tick = false;
     std::unique_ptr<Node> node;
     std::uint64_t now_ms = 0;
     std::uint64_t last_status_ms = 0;
@@ -96,6 +101,17 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
             }
     }
 
+    // Discovery, when configured: candidates are pulled once per loop iteration and dialled through the same
+    // add_peer path a configured peer uses, so the key policy still decides whether they are trusted.
+    if (config.discover.enabled()) {
+        CzmqDiscoveryConfig discovery_config;
+        discovery_config.cluster = config.discover.cluster;
+        discovery_config.beacon_port = config.discover.beacon_port;
+        discovery_config.self = DiscoveredPeer { config.id, config.listen,
+            transport_config.curve.enabled ? transport_config.curve.public_z85 : std::string { } };
+        self.discovery = std::make_unique<CzmqDiscovery>(discovery_config);
+    }
+
     self.hasher = std::make_unique<Sha256Hasher>();
     self.verifier = std::make_unique<Ed25519Verifier>();
 
@@ -141,6 +157,26 @@ RunResult Daemon::run(const std::function<bool()>& stop, const std::function<voi
         self.node->pump(self.now_ms);
         self.node->tick(self.now_ms);
 
+        if (self.discovery) {
+            for (const auto& candidate : self.discovery->poll_discovered()) {
+                if (!self.discovered.observe(candidate, self.now_ms))
+                    continue; // already known, or the book is full
+                ZmqPeerEndpoint endpoint;
+                endpoint.id = candidate.id;
+                endpoint.pub_endpoint = "tcp://" + candidate.endpoint;
+                const auto colon = candidate.endpoint.rfind(':');
+                endpoint.router_endpoint = "tcp://" + candidate.endpoint.substr(0, colon + 1)
+                    + std::to_string(std::atoi(candidate.endpoint.c_str() + colon + 1) + 1);
+                endpoint.curve_public_z85 = candidate.curve_public;
+                self.transport->add_peer(endpoint);
+            }
+            // Expiry runs at the status cadence: often enough to notice a disappeared peer, rarely enough to
+            // be free.
+            if (self.config.status_interval_ms != 0
+                && self.now_ms - self.last_status_ms >= self.config.status_interval_ms)
+                self.discovered.expire(self.now_ms);
+        }
+
         if (self.config.status_interval_ms != 0
             && self.now_ms - self.last_status_ms >= self.config.status_interval_ms) {
             self.last_status_ms = self.now_ms;
@@ -171,9 +207,13 @@ std::string Daemon::status_line() const
         << " gaps=" << counters.gap << " forks=" << counters.fork << " repair_sent=" << counters.fetches_sent
         << " retained=" << impl_->node->retained_records() << " shortfall=" << counters.retention_shortfall
         << " throttled=" << counters.requests_throttled << " handshake_rejects=" << counters.version_rejects
-        << " unauthorized=" << counters.unauthorized_records;
+        << " unauthorized=" << counters.unauthorized_records << " discovered=" << impl_->discovered.size();
     return out.str();
 }
+
+std::size_t Daemon::discovered_peers() const { return impl_->discovered.size(); }
+
+const char* Daemon::discovery_kind() const { return impl_->discovery ? impl_->discovery->kind() : "none"; }
 
 bool Daemon::curve_enabled() const { return impl_->curve_on && impl_->transport->curve_available(); }
 

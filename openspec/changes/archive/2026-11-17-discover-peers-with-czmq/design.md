@@ -29,10 +29,15 @@ discovered key is *pinned on first sight* in open mode, which is the intended re
 *Alternative:* trusting the beacon's identity claim - rejected: a UDP announcement is trivially forged, and CURVE already solves
 this correctly.
 
-**D3 - `zbeacon` for the LAN, `zgossip` for a peer list.**
-Beacon answers "who is on my network"; gossip answers "who does my network know". They are complementary and both exist in czmq,
-so both are used rather than inventing a discovery protocol. Gossip spreads identities and endpoints only - never keys, never
-records.
+**D3 - `zbeacon` for the LAN; gossip deferred, with the reason written down.**
+Beacon answers "who is on my network", and its datagrams arrive as plain frames on the actor pipe, so it can be used from outside
+czmq. Gossip was the intended second hop - and had to be dropped: `zgossip` accepts commands publicly but emits its tuples as a
+private `zgossip_msg` frame whose header lives in czmq's `src/` and is not installed, so an outside consumer cannot parse what it
+receives. Zyre can, because it lives inside that family of projects.
+
+*Consequence:* second-hop discovery (DISC-3) stays open and is now a decision rather than a task: implement gossip over Mosaic's
+own protocol (peers are just another message type), or take czmq's private API as a dependency. The spec's requirements are met
+by the beacon alone - no requirement names gossip.
 
 **D4 - A deployment name scopes the beacon.**
 The beacon service string includes a configured cluster name, so two deployments on one LAN do not merge. *Trade-off:* a

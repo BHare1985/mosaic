@@ -13,7 +13,12 @@ implementation where it is maintained and fits, rather than owning a second one.
 
 ## What Changes
 
-- A peer-discovery port the daemon can be configured with: static list (today's behaviour, unchanged), LAN beacon, gossip, or both.
+- A peer-discovery port the daemon can be configured with: static list (today's behaviour, unchanged) or LAN beacon.
+- **Scope change during implementation:** gossip was the intended second hop and is deferred to DISC-3. czmq's `zgossip` accepts
+  commands publicly but emits its tuples as a private `zgossip_msg` frame (its header is in czmq's `src/`, not installed), so an
+  outside consumer cannot parse what it receives - confirmed by an in-process test that received nothing from a connected peer.
+  Second-hop discovery is therefore a decision (our own protocol, or a deliberate dependency), recorded on the board rather than
+  half-built.
 - Discovery feeds the existing transport through the same pinning path as configured peers: a discovered peer is still subject to
   CURVE and the key policy, so discovery never grants trust - it only says "there may be a node here".
 - The actors' threads are confined: they own their own thread, and everything they learn crosses into the main loop as messages on

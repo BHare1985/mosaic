@@ -46,6 +46,28 @@ cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./build/standalone/Mosaic match 'storage.*.shard7' storage.eu.shard7
 ```
 
+## Two hosts, end to end
+
+Verified over real TCP with CURVE enabled: one process publishes, another tails, and a restarted tail replays its own
+durable history before following live traffic.
+
+```bash
+# one identity per node (prints the hex id and the CURVE public key)
+Mosaic keygen a.key && Mosaic keygen b.key
+
+# on host B: tail everything under events.
+Mosaic tail 'events.>' --node b --keys b.key --store b.db \
+    --listen 127.0.0.1 --port 6200 --peer "a=127.0.0.1:6100,<A curve key>"
+
+# on host A: publish lines from stdin; each one prints its seq and hash
+printf 'first\nsecond\n' | Mosaic pub events.a --node a --keys a.key --store a.db \
+    --listen 127.0.0.1 --port 6100 --peer "b=127.0.0.1:6200,<B curve key>"
+```
+
+What that demonstrates: signed hash-chained records, a versioned binary wire format, CURVE-encrypted links, durable storage on
+both sides, and repair - a tail that was away when a record was published catches up from a HEAD announcement instead of
+losing it. Peer endpoints come from configuration only (no discovery service), and a missing peer is not fatal.
+
 ## Contributing
 Read [docs/design/decisions.md](docs/design/decisions.md), [00-overview](docs/design/00-overview.md) and
 [conventions](docs/design/conventions.md), then pick a task from the [TODO board](docs/design/TODO.md).

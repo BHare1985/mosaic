@@ -1,21 +1,352 @@
+// Mosaic operator CLI. Thin by design: every command builds the same node the library user builds,
+// drives pump/tick in a loop, and does nothing the library does not already do (see design D7).
+//
+//   Mosaic version
+//   Mosaic match <pattern> <channel>
+//   Mosaic keygen <path>                     generate an identity, print its hex id and CURVE key
+//   Mosaic pub <channel> [options]           publish stdin lines as records, print seq + hash
+//   Mosaic tail <pattern>[,<pattern>...] [options]   print matching records as they arrive
+//
+// Shared options: --node <id> --keys <path> --store <path> --listen <host:port>
+//                 --peer <id=host:port,curve-z85>   (repeatable)
+// Peer endpoints are supplied in configuration: static discovery, DISC-1.
+
+#include <chrono>
+#include <csignal>
+#include <fstream>
 #include <iostream>
+#include <limits>
+#include <memory>
+#include <mosaic/core/keystore.h>
+#include <mosaic/log/log.h>
 #include <mosaic/match/matcher.h>
+#include <mosaic/net/zmq_transport.h>
+#include <mosaic/node/node.h>
+#include <mosaic/store/sqlite_log_store.h>
 #include <mosaic/version.h>
+#include <optional>
+#include <sstream>
 #include <string>
+#include <thread>
+#include <vector>
+
+using namespace mosaic;
 
 namespace {
+
+volatile std::sig_atomic_t g_stop = 0;
+void on_signal(int) { g_stop = 1; }
+
 int usage()
 {
     std::cerr << "usage:\n"
                  "  Mosaic version\n"
-                 "  Mosaic match <pattern> <channel>   # does the channel match the pattern?\n";
+                 "  Mosaic match <pattern> <channel>\n"
+                 "  Mosaic keygen <path>\n"
+                 "  Mosaic pub <channel> [options]\n"
+                 "  Mosaic tail <pattern[,pattern...]> [options]\n"
+                 "\n"
+                 "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
+                 "         --peer <id=host:port,curve-z85>   (repeatable)\n";
     return 2;
 }
+
+struct Options {
+    std::string node = "node";
+    std::string keys = "identity.key";
+    std::string store = "mosaic.db";
+    std::string listen = "127.0.0.1";
+    int port = 0; // 0 = pick a free port and report it
+    std::vector<ZmqPeerEndpoint> peers;
+    std::string port_out; // file to write the chosen ports to, so a test can discover them
+};
+
+/// "<id>=<host:port>,<curve-z85>" -> a peer endpoint. The curve key is optional so plaintext demos work.
+bool parse_peer(const std::string& text, ZmqPeerEndpoint& out, std::string& error)
+{
+    const auto equals = text.find('=');
+    const auto comma = text.find(',');
+    if (equals == std::string::npos || (comma != std::string::npos && comma < equals)) {
+        error = "peer must be <id>=<host:port>[,<curve-z85>]: " + text;
+        return false;
+    }
+    out.id = text.substr(0, equals);
+    const auto endpoint = text.substr(equals + 1, comma == std::string::npos ? std::string::npos : comma - equals - 1);
+    out.pub_endpoint = "tcp://" + endpoint;
+    out.router_endpoint = out.pub_endpoint; // both sockets bind the same host; the port pairs are given below
+    if (comma != std::string::npos)
+        out.curve_public_z85 = text.substr(comma + 1);
+    return true;
+}
+
+bool parse_options(int argc, char** argv, int first, Options& options, std::string& error)
+{
+    for (int i = first; i < argc; ++i) {
+        const std::string flag = argv[i];
+        const auto next = [&](std::string& into) {
+            if (i + 1 >= argc) {
+                error = "missing value for " + flag;
+                return false;
+            }
+            into = argv[++i];
+            return true;
+        };
+        if (flag == "--node") {
+            if (!next(options.node))
+                return false;
+        } else if (flag == "--keys") {
+            if (!next(options.keys))
+                return false;
+        } else if (flag == "--store") {
+            if (!next(options.store))
+                return false;
+        } else if (flag == "--listen") {
+            if (!next(options.listen))
+                return false;
+        } else if (flag == "--port") {
+            std::string value;
+            if (!next(value))
+                return false;
+            options.port = std::atoi(value.c_str());
+        } else if (flag == "--port-out") {
+            if (!next(options.port_out))
+                return false;
+        } else if (flag == "--peer") {
+            ZmqPeerEndpoint peer;
+            std::string value;
+            if (!next(value))
+                return false;
+            if (!parse_peer(value, peer, error))
+                return false;
+            options.peers.push_back(peer);
+        } else {
+            error = "unknown option: " + flag;
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The transport only needs one endpoint pair per peer, so a peer's PUB and ROUTER ports are given as
+/// "port,port" on the command line in real use; for the demo both live on the same port range.
+struct Runtime {
+    // Order matters: Node holds references to everything above it, so it is constructed last and
+    // destroyed first. Passing temporaries here is a dangling reference, not a style question.
+    std::unique_ptr<SqliteLogStore> store;
+    std::unique_ptr<ZmqTransport> transport;
+    // Held by pointer, not by value: Runtime is moved out of make_runtime, and a moved member would
+    // relocate underneath the Node's references.
+    std::unique_ptr<Sha256Hasher> hasher;
+    std::unique_ptr<Ed25519Verifier> verifier;
+    std::unique_ptr<Node> node;
+};
+
+std::optional<Runtime> make_runtime(const Options& options, std::vector<std::string> patterns, std::string& error)
+{
+    const auto keystore = load_keystore(options.keys);
+    if (!keystore) {
+        error = "cannot load keys: " + options.keys + " (run `Mosaic keygen " + options.keys + "`)";
+        return std::nullopt;
+    }
+    auto store = SqliteLogStore::open(options.store);
+    if (!store) {
+        error = "cannot open store: " + options.store;
+        return std::nullopt;
+    }
+
+    ZmqConfig config;
+    config.id = options.node;
+    config.pub_bind = "tcp://" + options.listen + ":" + std::to_string(options.port);
+    config.router_bind = "tcp://" + options.listen + ":" + std::to_string(options.port + 1);
+    // Peers are configured with one host:port; the second socket lives on port+1. Resolve that here so
+    // the transport never has to guess.
+    for (const auto& peer : options.peers) {
+        ZmqPeerEndpoint adjusted = peer;
+        const auto colon = adjusted.pub_endpoint.rfind(':');
+        adjusted.router_endpoint = adjusted.pub_endpoint;
+        if (colon != std::string::npos) {
+            const auto port = std::atoi(adjusted.pub_endpoint.c_str() + colon + 1);
+            adjusted.router_endpoint = adjusted.pub_endpoint.substr(0, colon + 1) + std::to_string(port + 1);
+        }
+        config.peers.push_back(adjusted);
+    }
+
+    const auto curve = curve_identity_from_keystore(*keystore);
+    if (curve) {
+        config.curve = ZmqCurveConfig { true, curve->public_z85, curve->secret_z85, "" };
+    }
+
+    Runtime runtime;
+    runtime.store = std::move(*store);
+    runtime.transport = std::make_unique<ZmqTransport>(config);
+
+    runtime.hasher = std::make_unique<Sha256Hasher>();
+    runtime.verifier = std::make_unique<Ed25519Verifier>();
+    runtime.node = std::make_unique<Node>(
+        NodeConfig { .id = options.node }, *runtime.transport, *runtime.store, *runtime.hasher, *runtime.verifier);
+    for (const auto& pattern : patterns)
+        if (!runtime.node->follow(pattern)) {
+            error = "invalid pattern: " + pattern;
+            return std::nullopt;
+        }
+    return runtime;
+}
+
+int run_pub(int argc, char** argv)
+{
+    if (argc < 3)
+        return usage();
+    const std::string channel = argv[2];
+    Options options;
+    std::string error;
+    if (!parse_options(argc, argv, 3, options, error)) {
+        std::cerr << error << '\n';
+        return 2;
+    }
+
+    auto runtime = make_runtime(options, { }, error);
+    if (!runtime) {
+        std::cerr << error << '\n';
+        return 1;
+    }
+    const auto keystore = load_keystore(options.keys);
+    Ed25519Signer signer(keystore->public_key, keystore->secret_key);
+
+    if (!options.port_out.empty()) {
+        std::ofstream(options.port_out) << runtime->transport->pub_endpoint() << '\n'
+                                        << runtime->transport->router_endpoint() << '\n';
+    }
+    std::cout << "identity " << to_hex(keystore->public_key) << '\n';
+    std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+
+    std::uint64_t now = 0;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        now += 1;
+        const auto record = runtime->node->publish(signer, channel, "text/plain",
+            Bytes(line.begin(), line.end()), now);
+        std::cout << "seq " << record.seq << " hash " << to_hex(record_hash_tagged(record).value()) << '\n';
+        std::cout.flush();
+        // Give the live path a moment to reach subscribers before the next line is published.
+        for (int i = 0; i < 10; ++i) {
+            runtime->node->pump(now);
+            runtime->node->tick(now);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (g_stop)
+            break;
+    }
+
+    // Linger before exiting. The live path is best effort, and a SUB that was still connecting when we
+    // published has missed the record; only a HEAD announcement lets it repair, so give the writer a
+    // moment to announce. Without this, "publish then exit" quietly loses the last records.
+    for (int i = 0; i < 60 && !g_stop; ++i) {
+        now += 10;
+        runtime->node->tick(now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return 0;
+}
+
+int run_tail(int argc, char** argv)
+{
+    if (argc < 3)
+        return usage();
+    std::vector<std::string> patterns;
+    std::stringstream stream(argv[2]);
+    std::string pattern;
+    while (std::getline(stream, pattern, ','))
+        patterns.push_back(pattern);
+
+    Options options;
+    std::string error;
+    if (!parse_options(argc, argv, 3, options, error)) {
+        std::cerr << error << '\n';
+        return 2;
+    }
+
+    auto runtime = make_runtime(options, patterns, error);
+    if (!runtime) {
+        std::cerr << error << '\n';
+        return 1;
+    }
+    const auto keystore = load_keystore(options.keys);
+    if (!options.port_out.empty()) {
+        std::ofstream(options.port_out) << runtime->transport->pub_endpoint() << '\n'
+                                        << runtime->transport->router_endpoint() << '\n';
+    }
+    std::cout << "identity " << to_hex(keystore->public_key) << '\n';
+    std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    std::cout.flush();
+
+    // Replay what the durable store already holds, before live delivery starts. The node only reports
+    // records it *newly* accepts, so a restarted tail would otherwise start mid-history (task 6.3).
+    Matcher replay;
+    for (const auto& pattern : patterns)
+        replay.add(pattern);
+    for (const auto& key : runtime->store->keys()) {
+        if (!replay.matches_any(key.channel))
+            continue;
+        for (const auto& record : runtime->store->read(key, 0, std::numeric_limits<std::size_t>::max())) {
+            std::cout << record.channel << ' ' << record.seq << ' '
+                      << std::string(record.payload.begin(), record.payload.end()) << '\n';
+        }
+    }
+    std::cout.flush();
+
+    runtime->node->on_record([](const Record& record) {
+        std::cout << record.channel << ' ' << record.seq << ' '
+                  << std::string(record.payload.begin(), record.payload.end()) << '\n';
+        std::cout.flush();
+    });
+
+    // Give the subscriptions a moment to reach the publishers before announcing readiness: the socket
+    // layer forwards subscriptions asynchronously, so "started" and "listening" are not the same moment.
+    std::uint64_t now = 0;
+    for (int i = 0; i < 30; ++i) {
+        now += 10;
+        runtime->node->pump(now);
+        runtime->node->tick(now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::cout << "ready\n";
+    std::cout.flush();
+
+    while (!g_stop) {
+        now += 10;
+        runtime->node->pump(now);
+        runtime->node->tick(now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return 0;
+}
+
+int run_keygen(int argc, char** argv)
+{
+    if (argc != 3)
+        return usage();
+    const auto keystore = generate_keystore();
+    if (!keystore) {
+        std::cerr << "this build has no crypto support (MOSAIC_WITH_SODIUM=OFF)\n";
+        return 1;
+    }
+    if (!save_keystore(*keystore, argv[2])) {
+        std::cerr << "cannot write " << argv[2] << '\n';
+        return 1;
+    }
+    std::cout << "identity " << keystore->id() << '\n';
+    if (const auto curve = curve_identity_from_keystore(*keystore))
+        std::cout << "curve " << curve->public_z85 << '\n';
+    return 0;
+}
+
 } // namespace
 
-// Minimal CLI. Planned subcommands (pub, sub, tail, verify) are tasks CLI-* in docs/design/TODO.md.
 int main(int argc, char** argv)
 {
+    std::signal(SIGINT, on_signal);
+    std::signal(SIGTERM, on_signal);
+
     if (argc < 2)
         return usage();
     const std::string command = argv[1];
@@ -34,5 +365,11 @@ int main(int argc, char** argv)
         std::cout << (hit ? "match" : "no match") << '\n';
         return hit ? 0 : 1;
     }
+    if (command == "keygen")
+        return run_keygen(argc, argv);
+    if (command == "pub")
+        return run_pub(argc, argv);
+    if (command == "tail")
+        return run_tail(argc, argv);
     return usage();
 }

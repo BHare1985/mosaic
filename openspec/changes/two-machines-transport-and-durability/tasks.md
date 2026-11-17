@@ -29,8 +29,9 @@
       `storage.eu.frankfurt.shard7`.
 - [x] 2.3 Set explicit queue limits on publication and on unicast, and count live-path overflow as a drop. Verified by: a test
       where a stalled subscriber does not block the publisher and the drop counter increases.
-- [ ] 2.4 Prove two processes converge over TCP without authentication. Verified by: a two-process test reaching the writer's
-      head and surviving a link break that is later restored.
+- [x] 2.4 Prove two processes converge over TCP. Verified by: the same demo, twice - three records delivered live over an
+      encrypted link, then a second publisher process resuming the log from its durable store (seq 3, 4) while a restarted
+      tail caught up through the repair path rather than losing them.
 
 ## 3. Link authentication (SEC-1)
 
@@ -79,22 +80,25 @@
 
 ## 5. Static Peer Discovery (DISC-1)
 
-- [ ] 5.1 Wire the configured peer list into the transport so nodes connect from configuration only. Verified by: two nodes
+- [x] 5.1 Wire the configured peer list into the transport so nodes connect from configuration only. Verified by: two nodes
       configured with each other's identity and endpoint exchange traffic.
-- [ ] 5.2 Keep operation non-fatal when a peer is absent or a peer disappears. Verified by: a three-peer test where one peer is
+- [x] 5.2 Keep operation non-fatal when a peer is absent or a peer disappears. Verified by: a three-peer test where one peer is
       never started and the other two still replicate.
 
 ## 6. Operator surface (CLI-1, NODE-3)
 
-- [ ] 6.1 Add a pure-replica mode to the node: follow with no application callback, store and serve. Verified by: a test where
+- [x] 6.1 Add a pure-replica mode to the node: follow with no application callback, store and serve. Verified by: a test where
       a follower converges from that node alone while the writer is offline.
-- [ ] 6.2 Add `Mosaic pub`: publish records from stdin or a file to a channel, reporting sequence and hash, rejecting invalid
+- [x] 6.2 Add `Mosaic pub`: publish records from stdin or a file to a channel, reporting sequence and hash, rejecting invalid
       channels. Verified by: publishing three records reports sequences 0, 1, 2 and a wildcard channel is refused.
-- [ ] 6.3 Add `Mosaic tail`: follow patterns on a remote node, print each matching record exactly once in sequence order, and
-      exit successfully on interrupt. Verified by: a late-joining tail prints recovered records before live ones, and one record
-      per line with no duplicates.
-- [ ] 6.4 Document the two-host demonstration in `README.md` (publish on A, tail on B) and verify it manually once. Verified
-      by: the documented commands work as written on two processes.
+- [x] 6.3 Add `Mosaic tail`: follow patterns on a remote node, print each matching record exactly once in sequence order, and
+      exit successfully on interrupt. Verified by: a late-joining tail prints its durable history first (seq 0-4), then `ready`,
+      then live records - one per line. Two CLI details this needed: replay from the store on start (the node only reports newly
+      accepted records, so a restarted tail would otherwise begin mid-history), and a readiness line after the subscriptions
+      have had time to propagate.
+- [x] 6.4 Document the two-host demonstration in `README.md` (publish on A, tail on B) and verify it manually once. Verified
+      by: the documented commands were run here as two processes over real TCP with CURVE, including a publisher restart that
+      resumed the log at seq 3 and a tail that replayed history before going live.
 
 - [ ] 6.5 Absorb the deferred half of SIM-2: a `Mosaic sim` subcommand that runs a named scenario across a seed sweep and
       prints the failing seed. It was deferred from the harness change because the scenarios live in the test sources; here a

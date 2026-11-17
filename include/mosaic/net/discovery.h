@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mosaic/core/types.h>
+
 #include <utility>
 #include <vector>
 
@@ -16,14 +17,13 @@ public:
 
 class StaticDiscovery final : public Discovery {
 public:
-    explicit StaticDiscovery(std::vector<NodeId> peers)
-        : peers_(std::move(peers))
-    {
+    explicit StaticDiscovery(std::vector<NodeId> peers) : peers_(std::move(peers)) {}
+    std::vector<NodeId> peers() const override {
+        return peers_;
     }
-    std::vector<NodeId> peers() const override { return peers_; }
 
 private:
     std::vector<NodeId> peers_;
 };
 
-} // namespace mosaic
+}  // namespace mosaic

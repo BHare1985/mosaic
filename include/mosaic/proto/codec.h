@@ -11,9 +11,10 @@
 // Message ids are permanent: never renumber, never reuse. Ids for messages that exist but are not
 // implemented yet are already allocated here, so implementing one later is not a wire break.
 
-#include <cstdint>
 #include <mosaic/core/record.h>
 #include <mosaic/proto/messages.h>
+
+#include <cstdint>
 #include <optional>
 
 namespace mosaic {
@@ -33,16 +34,16 @@ inline constexpr std::uint8_t kMsgDirectHead = 9;
 inline constexpr std::uint8_t kMsgExperimental = 128;
 
 /// Hard limits, checked before any allocation happens (hostile input is expected).
-inline constexpr std::uint32_t kMaxFrameBytes = 1u << 20; // 1 MiB
-inline constexpr std::uint32_t kMaxRecordBytes = 1u << 18; // 256 KiB
+inline constexpr std::uint32_t kMaxFrameBytes = 1u << 20;   // 1 MiB
+inline constexpr std::uint32_t kMaxRecordBytes = 1u << 18;  // 256 KiB
 
 enum class DecodeStatus {
     Ok,
-    Truncated, // the frame promises more bytes than it has
-    Oversized, // declared length above kMaxFrameBytes
-    UnknownId, // an id this build does not implement: ignore and count, do not fail the link
-    Malformed, // decoded fields do not re-encode identically, or trailing bytes remain
-    UnsupportedVersion, // a hello announcing a protocol version we cannot speak
+    Truncated,  // the frame promises more bytes than it has
+    Oversized,  // declared length above kMaxFrameBytes
+    UnknownId,  // an id this build does not implement: ignore and count, do not fail the link
+    Malformed,  // decoded fields do not re-encode identically, or trailing bytes remain
+    UnsupportedVersion,  // a hello announcing a protocol version we cannot speak
 };
 
 const char* to_string(DecodeStatus status);
@@ -51,7 +52,9 @@ struct DecodeResult {
     DecodeStatus status = DecodeStatus::Ok;
     std::optional<Message> message;
 
-    bool ok() const { return status == DecodeStatus::Ok && message.has_value(); }
+    bool ok() const {
+        return status == DecodeStatus::Ok && message.has_value();
+    }
 };
 
 /// A message's permanent id.
@@ -68,4 +71,4 @@ DecodeResult decode_message(const Bytes& frame);
 Bytes encode_record(const Record& record);
 std::optional<Record> decode_record(const Bytes& bytes);
 
-} // namespace mosaic
+}  // namespace mosaic

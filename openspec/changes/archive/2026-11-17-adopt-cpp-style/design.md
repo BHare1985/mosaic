@@ -58,9 +58,10 @@ keep `std::` everywhere.
 moment it lands teaches people to ignore it. Findings are fixed where the fix is behaviour-preserving, checks are excluded with a
 written reason where they are noise, and only then does the CI step start failing.
 
-**D6 - The reformat is one commit, named in `.git-blame-ignore-revs`.**
-A mechanical change touching every file destroys `git blame` unless it is demarcated. One commit, one line in the ignore file,
-documented in `conventions.md`.
+**D6 - The reformat is one commit, and that is the whole mitigation.**
+A mechanical change touching every file is easiest to review when it is the only thing in its commit. `git blame` skipping
+(`.git-blame-ignore-revs`) was considered and deliberately **not** adopted: it is opt-in configuration every contributor has to
+set up, and the maintainer does not want it.
 
 **D7 - clang-tidy is optional, like doxygen.**
 It is not installed here and it is not needed to build or test. The CI step reports `SKIPPED - clang-tidy not found` and says how
@@ -74,7 +75,7 @@ table.
 
 ## Risks / Trade-offs
 
-- **A very large diff** -> the reformat is isolated in its own commit and excluded from `git blame`; the behavioural diff for
+- **A very large diff** -> the reformat is isolated in its own commit; the behavioural diff for
   every other change stays readable.
 - **clang-tidy noise erodes trust** -> the excluded checks are listed with reasons in `.clang-tidy`, and `WarningsAsErrors` is
   turned on only after a clean run.

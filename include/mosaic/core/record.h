@@ -1,8 +1,9 @@
 #pragma once
 
-#include <compare>
 #include <mosaic/core/crypto.h>
 #include <mosaic/core/types.h>
+
+#include <compare>
 #include <optional>
 #include <string>
 
@@ -24,13 +25,15 @@ struct Record {
     /// under one algorithm stays verifiable after the default changes.
     HashAlgo hash_algo = kDefaultHashAlgo;
     Seq seq = 0;
-    Hash prev { }; // hash of record seq-1; all-zero when seq == 0
+    Hash prev{};  // hash of record seq-1; all-zero when seq == 0
     std::uint64_t timestamp_ms = 0;
-    std::string content_type; // e.g. "application/json"; opaque to Mosaic
+    std::string content_type;  // e.g. "application/json"; opaque to Mosaic
     Bytes payload;
-    Bytes sig; // NOT part of canonical_bytes
+    Bytes sig;  // NOT part of canonical_bytes
 
-    LogKey key() const { return { writer, channel }; }
+    LogKey key() const {
+        return {writer, channel};
+    }
 
     /// Value equality, so a failing comparison in a test shows what differs rather than "a != b".
     friend bool operator==(const Record&, const Record&) = default;
@@ -39,10 +42,11 @@ struct Record {
 /// Summary of a log: how far it goes and the hash of its last record.
 struct Head {
     Seq seq = 0;
-    Hash hash { };
+    Hash hash{};
 };
 
-/// Canonical, unambiguous encoding of every field except `sig` (format in docs/design/01-data-model.md).
+/// Canonical, unambiguous encoding of every field except `sig` (format in
+/// docs/design/01-data-model.md).
 Bytes canonical_bytes(const Record& record);
 
 /// Hash with a caller-chosen hasher (writers, tests). The tag in the record is NOT used here.
@@ -52,4 +56,4 @@ Hash record_hash(const Record& record, const Hasher& hasher);
 /// algorithm, so a verifier rejects the record instead of comparing against zeros.
 std::optional<Hash> record_hash_tagged(const Record& record);
 
-} // namespace mosaic
+}  // namespace mosaic

@@ -1,11 +1,12 @@
+#include <mosaic/core/encoding.h>
 #include <mosaic/jobs/job.h>
 
-#include <mosaic/core/encoding.h>
+using std::nullopt;
+using std::optional;
 
 namespace mosaic {
 
-Bytes encode_job_request(const JobRequest& request)
-{
+Bytes encode_job_request(const JobRequest& request) {
     Bytes out;
     ByteWriter writer(out);
     writer.put_string(request.job_id);
@@ -16,8 +17,7 @@ Bytes encode_job_request(const JobRequest& request)
     return out;
 }
 
-std::optional<JobRequest> decode_job_request(const Bytes& bytes)
-{
+optional<JobRequest> decode_job_request(const Bytes& bytes) {
     ByteReader reader(bytes);
     JobRequest request;
     request.job_id = reader.get_string();
@@ -26,12 +26,11 @@ std::optional<JobRequest> decode_job_request(const Bytes& bytes)
     request.timeout_ms = reader.get_u32();
     request.body = reader.get_bytes();
     if (!reader.ok() || !reader.at_end() || request.job_id.empty() || request.reply_channel.empty())
-        return std::nullopt; // a half-read envelope is not a job
+        return nullopt;  // a half-read envelope is not a job
     return request;
 }
 
-Bytes encode_job_result(const JobResult& result)
-{
+Bytes encode_job_result(const JobResult& result) {
     Bytes out;
     ByteWriter writer(out);
     writer.put_string(result.job_id);
@@ -40,16 +39,15 @@ Bytes encode_job_result(const JobResult& result)
     return out;
 }
 
-std::optional<JobResult> decode_job_result(const Bytes& bytes)
-{
+optional<JobResult> decode_job_result(const Bytes& bytes) {
     ByteReader reader(bytes);
     JobResult result;
     result.job_id = reader.get_string();
     result.ok = reader.get_u8() != 0;
     result.body = reader.get_bytes();
     if (!reader.ok() || !reader.at_end() || result.job_id.empty())
-        return std::nullopt;
+        return nullopt;
     return result;
 }
 
-} // namespace mosaic
+}  // namespace mosaic

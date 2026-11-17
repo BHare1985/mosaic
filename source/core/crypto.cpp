@@ -1,43 +1,54 @@
 #include <mosaic/core/crypto.h>
 
+using std::make_pair;
+using std::move;
+using std::nullopt;
+using std::optional;
+using std::pair;
+using std::size_t;
+using std::uint32_t;
+using std::uint64_t;
+using std::uint8_t;
+
 #ifdef MOSAIC_HAS_SODIUM
 #include <sodium.h>
+
 #endif
 
 namespace mosaic {
 namespace {
-    constexpr std::uint32_t K[64] = {
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-    };
+constexpr uint32_t K[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-    constexpr std::uint32_t rotr(std::uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
-} // namespace
+constexpr uint32_t rotr(uint32_t x, int n) {
+    return (x >> n) | (x << (32 - n));
+}
+}  // namespace
 
-Hash sha256(const std::uint8_t* data, std::size_t size)
-{
-    std::uint32_t h[8] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
+Hash sha256(const uint8_t* data, size_t size) {
+    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
 
     Bytes msg(data, data + size);
     msg.push_back(0x80);
     while (msg.size() % 64 != 56)
         msg.push_back(0);
-    const std::uint64_t bits = static_cast<std::uint64_t>(size) * 8;
+    const uint64_t bits = static_cast<uint64_t>(size) * 8;
     for (int i = 7; i >= 0; --i)
-        msg.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
+        msg.push_back(static_cast<uint8_t>(bits >> (8 * i)));
 
-    for (std::size_t chunk = 0; chunk < msg.size(); chunk += 64) {
-        std::uint32_t w[64];
+    for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
+        uint32_t w[64];
         for (int i = 0; i < 16; ++i) {
-            const auto* p = &msg[chunk + 4 * static_cast<std::size_t>(i)];
-            w[i] = (std::uint32_t { p[0] } << 24) | (std::uint32_t { p[1] } << 16) | (std::uint32_t { p[2] } << 8) | p[3];
+            const auto* p = &msg[chunk + 4 * static_cast<size_t>(i)];
+            w[i] = (uint32_t{p[0]} << 24) | (uint32_t{p[1]} << 16) | (uint32_t{p[2]} << 8) | p[3];
         }
         for (int i = 16; i < 64; ++i) {
             const auto s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
@@ -72,93 +83,89 @@ Hash sha256(const std::uint8_t* data, std::size_t size)
     }
 
     Hash out;
-    for (int i = 0; i < 8; ++i)
-        for (int j = 0; j < 4; ++j)
-            out.bytes[static_cast<std::size_t>(i * 4 + j)] = static_cast<std::uint8_t>(h[i] >> (24 - 8 * j));
+    for (size_t i = 0; i < 8; ++i)
+        for (size_t j = 0; j < 4; ++j)
+            out.bytes[i * 4 + j] = static_cast<uint8_t>(h[i] >> (24 - 8 * j));
     return out;
 }
 
-Hash sha256(const Bytes& data) { return sha256(data.data(), data.size()); }
+Hash sha256(const Bytes& data) {
+    return sha256(data.data(), data.size());
+}
 
-bool hash_algo_supported(HashAlgo algo)
-{
-    switch (algo) {
-    case HashAlgo::Sha256:
-        return true;
-    case HashAlgo::Blake2b:
+bool hash_algo_supported(HashAlgo algo) {
+    // Whether BLAKE2b exists is a property of the build, not of the algorithm's name: one branch,
+    // one answer.
 #ifdef MOSAIC_HAS_SODIUM
-        return true;
+    const bool have_blake2b = true;
 #else
-        return false;
+    const bool have_blake2b = false;
 #endif
+    switch (algo) {
+        case HashAlgo::Sha256:
+            return true;
+        case HashAlgo::Blake2b:
+            return have_blake2b;
     }
     return false;
 }
 
-std::optional<Hash> hash_with(HashAlgo algo, const Bytes& data)
-{
+optional<Hash> hash_with(HashAlgo algo, const Bytes& data) {
     switch (algo) {
-    case HashAlgo::Sha256:
-        return sha256(data);
-    case HashAlgo::Blake2b:
+        case HashAlgo::Sha256:
+            return sha256(data);
+        case HashAlgo::Blake2b:
 #ifdef MOSAIC_HAS_SODIUM
-        return Blake2bHasher { }.hash(data);
+            return Blake2bHasher{}.hash(data);
 #else
-        return std::nullopt;
+            return nullopt;
 #endif
     }
-    return std::nullopt;
+    return nullopt;
 }
 
 #ifdef MOSAIC_HAS_SODIUM
 
 // BLAKE2b with a 32-byte digest, so it fits the same Hash type as SHA-256. The algorithm is stamped
 // into the record, so changing this default never invalidates an existing log.
-Hash Blake2bHasher::hash(const Bytes& data) const
-{
+Hash Blake2bHasher::hash(const Bytes& data) const {
     Hash out;
     crypto_generichash(out.bytes.data(), out.bytes.size(), data.data(), data.size(), nullptr, 0);
     return out;
 }
 
 Ed25519Signer::Ed25519Signer(Bytes public_key, Bytes secret_key)
-    : public_key_(std::move(public_key))
-    , secret_key_(std::move(secret_key))
-{
-}
+    : public_key_(move(public_key)), secret_key_(move(secret_key)) {}
 
-Bytes Ed25519Signer::sign(const Hash& record_hash) const
-{
+Bytes Ed25519Signer::sign(const Hash& record_hash) const {
     Bytes signature(crypto_sign_BYTES, 0);
     unsigned long long length = 0;
-    crypto_sign_detached(signature.data(), &length, record_hash.bytes.data(), record_hash.bytes.size(),
-        secret_key_.data());
-    signature.resize(static_cast<std::size_t>(length));
+    crypto_sign_detached(signature.data(), &length, record_hash.bytes.data(),
+                         record_hash.bytes.size(), secret_key_.data());
+    signature.resize(static_cast<size_t>(length));
     return signature;
 }
 
-bool Ed25519Verifier::verify(const WriterId& writer, const Hash& record_hash, const Bytes& signature) const
-{
+bool Ed25519Verifier::verify(const WriterId& writer, const Hash& record_hash,
+                             const Bytes& signature) const {
     // The identity is text; anything that is not a hex key is simply not a key we can verify.
     const auto public_key = from_hex(writer);
     if (!public_key || public_key->size() != crypto_sign_PUBLICKEYBYTES)
         return false;
     if (signature.size() != crypto_sign_BYTES)
         return false;
-    return crypto_sign_verify_detached(signature.data(), record_hash.bytes.data(), record_hash.bytes.size(),
-               public_key->data())
-        == 0;
+    return crypto_sign_verify_detached(signature.data(), record_hash.bytes.data(),
+                                       record_hash.bytes.size(), public_key->data()) == 0;
 }
 
-std::optional<std::pair<Bytes, Bytes>> ed25519_generate()
-{
+optional<pair<Bytes, Bytes>> ed25519_generate() {
     Bytes public_key(crypto_sign_PUBLICKEYBYTES, 0);
     Bytes secret_key(crypto_sign_SECRETKEYBYTES, 0);
     if (crypto_sign_keypair(public_key.data(), secret_key.data()) != 0)
-        return std::nullopt;
-    return std::make_pair(std::move(public_key), std::move(secret_key));
+        return nullopt;
+    return make_pair(move(public_key), move(secret_key));
 }
 
-#endif // MOSAIC_HAS_SODIUM
+#endif  // MOSAIC_HAS_SODIUM
 
-} // namespace mosaic
+}  // namespace mosaic

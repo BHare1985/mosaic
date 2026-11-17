@@ -61,6 +61,48 @@ else
     grep -E '^docs:' /tmp/ci-docs.log | tail -1
 fi
 
+step "lint"
+# Correctness is gated; style suggestions are reported. clang-tidy is optional, like doxygen: absent, the step says
+# so instead of passing silently. See docs/design/conventions.md for the manual commands.
+if command -v clang-tidy >/dev/null 2>&1; then
+    DB=$(find build -name compile_commands.json | head -1)
+    if [ -z "$DB" ]; then
+        fail "lint: no compilation database (run a configure first)"
+    else
+        DB_DIR=$(dirname "$DB")
+        # Gated: bugs. `run-clang-tidy` compiles each translation unit in parallel; the serial form over the whole
+        # tree takes minutes, which is long enough that nobody would run it.
+        CORRECTNESS='-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-parameters'
+        if command -v run-clang-tidy >/dev/null 2>&1; then
+            if ! run-clang-tidy -p "$DB_DIR" -j "$(nproc)" -quiet -checks="$CORRECTNESS" \
+                    -header-filter='^.*/include/mosaic/' 'source/.*\.cpp' > /tmp/ci-lint.log 2>&1; then
+                grep -E "warning:|error:" /tmp/ci-lint.log | head -20 >&2
+                fail "lint: correctness findings"
+            else
+                echo "lint: correctness clean (bugprone, clang-analyzer)"
+            fi
+        else
+            if ! clang-tidy -p "$DB_DIR" --checks="$CORRECTNESS" $(git ls-files 'source/**/*.cpp') \
+                    > /tmp/ci-lint.log 2>&1; then
+                grep -E "warning:" /tmp/ci-lint.log | head -20 >&2
+                fail "lint: correctness findings"
+            else
+                echo "lint: correctness clean (serial; install run-clang-tidy for parallelism)"
+            fi
+        fi
+        # The style/modernisation backlog, reported only on request: tracked as STYLE-2 on the board.
+        if [ "${MOSAIC_LINT_STYLE:-0}" = "1" ]; then
+            command -v run-clang-tidy >/dev/null 2>&1 \
+                && run-clang-tidy -p "$DB_DIR" -j "$(nproc)" -quiet 'source/.*\.cpp' > /tmp/ci-lint-style.log 2>&1 \
+                || clang-tidy -p "$DB_DIR" $(git ls-files 'source/**/*.cpp') > /tmp/ci-lint-style.log 2>&1 || true
+            echo "lint: $(grep -cE 'warning:' /tmp/ci-lint-style.log) style suggestions pending (STYLE-2)"
+        fi
+    fi
+else
+    echo "lint: SKIPPED - clang-tidy not found."
+    echo "      install it (apt install clang-tidy, or an LLVM release) and re-run."
+fi
+
 step "format"
 if command -v clang-format >/dev/null 2>&1; then
     dirty=0

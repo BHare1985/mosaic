@@ -2,6 +2,7 @@
 
 #include <mosaic/core/crypto.h>
 #include <mosaic/core/types.h>
+
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@ namespace mosaic {
 /// Every node computes the same order from the same inputs, with no coordination, and removing a
 /// worker only changes jobs it ranked first. The top-ranked worker runs the job; if no result
 /// arrives before the timeout, the next one does. See docs/design/06-jobs.md.
-std::vector<NodeId> rendezvous_rank(const std::string& job_id, const std::vector<NodeId>& workers, const Hasher& hasher);
+std::vector<NodeId> rendezvous_rank(const std::string& job_id, const std::vector<NodeId>& workers,
+                                    const Hasher& hasher);
 
-} // namespace mosaic
+}  // namespace mosaic

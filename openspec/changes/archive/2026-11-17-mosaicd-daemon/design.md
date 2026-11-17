@@ -16,10 +16,11 @@ it is doing; the CLI and the daemon reading the same file.
 
 ## Decisions
 
-**D1 - The config format is ZPL (ZeroMQ RFC 4), parsed in-tree.**
-The same format czmq's `zconfig` reads, and that zproject, malamute and zyre use: indentation defines sections, `name = value` sets
-a property, `#` comments, and a repeated section name builds a list. A Mosaic config is therefore legible to the ecosystem's
-tooling, and to anyone who has ever configured a ZeroMQ project.
+**D1 - Configuration is ZPL, read with czmq's `zconfig`.**
+The format czmq's `zconfig` reads, and that zproject, malamute and zyre use: indentation defines sections, `name = value` sets a
+property, `#` comments, and a repeated section name builds a list. A Mosaic config is therefore legible to the ecosystem's
+tooling, and to anyone who has ever configured a ZeroMQ project - and we do not write a second parser for a format that already
+has a maintained one.
 
 ```zpl
 node
@@ -38,15 +39,19 @@ follow
     events.>
 ```
 
-*Alternatives:* czmq's `zconfig` class as a mandatory dependency - rejected: czmq is fetched only in the ecosystem build, so the
-daemon would stop building in the configurations CI runs, for a parser of about 150 lines. TOML/YAML - rejected: a dependency, and
-a format no other ZeroMQ tool speaks. JSON - rejected: no comments, and an operator file needs them.
-*Trade-off:* we own the parser, so we own its bugs. That is why the suite cross-checks against czmq's `zconfig` wherever czmq is
-present (D8), turning "ZPL-compatible" into something tested rather than claimed.
+*Alternatives:* parsing ZPL ourselves (the first draft of this change) - rejected on reflection: it is ~150 lines we would own and
+have to keep compatible, next to a class that already implements the RFC, and the CLI and daemon already require libzmq so the
+dependency is free where it is needed. TOML/YAML - rejected: a dependency *and* a format no other ZeroMQ tool speaks. JSON -
+rejected: no comments, and an operator file needs them.
+*Consequence:* czmq becomes a dependency of the **CLI and daemon targets only**. `core`..`node` stay dependency-free and the
+`core` / `no-crypto` build configurations stay exactly as they are; the daemon is meaningless without libzmq, so this adds nothing
+to what a deployer already installs. The dependency is resolved system-first (`find_package`) and only falls back to the existing
+fetch-from-source path.
 
 **D1a - `${NAME}` is expanded from the environment, and an unset variable is an error.**
-Paths and CURVE keys are exactly what operators keep out of files in a repository. czmq offers the same through
-`zconfig_resolve`; we expand on load and refuse to start on an unset variable rather than substituting an empty string into a key.
+Paths and CURVE keys are exactly what operators keep out of files in a repository. `zconfig_resolve` does the expansion and
+returns the name of a variable it could not resolve, which is what lets us fail naming it instead of substituting an empty string
+into a key.
 
 **D2 - Unknown sections and properties are errors, and all errors are reported together.**
 A typo in `limits.min_replicas` must not be a silent default; that is how someone ends up running without the floor they
@@ -58,10 +63,15 @@ safety.
 The table is the single source of truth: it fills absent settings and renders the commented file. *Alternative:* documenting the
 defaults in a Markdown table - rejected: it drifts, and the drift is invisible until someone deploys with a stale value.
 
-**D4 - The loop is the CLI's loop, with a poll timeout instead of a sleep.**
-`pump`, `tick`, then wait on the transport with a bounded timeout so a quiet node does not spin and a busy one does not add
-latency. Time comes from a monotonic clock read once per iteration, which is the only clock the process owns - the library still
-takes `now_ms` as a parameter.
+**D4 - The loop paces itself; `Transport` has no socket wait to block on.**
+`pump`, `tick`, then a bounded 5 ms pause, with time from a monotonic clock read once per iteration - the only clock the process
+owns; the library still takes `now_ms` as a parameter.
+
+The pause is a sleep, not a socket wait, because `Transport` exposes no waitable handle: `poll()` is explicitly non-blocking and
+returns at most one message. That satisfies what this decision is for - a quiet node does not spin, a busy one adds at most 5 ms
+of latency - without widening the transport contract inside an operability change. A real wait is worth having (it would remove
+the 5 ms floor and let the loop react the instant a message lands) and belongs with a change that can argue the contract change
+for every implementation, including the simulator.
 
 **D5 - Signals set a flag; the loop decides when to stop.**
 A handler only sets a `volatile sig_atomic_t`. The loop checks it at the top of an iteration, finishes that iteration, closes the
@@ -72,11 +82,10 @@ One structured line per interval at info level (`accepted`, `duplicates`, `gaps`
 `throttled`, `handshake_rejects`), and a full dump on demand. *Alternative:* a Prometheus endpoint - deferred: it is a protocol,
 a binder and a parser for a capability nobody has asked for yet, and the counters are the substance.
 
-**D8 - ZPL compatibility is tested against the reference implementation where it is available.**
-The ecosystem build already fetches and links czmq into the tests. In that configuration the suite loads one fixture with czmq's
-`zconfig` and with our parser and asserts the same tree, so a divergence from the real ZPL implementation fails CI instead of
-surfacing in a deployment. In configurations without czmq the fixture is checked against expected values only, and the comparison
-is reported as skipped rather than silently absent.
+**D8 - The parser is czmq's, so compatibility is not a claim we have to test.**
+With D1 settled, "ZPL-compatible" needs no cross-check fixture: the reference implementation *is* the implementation. What still
+needs testing is our own layer on top - which sections and properties we accept, that unknown ones are errors, that defaults fill
+what is absent, and that `--defaults` round-trips through the same table.
 
 **D7 - The CLI reads the same file but ignores daemon-only keys.**
 So one file can describe a deployment and the operator can still run `Mosaic tail --config mosaicd.conf events.>`. Explicit
@@ -84,8 +93,10 @@ flags win, so scripts stay predictable. Unknown keys are still errors - a typo i
 
 ## Risks / Trade-offs
 
-- **A hand-written ZPL parser is a place to introduce bugs** -> tests for every failure mode, plus the cross-check against
-  czmq's `zconfig` in the ecosystem build, which is the reference implementation of the same RFC.
+- **czmq is not a healthy dependency in 2026** (our own ecosystem check had to patch its CMake to build) -> accepted knowingly: the
+  parts used here are the thread-free, least volatile ones (`zconfig`, `zcert`), and the alternative is maintaining a parser
+  ourselves. Where czmq would import an actor thread - `zauth`, `zbeacon`, `zgossip` - the choice is made case by case: our ZAP
+  handler stays ours, discovery is a separate proposal that names the threads it introduces.
 - **A daemon invites scope creep (reload, metrics, plugins)** -> the non-goals list what is deliberately absent, and reload is
   explicitly a restart.
 - **Two configuration paths (file and flags) can diverge** -> the precedence rule is stated in the spec and tested, and both read

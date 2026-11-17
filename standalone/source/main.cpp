@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <mosaic/core/keystore.h>
+#include <mosaic/daemon/config.h>
 #include <mosaic/log/log.h>
 #include <mosaic/log/verify.h>
 #include <mosaic/match/matcher.h>
@@ -54,7 +55,8 @@ int usage()
                  "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
                  "         --peer <id=host:port,curve-z85>   (repeatable)\n"
                  "         --allow-writer <pattern>=<id>[,<id>]   (repeatable; open by default)\n"
-                 "         --no-curve                             diagnostic: run the link in plaintext\n";
+                 "         --no-curve                             diagnostic: run the link in plaintext\n"
+                 "         --config <file>                        ZPL config shared with mosaicd (flags win)\n";
     return 2;
 }
 
@@ -66,6 +68,9 @@ struct Options {
     int port = 0; // 0 = pick a free port and report it
     std::vector<ZmqPeerEndpoint> peers;
     std::vector<std::pair<std::string, std::vector<WriterId>>> allow; // channel rules
+    std::string config_path; // ZPL file shared with mosaicd
+    bool explicit_node = false, explicit_keys = false, explicit_store = false, explicit_listen = false;
+    bool explicit_peers = false, explicit_allow = false;
     bool no_curve = false; // diagnostic: run the link in plaintext to isolate CURVE issues
     std::string port_out; // file to write the chosen ports to, so a test can discover them
 };
@@ -88,6 +93,43 @@ bool parse_peer(const std::string& text, ZmqPeerEndpoint& out, std::string& erro
     return true;
 }
 
+/// Read the shared ZPL config into the options. Explicit flags then win over it, which is the documented
+/// precedence and the reason both carry the same names.
+bool apply_config(Options& options, std::string& error)
+{
+    if (options.config_path.empty())
+        return true;
+    const auto loaded = mosaic::daemon::load_config(options.config_path);
+    if (!loaded.ok()) {
+        std::string joined;
+        for (const auto& problem : loaded.errors)
+            joined += "\n  " + problem.where + ": " + problem.message;
+        error = "invalid config " + options.config_path + ":" + joined;
+        return false;
+    }
+    const auto& config = loaded.config;
+    if (!options.explicit_node && !config.id.empty())
+        options.node = config.id;
+    if (!options.explicit_keys && !config.keys.empty())
+        options.keys = config.keys;
+    if (!options.explicit_store && !config.store.empty())
+        options.store = config.store;
+    if (!options.explicit_listen && !config.listen.empty()) {
+        const auto colon = config.listen.rfind(':');
+        if (colon != std::string::npos) {
+            options.listen = config.listen.substr(0, colon);
+            options.port = std::atoi(config.listen.c_str() + colon + 1);
+        }
+    }
+    if (!options.explicit_peers)
+        for (const auto& peer : config.peers)
+            options.peers.push_back({ peer.id, "tcp://" + peer.endpoint, "", peer.curve_public });
+    if (!options.explicit_allow)
+        for (const auto& rule : config.allow)
+            options.allow.emplace_back(rule.pattern, rule.writers);
+    return true;
+}
+
 bool parse_options(int argc, char** argv, int first, Options& options, std::string& error)
 {
     for (int i = first; i < argc; ++i) {
@@ -100,16 +142,23 @@ bool parse_options(int argc, char** argv, int first, Options& options, std::stri
             into = argv[++i];
             return true;
         };
-        if (flag == "--node") {
+        if (flag == "--config") {
+            if (!next(options.config_path))
+                return false;
+        } else if (flag == "--node") {
+            options.explicit_node = true;
             if (!next(options.node))
                 return false;
         } else if (flag == "--keys") {
+            options.explicit_keys = true;
             if (!next(options.keys))
                 return false;
         } else if (flag == "--store") {
+            options.explicit_store = true;
             if (!next(options.store))
                 return false;
         } else if (flag == "--listen") {
+            options.explicit_listen = true;
             if (!next(options.listen))
                 return false;
         } else if (flag == "--port") {
@@ -123,6 +172,7 @@ bool parse_options(int argc, char** argv, int first, Options& options, std::stri
         } else if (flag == "--no-curve") {
             options.no_curve = true;
         } else if (flag == "--allow-writer") {
+            options.explicit_allow = true;
             // <pattern>=<writer-id>[,<writer-id>...]
             std::string value;
             if (!next(value))
@@ -144,6 +194,7 @@ bool parse_options(int argc, char** argv, int first, Options& options, std::stri
             }
             options.allow.emplace_back(value.substr(0, equals), std::move(ids));
         } else if (flag == "--peer") {
+            options.explicit_peers = true;
             ZmqPeerEndpoint peer;
             std::string value;
             if (!next(value))
@@ -156,7 +207,7 @@ bool parse_options(int argc, char** argv, int first, Options& options, std::stri
             return false;
         }
     }
-    return true;
+    return apply_config(options, error);
 }
 
 /// The transport only needs one endpoint pair per peer, so a peer's PUB and ROUTER ports are given as
@@ -217,6 +268,9 @@ std::optional<Runtime> make_runtime(const Options& options, std::vector<std::str
     runtime.verifier = std::make_unique<Ed25519Verifier>();
     if (!options.allow.empty()) {
         runtime.rules = std::make_unique<ChannelRules>();
+        for (const auto& peer : options.peers)
+            std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                      << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
         for (const auto& [pattern, writers] : options.allow) {
             if (!runtime.rules->allow(pattern, writers)) {
                 error = "invalid --allow-writer pattern: " + pattern;
@@ -268,6 +322,9 @@ int run_pub(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& peer : options.peers)
+        std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                  << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
     for (const auto& [pattern, writers] : options.allow) {
         std::cout << "allow " << pattern << " =";
         for (const auto& writer : writers)
@@ -339,6 +396,9 @@ int run_tail(int argc, char** argv)
     }
     std::cout << "identity " << to_hex(keystore->public_key) << '\n';
     std::cout << "curve " << curve_identity_from_keystore(*keystore)->public_z85 << '\n';
+    for (const auto& peer : options.peers)
+        std::cout << "peer " << peer.id << " " << peer.pub_endpoint << " curve "
+                  << (peer.curve_public_z85.empty() ? "(none)" : peer.curve_public_z85) << '\n';
     for (const auto& [pattern, writers] : options.allow) {
         std::cout << "allow " << pattern << " =";
         for (const auto& writer : writers)

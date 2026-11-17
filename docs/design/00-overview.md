@@ -31,7 +31,9 @@ layers that consume logs; none may be required to use a log.
 ```
 
 ### Dependency rules (enforce in review)
-**Third-party code.** Two dependencies exist, both behind interfaces: `libsodium` behind `Hasher`/`Signer`/`Verifier` (fetched
+**Third-party code — three dependencies, each confined.** `libzmq` behind `Transport` (the `MosaicZmq` target); `czmq` behind
+the daemon and CLI only (ZPL config today, discovery next), never in `core`..`node` and never in the `core` / `no-crypto`
+builds; and `libsodium` behind `Hasher`/`Signer`/`Verifier`. `libsodium` behind `Hasher`/`Signer`/`Verifier` (fetched
 by CPM, optional via `MOSAIC_WITH_SODIUM`) and `libzmq` behind `Transport`, confined to the separate `MosaicZmq` target. A
 consumer that packages Mosaic must supply `libzmq` and, if `MOSAIC_WITH_SODIUM` was used, `libsodium`: they are linked
 `PRIVATE $<BUILD_INTERFACE:...>` today, so they are deliberately absent from the install export. `MOSAIC_WITH_SODIUM=OFF` and

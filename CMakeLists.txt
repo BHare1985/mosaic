@@ -112,9 +112,12 @@ if (MOSAIC_WITH_ZMQ)
     endif ()
 endif ()
 
-# czmq and malamute are not used by the product: they exist so the build proves the surrounding ZeroMQ
-# ecosystem still compiles from source against a current compiler.
-if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
+# czmq is used by the daemon and CLI targets only (ZPL config today, discovery next); malamute exists only so
+# the build proves the surrounding ZeroMQ ecosystem still compiles from source. Neither ever reaches
+# core..node or the `core` / `no-crypto` configurations.
+option(MOSAIC_WITH_CZMQ "Build the daemon (MosaicDaemon), which uses czmq for ZPL config" ON)
+
+if ((MOSAIC_WITH_CZMQ OR MOSAIC_BUILD_ZMQ_FROM_SOURCE) AND MOSAIC_ZMQ_TARGET)
     include_directories(${CMAKE_BINARY_DIR}/_deps/libzmq-src/include)
     CPMAddPackage(
             NAME czmq
@@ -127,7 +130,9 @@ if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
     )
 
     include_directories(${czmq_SOURCE_DIR}/include)
+endif ()
 
+if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
     CPMAddPackage(
             NAME malamute
             GIT_TAG 1.1.0
@@ -178,6 +183,8 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # The ZeroMQ transport is the one place ZeroMQ may appear; keeping it out of this target is what makes
 # "the core builds without ZeroMQ" a property rather than a hope.
 list(FILTER sources EXCLUDE REGEX "source/net/zmq_transport\\.cpp$")
+# The daemon (ZPL config via czmq today) is its own target, never part of the core library.
+list(FILTER sources EXCLUDE REGEX "source/daemon/")
 if (NOT MOSAIC_SQLITE_TARGET)
     # No SQLite available: the durable backend is not part of this build.
     list(FILTER sources EXCLUDE REGEX "source/store/sqlite_log_store\\.cpp$")
@@ -239,6 +246,25 @@ if (MOSAIC_WITH_ZMQ AND MOSAIC_ZMQ_TARGET)
     target_include_directories(
             MosaicZmq PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
+    )
+endif ()
+
+# ---- Daemon target (czmq: ZPL config; discovery next) ----
+
+# The daemon verifies records, so it needs real signatures: without libsodium there is nothing to verify
+# with (the only signer left is a test double). The core library keeps building either way.
+if (MOSAIC_WITH_CZMQ AND MOSAIC_WITH_SODIUM AND TARGET czmq-static AND TARGET sodium)
+    add_library(MosaicDaemon source/daemon/config.cpp source/daemon/daemon.cpp)
+    target_compile_features(MosaicDaemon PUBLIC cxx_std_20)
+    target_link_libraries(MosaicDaemon PUBLIC ${PROJECT_NAME} PRIVATE czmq-static)
+    if (TARGET MosaicZmq)
+        target_link_libraries(MosaicDaemon PUBLIC MosaicZmq)
+    endif ()
+    target_compile_definitions(MosaicDaemon PUBLIC MOSAIC_HAS_CZMQ)
+    target_include_directories(
+            MosaicDaemon PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+                                $<BUILD_INTERFACE:${czmq_SOURCE_DIR}/include>
+                                $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
     )
 endif ()
 

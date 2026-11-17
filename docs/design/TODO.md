@@ -91,6 +91,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | SEC-1 | CURVE + ZAP allow-list on the ZeroMQ transport | M | ZMQ-1, CORE-2 | Unlisted key cannot connect (test) |
+| SEC-1b | ZAP handler for CURVE peer keys, so `PeerPins` is enforced at the handshake (open = pin on first use, closed = allow-list) | M | SEC-1 | An unlisted key cannot complete a handshake; a key that changed under a known identity is refused and counted; `curve_unauthenticated` stays 0 |
 | SEC-2 | Bad-peer scoring and rate limits | M | NODE-1 | Peer sending N bad records is ignored for T seconds (sim) |
 | SEC-3 | Writer key rotation (link record) | M | CORE-2, design note | Old log points to new log; verifier follows the link |
 

@@ -26,6 +26,27 @@ include(cmake/CPM.cmake)
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
+# ---- Crypto dependency (CORE-1, CORE-2) ----
+# libsodium provides BLAKE2b and Ed25519 behind the Hasher/Signer/Verifier seams. With it OFF the core
+# still builds and tests on the dependency-free SHA-256 plus a test signer, so the "no third-party
+# dependency in core..node" build stays available. Fetched the way this repo already did it in 2024
+# (branch key-loading): pinned CPM package.
+option(MOSAIC_WITH_SODIUM "Use libsodium for BLAKE2b and Ed25519" ON)
+
+if (MOSAIC_WITH_SODIUM)
+    CPMAddPackage(
+            NAME libsodium
+            GITHUB_REPOSITORY robinlinden/libsodium-cmake
+            GIT_TAG f568ff02f1bed155ea598c0e803ef3c9db2703d2
+            GIT_SUBMODULES_RECURSE TRUE
+            OPTIONS
+            "SODIUM_DISABLE_TESTS ON"
+            "BUILD_SHARED_LIBS OFF"
+            # czmq/malamute build shared libraries that link this static libsodium, so it has to be PIC.
+            "CMAKE_POSITION_INDEPENDENT_CODE ON"
+    )
+endif ()
+
 # ZeroMQ carries the transport (ZMQ-1). It is confined to the MosaicZmq target, so the core library and
 # its tests build and pass with no ZeroMQ installed at all. MOSAIC_BUILD_ZMQ_FROM_SOURCE decides only
 # whether this build also compiles the ecosystem from source, which is slow and is also the
@@ -47,12 +68,31 @@ if (MOSAIC_WITH_ZMQ)
     elseif (TARGET ZeroMQ::libzmq)
         set(MOSAIC_ZMQ_TARGET ZeroMQ::libzmq)
     elseif (MOSAIC_BUILD_ZMQ_FROM_SOURCE)
+        # libzmq's generated Findsodium.cmake requires pkg-config before it looks for sodium, and its
+        # find_path/find_library calls skip work when these are already set. A stub pkg-config plus
+        # explicit paths makes a CPM-fetched libsodium usable; a system libzmq needs none of this.
+        # Logged in docs/upstream-notes.md.
+        set(PKG_CONFIG_EXECUTABLE "${PROJECT_SOURCE_DIR}/cmake/no-pkg-config.sh"
+                CACHE FILEPATH "stub: see cmake/no-pkg-config.sh" FORCE)
+        set(SODIUM_INCLUDE_DIRS "${libsodium_SOURCE_DIR}/libsodium/src/libsodium/include"
+                CACHE PATH "libsodium headers fetched by CPM" FORCE)
+        set(SODIUM_LIBRARIES "${libsodium_BINARY_DIR}/libsodium.a"
+                CACHE FILEPATH "libsodium built by CPM" FORCE)
         CPMAddPackage(
                 NAME libzmq
                 GIT_TAG v4.3.5
                 GITHUB_REPOSITORY zeromq/libzmq
                 OPTIONS
                 "BUILD_SHARED OFF"
+                # SEC-1 needs CURVE. libzmq only builds it with a crypto backend, and its
+                # Findsodium.cmake hard-requires pkg-config, which a CPM-fetched libsodium cannot
+                # satisfy. The from-source build therefore uses libzmq's bundled tweetnacl for the
+                # CURVE handshake (deprecated upstream, functionally fine) while Mosaic's own
+                # signatures still use libsodium directly. A distro libzmq found by
+                # find_package() is normally built against libsodium and needs none of this.
+                "ENABLE_CURVE ON"
+                "WITH_LIBSODIUM ON"
+                "WITH_LIBSODIUM_STATIC ON"
         )
         if (TARGET libzmq-static)
             set(MOSAIC_ZMQ_TARGET libzmq-static)
@@ -65,6 +105,9 @@ if (MOSAIC_WITH_ZMQ)
         message(WARNING "MOSAIC_WITH_ZMQ=ON but no libzmq was found and MOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF; "
                 "building only the core library.")
         set(MOSAIC_WITH_ZMQ OFF)
+    elseif (TARGET sodium AND MOSAIC_ZMQ_TARGET)
+        # CURVE links libsodium, which CPM fetched: order the build so it exists first.
+        add_dependencies(${MOSAIC_ZMQ_TARGET} sodium)
     endif ()
 endif ()
 
@@ -96,25 +139,6 @@ if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
             "LIBZMQ_LIBRARIES ${MOSAIC_ZMQ_TARGET}"
             "CZMQ_FOUND 1"
             "CZMQ_LIBRARIES czmq-static"
-    )
-endif ()
-
-# ---- Crypto dependency (CORE-1, CORE-2) ----
-# libsodium provides BLAKE2b and Ed25519 behind the Hasher/Signer/Verifier seams. With it OFF the core
-# still builds and tests on the dependency-free SHA-256 plus a test signer, so the "no third-party
-# dependency in core..node" build stays available. Fetched the way this repo already did it in 2024
-# (branch key-loading): pinned CPM package.
-option(MOSAIC_WITH_SODIUM "Use libsodium for BLAKE2b and Ed25519" ON)
-
-if (MOSAIC_WITH_SODIUM)
-    CPMAddPackage(
-            NAME libsodium
-            GITHUB_REPOSITORY robinlinden/libsodium-cmake
-            GIT_TAG f568ff02f1bed155ea598c0e803ef3c9db2703d2
-            GIT_SUBMODULES_RECURSE TRUE
-            OPTIONS
-            "SODIUM_DISABLE_TESTS ON"
-            "BUILD_SHARED_LIBS OFF"
     )
 endif ()
 

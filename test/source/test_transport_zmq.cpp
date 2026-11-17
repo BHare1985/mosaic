@@ -5,6 +5,8 @@
 #include <chrono>
 #include <doctest/doctest.h>
 #include <memory>
+#include <mosaic/core/keystore.h>
+#include <mosaic/net/peer_pins.h>
 #include <mosaic/net/zmq_transport.h>
 #include <thread>
 
@@ -31,8 +33,8 @@ TEST_CASE("transport conformance: ZeroMQ over loopback")
         auto b = std::make_shared<ZmqTransport>(b_cfg);
 
         // Endpoints are only known after binding, so peers are wired once both ends exist.
-        a->add_peer(ZmqPeerEndpoint { "b", b->pub_endpoint(), b->router_endpoint() });
-        b->add_peer(ZmqPeerEndpoint { "a", a->pub_endpoint(), a->router_endpoint() });
+        a->add_peer(ZmqPeerEndpoint { "b", b->pub_endpoint(), b->router_endpoint(), "" });
+        b->add_peer(ZmqPeerEndpoint { "a", a->pub_endpoint(), a->router_endpoint(), "" });
 
         // The pair's unique_ptrs are views; the transports themselves are owned by the pair's `owner`,
         // which is destroyed last.
@@ -76,8 +78,8 @@ TEST_CASE("ZeroMQ prefix subscription does not admit a deeper channel")
     b_cfg.id = "b";
     ZmqTransport a(a_cfg);
     ZmqTransport b(b_cfg);
-    a.add_peer(ZmqPeerEndpoint { "b", b.pub_endpoint(), b.router_endpoint() });
-    b.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint() });
+    a.add_peer(ZmqPeerEndpoint { "b", b.pub_endpoint(), b.router_endpoint(), "" });
+    b.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), "" });
 
     b.subscribe("storage.*.shard7");
     b.subscribe("events.>");
@@ -124,7 +126,7 @@ TEST_CASE("ZeroMQ unicast overflow is counted, never blocking")
     cfg.pub_bind = "tcp://127.0.0.1:*";
     cfg.router_bind = "tcp://127.0.0.1:*";
     // A peer that never reads: nothing is listening on these endpoints.
-    cfg.peers.push_back(ZmqPeerEndpoint { "gone", "tcp://127.0.0.1:1", "tcp://127.0.0.1:1" });
+    cfg.peers.push_back(ZmqPeerEndpoint { "gone", "tcp://127.0.0.1:1", "tcp://127.0.0.1:1", "" });
 
     ZmqTransport transport(cfg);
     const auto start = std::chrono::steady_clock::now();
@@ -135,3 +137,105 @@ TEST_CASE("ZeroMQ unicast overflow is counted, never blocking")
     CHECK(transport.dropped() > 0); // overflow is visible, not silent
     CHECK(elapsed < std::chrono::seconds(2)); // and it never blocked the caller
 }
+
+#ifdef MOSAIC_HAS_SODIUM
+
+namespace {
+/// A node's CURVE material, derived from its Ed25519 identity the way the product does it.
+struct CurveNode {
+    Keystore keystore;
+    CurveIdentity curve;
+};
+
+CurveNode make_node()
+{
+    CurveNode node { *generate_keystore(), { } };
+    node.curve = *curve_identity_from_keystore(node.keystore);
+    return node;
+}
+} // namespace
+
+// With CURVE on, the whole contract must still hold: encryption changes the options, not the semantics.
+TEST_CASE("transport conformance: ZeroMQ with CURVE")
+{
+    REQUIRE(ZmqTransport::curve_available()); // a libzmq without CURVE must fail here, not pass quietly
+    const auto factory = [] {
+        const auto a_node = make_node();
+        const auto b_node = make_node();
+
+        ZmqConfig a_cfg;
+        a_cfg.id = "a";
+        a_cfg.curve = ZmqCurveConfig { true, a_node.curve.public_z85, a_node.curve.secret_z85, "" };
+        ZmqConfig b_cfg;
+        b_cfg.id = "b";
+        b_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
+
+        auto a = std::make_shared<ZmqTransport>(a_cfg);
+        auto b = std::make_shared<ZmqTransport>(b_cfg);
+        a->add_peer(ZmqPeerEndpoint { "b", b->pub_endpoint(), b->router_endpoint(), b_node.curve.public_z85 });
+        b->add_peer(ZmqPeerEndpoint { "a", a->pub_endpoint(), a->router_endpoint(), a_node.curve.public_z85 });
+
+        struct Holder {
+            std::shared_ptr<ZmqTransport> a;
+            std::shared_ptr<ZmqTransport> b;
+        };
+        TransportPair pair;
+        pair.owner = std::make_shared<Holder>(Holder { a, b });
+        pair.a = a.get();
+        pair.b = b.get();
+        pair.settle = settle;
+        return pair;
+    };
+    mosaic::test::run_transport_conformance(factory);
+}
+
+// CURVE authenticates the *server* to the client: a client configured with the wrong server key cannot
+// establish a session at all, so nothing is delivered. That is enforceable today and is what an
+// untrusted endpoint looks like.
+//
+// Pinning the *client's* key (so a peer cannot claim another's identity to the server) needs a ZAP
+// handler: this libzmq does not expose the peer key as message metadata. It is tracked as SEC-1b, and
+// PeerPins already holds the policy that handler will consult.
+TEST_CASE("CURVE refuses a peer whose server key is not the expected one")
+{
+    REQUIRE(ZmqTransport::curve_available());
+    const auto a_node = make_node();
+    const auto b_node = make_node();
+    const auto stranger = make_node();
+
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    a_cfg.curve = ZmqCurveConfig { true, a_node.curve.public_z85, a_node.curve.secret_z85, "" };
+    ZmqTransport a(a_cfg);
+
+    // b is configured with the *wrong* server key for a, so the CURVE handshake must fail.
+    ZmqConfig b_cfg;
+    b_cfg.id = "b";
+    b_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
+    ZmqTransport b(b_cfg);
+    b.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), stranger.curve.public_z85 });
+
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        b.send("a", HeadMsg { LogKey { "w", "c" }, 1, Hash { } });
+        settle();
+        CHECK_FALSE(a.poll().has_value()); // nothing crosses an unauthenticated link
+    }
+
+    // With the right key on both ends, the same call gets through.
+    ZmqConfig c_cfg;
+    c_cfg.id = "c";
+    c_cfg.curve = ZmqCurveConfig { true, b_node.curve.public_z85, b_node.curve.secret_z85, "" };
+    ZmqTransport c(c_cfg);
+    c.add_peer(ZmqPeerEndpoint { "a", a.pub_endpoint(), a.router_endpoint(), a_node.curve.public_z85 });
+
+    bool delivered = false;
+    for (int attempt = 0; attempt < 30 && !delivered; ++attempt) {
+        c.send("a", HeadMsg { LogKey { "w", "c" }, 7, Hash { } });
+        settle();
+        while (auto envelope = a.poll())
+            delivered = true;
+    }
+    CHECK(delivered);
+}
+
+#endif // MOSAIC_HAS_SODIUM

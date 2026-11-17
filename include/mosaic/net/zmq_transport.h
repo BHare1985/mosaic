@@ -28,6 +28,7 @@ struct ZmqPeerEndpoint {
     NodeId id;
     std::string pub_endpoint; // where that peer binds its PUB
     std::string router_endpoint; // where that peer binds its ROUTER
+    std::string curve_public_z85; // that peer's CURVE public key, when CURVE is enabled
 };
 
 /// How the transport treats a peer key it has not seen before. Open is the default: a brokerless log
@@ -35,6 +36,16 @@ struct ZmqPeerEndpoint {
 enum class ZmqLinkPolicy {
     Open, // accept and pin any key (TOFU) - default
     Closed, // accept only keys on the allow-list
+};
+
+/// CURVE settings (SEC-1). Keys are derived from the node's Ed25519 identity
+/// (`curve_identity_from_keystore`), so the key that authenticates a link is the key that signs records.
+struct ZmqCurveConfig {
+    bool enabled = false;
+    std::string public_z85; // this node's curve25519 public key
+    std::string secret_z85; // this node's curve25519 secret key
+    /// Where peer keys are remembered. Open mode pins on first use; closed mode enforces what is there.
+    std::string pins_path;
 };
 
 struct ZmqConfig {
@@ -45,6 +56,7 @@ struct ZmqConfig {
     int send_hwm = 1000; // explicit, never inherited: overflow must be a counted drop
     int receive_hwm = 1000;
     ZmqLinkPolicy link_policy = ZmqLinkPolicy::Open;
+    ZmqCurveConfig curve;
 };
 
 class ZmqTransport final : public Transport {
@@ -69,6 +81,17 @@ public:
 
     /// Messages dropped because their bytes did not decode, plus live-path overflow.
     std::size_t dropped() const;
+
+    /// Messages refused because the peer's CURVE key did not match what was pinned for it (SEC-1).
+    std::size_t curve_rejects() const;
+
+    /// Messages accepted over CURVE without an observable peer key. Non-zero means the build cannot
+    /// pin peer keys at this layer (see SEC-1b: a ZAP handler is the enforcement point).
+    std::size_t curve_unauthenticated() const;
+
+    /// Whether the linked libzmq was built with CURVE. A build without it cannot encrypt, and a test
+    /// that needs encryption must say so rather than quietly run plaintext.
+    static bool curve_available();
 
 private:
     struct Impl;

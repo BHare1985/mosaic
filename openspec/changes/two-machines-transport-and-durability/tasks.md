@@ -35,11 +35,15 @@
 ## 3. Link authentication (SEC-1)
 
 - [ ] 3.1 Enable CURVE on both socket kinds with the node identity as the key, and implement the two policies: open with
-      per-endpoint key pinning (default), and closed with an explicit allow-list. Verified by: an unseen key connects and is
-      pinned; a pinned endpoint refuses a changed key; closed mode refuses an unlisted key before any message.
+      per-endpoint key pinning (default), and closed with an explicit allow-list. **CURVE is on for every link and verified**
+      (`transport conformance: ZeroMQ with CURVE`, plus a wrong-server-key test); `PeerPins` implements both policies and is
+      unit-tested. Server-side enforcement of the *client's* key is not possible in this libzmq - it does not expose the peer
+      key as message metadata - so it moves to SEC-1b (a ZAP handler) and `curve_unauthenticated` counts the gap. Open until
+      that lands, because "pinned" would otherwise be a claim the code cannot keep.
 - [ ] 3.2 Assert identity agreement: the key that authenticates a link is the key that signed the records it delivers.
-      Verified by: a test rejecting a peer whose delivered record carries a different writer identity.
-- [ ] 3.3 Document the key distribution assumption in `docs/design/07-security.md`: open mode trusts self-verifying data and
+      Half is proven (`the CURVE identity derives from the signing identity` - one keystore entry yields both, and it survives a
+      reload). The end-to-end assertion needs the peer key on the wire, i.e. SEC-1b; open until then.
+- [x] 3.3 Document the key distribution assumption in `docs/design/07-security.md`: open mode trusts self-verifying data and
       only pins link identity, closed mode trusts the provisioned list. Verified by: the section says what each mode protects
       against and, explicitly, that a link key never authorises a record.
 

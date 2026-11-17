@@ -20,7 +20,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, SEC-1 🟡 (encryption yes, ZAP pinning is SEC-1b), ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery still open |
-| **M5 — jobs** | JOBS-1..4 | call a service by name over the same network |
+| **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, JOBS-4 🟡 | call a service by name over the same network; capacity-aware ranking still open |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
 
 ## core
@@ -98,10 +98,10 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## jobs
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| JOBS-1 | Encode `JobRequest`/`JobResult` into record payloads | S | – | Round-trip tests; documented in [06](06-jobs.md) |
-| JOBS-2 | Worker runtime: follow `svc.<name>`, run if rank 0, publish result | M | JOBS-1 | Sim: 3 workers, each job run by exactly one when all healthy |
-| JOBS-3 | Requester: submit, timeout → next rank, dedupe results by `job_id` | M | JOBS-2 | Sim: kill rank 0, job still completes once from the requester's view |
-| JOBS-4 | Capacity-aware ranking | M | FLOW-3, HELLO-1 | Overloaded worker is skipped |
+| JOBS-1 | Encode `JobRequest`/`JobResult` into record payloads | S | – | Round-trip tests; documented in [06](06-jobs.md) | ✅
+| JOBS-2 | Worker runtime: follow `svc.<name>`, run if rank 0, publish result | M | JOBS-1 | Sim: 3 workers, each job run by exactly one when all healthy | ✅
+| JOBS-3 | Requester: submit, timeout → next rank, dedupe results by `job_id` | M | JOBS-2 | Sim: kill rank 0, job still completes once from the requester's view | ✅
+| JOBS-4 | Capacity-aware ranking | M | FLOW-3, HELLO-1 | Overloaded worker is skipped | 🟡 blocked on hello pattern advertisement (HELLO-1 second half)
 
 ## tools, infra, docs, bindings
 | ID | Task | Size | Depends | Acceptance criteria |

@@ -347,6 +347,63 @@ TEST_CASE("payload from a peer announcing an unsupported version is refused")
     CHECK(writer.node.counters().version_rejects == 2);
 }
 
+TEST_CASE("a node with no callback is a pure replica and still serves repairs")
+{
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(21);
+
+    // A node configured with patterns only: no on_record, no on_fork. That is a store node.
+    struct StoreNode {
+        SimTransport transport;
+        MemoryLogStore store;
+        Node node;
+        StoreNode(SimNetwork& net, const NodeId& id, const Hasher& hasher, const Verifier& verifier)
+            : transport(net, id)
+            , node(NodeConfig { .id = id }, transport, store, hasher, verifier)
+        {
+        }
+    };
+
+    Peer writer(net, "writer", hasher, alice);
+    StoreNode replica(net, "replica", hasher, alice);
+    replica.node.follow("events.>"); // follow everything, deliver nothing
+
+    for (int i = 0; i < 5; ++i)
+        writer.node.publish(alice, "events.a", "t", bytes(std::to_string(i)), 0);
+
+    std::uint64_t now = 0;
+    for (int i = 0; i < 200 && !replica.node.head({ "alice", "events.a" }); ++i) {
+        now += 50;
+        net.advance(now);
+        writer.node.pump(now);
+        writer.node.tick(now);
+        replica.node.pump(now);
+        replica.node.tick(now);
+    }
+    REQUIRE(replica.node.head({ "alice", "events.a" }).has_value());
+    CHECK(replica.node.head({ "alice", "events.a" })->seq == 4);
+    CHECK(replica.node.counters().accepted == 5); // stored, with nobody to deliver to
+
+    // Now a follower arrives and the replica serves it. The head is injected because telling a newcomer
+    // "these logs exist" is HEADS-1, which is not implemented yet - this test is about the responder role.
+    Peer follower(net, "follower", hasher, alice);
+    follower.node.follow("events.>");
+    replica.transport.send("follower", HeadMsg { { "alice", "events.a" }, 4, Hash { } });
+
+    for (int i = 0; i < 200 && follower.received.size() < 5; ++i) {
+        now += 50;
+        net.advance(now);
+        replica.node.pump(now);
+        replica.node.tick(now);
+        follower.node.pump(now);
+        follower.node.tick(now);
+    }
+    REQUIRE(follower.received.size() == 5);
+    for (int i = 0; i < 5; ++i)
+        CHECK(follower.received[static_cast<std::size_t>(i)] == std::to_string(i));
+}
+
 TEST_CASE("converges under loss, duplication and jitter (seed sweep)")
 {
     const auto count = seed_count();

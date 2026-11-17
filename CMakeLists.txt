@@ -26,17 +26,11 @@ include(cmake/CPM.cmake)
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
-# ZeroMQ is a hard dependency of the PRODUCT (the network transport, ZMQ-1), but the core
-# library is deliberately ZeroMQ-free so the protocol can be tested in-process with SimNetwork.
-# This option only controls whether libzmq/czmq/malamute are COMPILED FROM SOURCE here (slow;
-# also the "does the ZeroMQ ecosystem still build" check). Use -DMOSAIC_BUILD_ZMQ_STACK=OFF for a
-# fast core-only loop. ZMQ-0 will replace this with a proper MosaicZmq target and find_package.
-option(MOSAIC_BUILD_ZMQ_STACK "Build libzmq/czmq/malamute from source" ON)
-
-# libsodium provides BLAKE2b and Ed25519 behind the Hasher/Signer/Verifier seams (CORE-1, CORE-2).
-# With it OFF the core still builds and tests on the dependency-free SHA-256 plus a test signer, so
-# the "no third-party dependency in core..node" build stays available. libsodium is fetched the same
-# way this repo has always fetched it (see the 2024 key-loading work): pinned CPM package.
+# ---- Crypto dependency (CORE-1, CORE-2) ----
+# libsodium provides BLAKE2b and Ed25519 behind the Hasher/Signer/Verifier seams. With it OFF the core
+# still builds and tests on the dependency-free SHA-256 plus a test signer, so the "no third-party
+# dependency in core..node" build stays available. Fetched the way this repo already did it in 2024
+# (branch key-loading): pinned CPM package.
 option(MOSAIC_WITH_SODIUM "Use libsodium for BLAKE2b and Ed25519" ON)
 
 if (MOSAIC_WITH_SODIUM)
@@ -48,21 +42,80 @@ if (MOSAIC_WITH_SODIUM)
             OPTIONS
             "SODIUM_DISABLE_TESTS ON"
             "BUILD_SHARED_LIBS OFF"
+            # czmq/malamute build shared libraries that link this static libsodium, so it has to be PIC.
+            "CMAKE_POSITION_INDEPENDENT_CODE ON"
     )
 endif ()
 
-if (MOSAIC_BUILD_ZMQ_STACK)
-    CPMAddPackage(
-            NAME libzmq
-            GIT_TAG v4.3.5
-            GITHUB_REPOSITORY zeromq/libzmq
-            OPTIONS
-            "BUILD_SHARED OFF"
-    )
+# ZeroMQ carries the transport (ZMQ-1). It is confined to the MosaicZmq target, so the core library and
+# its tests build and pass with no ZeroMQ installed at all. MOSAIC_BUILD_ZMQ_FROM_SOURCE decides only
+# whether this build also compiles the ecosystem from source, which is slow and is also the
+# "does ZeroMQ still build in 2026" check.
+option(MOSAIC_BUILD_ZMQ_FROM_SOURCE "Build libzmq/czmq/malamute from source" ON)
+option(MOSAIC_WITH_ZMQ "Build the ZeroMQ transport (MosaicZmq)" ON)
 
-    # czmq/malamute find libzmq/czmq headers via these dirs (their find modules are bypassed below)
-    include_directories(${libzmq_SOURCE_DIR}/include)
+set(MOSAIC_ZMQ_TARGET "")
 
+if (MOSAIC_WITH_ZMQ)
+    # Prefer an installed libzmq; fall back to building it here.
+    find_package(ZeroMQ QUIET)
+    find_package(libzmq QUIET)
+
+    if (TARGET libzmq-static)
+        set(MOSAIC_ZMQ_TARGET libzmq-static)
+    elseif (TARGET libzmq)
+        set(MOSAIC_ZMQ_TARGET libzmq)
+    elseif (TARGET ZeroMQ::libzmq)
+        set(MOSAIC_ZMQ_TARGET ZeroMQ::libzmq)
+    elseif (MOSAIC_BUILD_ZMQ_FROM_SOURCE)
+        # libzmq cannot build CURVE without libsodium, so a build without the crypto dependency gets a
+        # libzmq without CURVE rather than a build failure. curve_available() then reports false and
+        # nothing pretends to be encrypted.
+        if (MOSAIC_WITH_SODIUM)
+            # libzmq's generated Findsodium.cmake requires pkg-config before it looks for sodium, and its
+            # find_path/find_library calls skip work when these are already set. A stub pkg-config plus
+            # explicit paths makes a CPM-fetched libsodium usable; a system libzmq needs none of this.
+            # Logged in docs/upstream-notes.md.
+            set(PKG_CONFIG_EXECUTABLE "${PROJECT_SOURCE_DIR}/cmake/no-pkg-config.sh"
+                    CACHE FILEPATH "stub: see cmake/no-pkg-config.sh" FORCE)
+            set(SODIUM_INCLUDE_DIRS "${libsodium_SOURCE_DIR}/libsodium/src/libsodium/include"
+                    CACHE PATH "libsodium headers fetched by CPM" FORCE)
+            set(SODIUM_LIBRARIES "${libsodium_BINARY_DIR}/libsodium.a"
+                    CACHE FILEPATH "libsodium built by CPM" FORCE)
+            set(MOSAIC_ZMQ_CURVE_OPTIONS "ENABLE_CURVE ON" "WITH_LIBSODIUM ON" "WITH_LIBSODIUM_STATIC ON")
+        else ()
+            set(MOSAIC_ZMQ_CURVE_OPTIONS "ENABLE_CURVE OFF")
+        endif ()
+        CPMAddPackage(
+                NAME libzmq
+                GIT_TAG v4.3.5
+                GITHUB_REPOSITORY zeromq/libzmq
+                OPTIONS
+                "BUILD_SHARED OFF"
+                # SEC-1: CURVE only when a crypto backend is present (see above).
+                ${MOSAIC_ZMQ_CURVE_OPTIONS}
+        )
+        if (TARGET libzmq-static)
+            set(MOSAIC_ZMQ_TARGET libzmq-static)
+        elseif (TARGET libzmq)
+            set(MOSAIC_ZMQ_TARGET libzmq)
+        endif ()
+    endif ()
+
+    if (NOT MOSAIC_ZMQ_TARGET)
+        message(WARNING "MOSAIC_WITH_ZMQ=ON but no libzmq was found and MOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF; "
+                "building only the core library.")
+        set(MOSAIC_WITH_ZMQ OFF)
+    elseif (TARGET sodium AND MOSAIC_ZMQ_TARGET)
+        # CURVE links libsodium, which CPM fetched: order the build so it exists first.
+        add_dependencies(${MOSAIC_ZMQ_TARGET} sodium)
+    endif ()
+endif ()
+
+# czmq and malamute are not used by the product: they exist so the build proves the surrounding ZeroMQ
+# ecosystem still compiles from source against a current compiler.
+if (MOSAIC_BUILD_ZMQ_FROM_SOURCE AND MOSAIC_ZMQ_TARGET)
+    include_directories(${CMAKE_BINARY_DIR}/_deps/libzmq-src/include)
     CPMAddPackage(
             NAME czmq
             GIT_TAG v4.2.1
@@ -70,7 +123,7 @@ if (MOSAIC_BUILD_ZMQ_STACK)
             OPTIONS
             "BUILD_SHARED OFF"
             "LIBZMQ_FOUND 1"
-            "LIBZMQ_LIBRARIES libzmq-static"
+            "LIBZMQ_LIBRARIES ${MOSAIC_ZMQ_TARGET}"
     )
 
     include_directories(${czmq_SOURCE_DIR}/include)
@@ -84,10 +137,36 @@ if (MOSAIC_BUILD_ZMQ_STACK)
             OPTIONS
             "BUILD_SHARED OFF"
             "LIBZMQ_FOUND 1"
-            "LIBZMQ_LIBRARIES libzmq-static"
+            "LIBZMQ_LIBRARIES ${MOSAIC_ZMQ_TARGET}"
             "CZMQ_FOUND 1"
             "CZMQ_LIBRARIES czmq-static"
     )
+endif ()
+
+# ---- SQLite LogStore backend (STORE-1) ----
+# Persistence behind the LogStore seam. Prefer a system SQLite; otherwise fetch the amalgamation, which
+# is what makes this dependency-free project able to have a durable backend without asking a developer
+# to install anything. Off = the memory store remains the only backend.
+option(MOSAIC_WITH_SQLITE "Build the SQLite LogStore backend" ON)
+set(MOSAIC_SQLITE_TARGET "")
+
+if (MOSAIC_WITH_SQLITE)
+    find_package(SQLite3 QUIET)
+    if (TARGET SQLite::SQLite3)
+        set(MOSAIC_SQLITE_TARGET SQLite::SQLite3)
+    else ()
+        include(FetchContent)
+        FetchContent_Declare(sqlite_amalgamation
+                URL https://sqlite.org/2024/sqlite-amalgamation-3460100.zip
+                DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+        FetchContent_MakeAvailable(sqlite_amalgamation)
+        enable_language(C) # sqlite3.c is C, and this project is otherwise CXX-only
+        add_library(mosaic_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+        target_include_directories(mosaic_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+        target_compile_definitions(mosaic_sqlite3 PRIVATE SQLITE_THREADSAFE=1)
+        set(MOSAIC_SQLITE_TARGET mosaic_sqlite3)
+    endif ()
+    message(STATUS "SQLite LogStore: ${MOSAIC_SQLITE_TARGET}")
 endif ()
 
 # ---- Add source files ----
@@ -96,6 +175,13 @@ endif ()
 # automatically. Keep that in mind when changing files, or explicitly mention them here.
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp")
+# The ZeroMQ transport is the one place ZeroMQ may appear; keeping it out of this target is what makes
+# "the core builds without ZeroMQ" a property rather than a hope.
+list(FILTER sources EXCLUDE REGEX "source/net/zmq_transport\\.cpp$")
+if (NOT MOSAIC_SQLITE_TARGET)
+    # No SQLite available: the durable backend is not part of this build.
+    list(FILTER sources EXCLUDE REGEX "source/store/sqlite_log_store\\.cpp$")
+endif ()
 
 # ---- Create library ----
 
@@ -120,6 +206,11 @@ target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>
 # Link dependencies
 # The core library has no third-party dependencies except the crypto seam: libsodium sits behind
 # Hasher/Signer/Verifier and never appears in a public header (see docs/design/00-overview.md).
+if (MOSAIC_SQLITE_TARGET)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC MOSAIC_HAS_SQLITE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE $<BUILD_INTERFACE:${MOSAIC_SQLITE_TARGET}>)
+endif ()
+
 if (MOSAIC_WITH_SODIUM)
     if (TARGET sodium)
         target_compile_definitions(${PROJECT_NAME} PUBLIC MOSAIC_HAS_SODIUM)
@@ -137,6 +228,19 @@ target_include_directories(
         ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
+
+# ---- ZeroMQ transport target ----
+
+if (MOSAIC_WITH_ZMQ AND MOSAIC_ZMQ_TARGET)
+    add_library(MosaicZmq source/net/zmq_transport.cpp include/mosaic/net/zmq_transport.h)
+    target_compile_features(MosaicZmq PUBLIC cxx_std_20)
+    target_link_libraries(MosaicZmq PUBLIC ${PROJECT_NAME} PRIVATE ${MOSAIC_ZMQ_TARGET})
+    target_compile_definitions(MosaicZmq PUBLIC MOSAIC_HAS_ZMQ)
+    target_include_directories(
+            MosaicZmq PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
+    )
+endif ()
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.

@@ -9,10 +9,10 @@ namespace mosaic::test {
 /// Two connected endpoints plus a way to let delivery happen (advance simulated time, or wait for a
 /// socket). This is what keeps the suite transport-agnostic: it never touches a concrete transport.
 struct TransportPair {
-    /// Declared first so it is destroyed last: the transports reference whatever lives in here.
+    /// Declared first so it is destroyed last: `a` and `b` point into whatever lives here.
     std::shared_ptr<void> owner;
-    std::unique_ptr<Transport> a;
-    std::unique_ptr<Transport> b;
+    Transport* a = nullptr;
+    Transport* b = nullptr;
     std::function<void()> settle;
 };
 

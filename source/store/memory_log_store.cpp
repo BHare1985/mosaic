@@ -32,7 +32,7 @@ std::vector<Record> MemoryLogStore::read(const LogKey& key, Seq from, std::size_
 {
     auto it = logs_.find(key);
     if (it == logs_.end() || from >= it->second.size())
-        return {};
+        return { };
     const auto first = it->second.begin() + static_cast<std::ptrdiff_t>(from);
     const auto available = static_cast<std::size_t>(it->second.end() - first);
     return std::vector<Record>(first, first + static_cast<std::ptrdiff_t>(std::min(count, available)));

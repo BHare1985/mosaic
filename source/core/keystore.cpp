@@ -1,5 +1,11 @@
 #include <mosaic/core/keystore.h>
 
+#ifdef MOSAIC_HAS_SODIUM
+#include <sodium.h>
+#endif
+
+#include <mosaic/core/z85.h>
+
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -94,6 +100,32 @@ std::optional<Keystore> load_keystore(const std::string& path)
     if (!valid_sizes(keystore))
         return std::nullopt;
     return keystore;
+}
+
+std::optional<CurveIdentity> curve_identity_from_keystore(const Keystore& keystore)
+{
+#ifdef MOSAIC_HAS_SODIUM
+    if (!valid_sizes(keystore))
+        return std::nullopt;
+    constexpr std::size_t kCurveKeyBytes = 32; // curve25519 public and secret are both 32 bytes
+    unsigned char curve_secret[kCurveKeyBytes] = { };
+    // 32 bytes: the scalar CURVE uses, derived from the Ed25519 secret.
+    crypto_sign_ed25519_sk_to_curve25519(curve_secret, keystore.secret_key.data());
+
+    unsigned char curve_public[kCurveKeyBytes] = { };
+    if (crypto_scalarmult_base(curve_public, curve_secret) != 0)
+        return std::nullopt;
+
+    CurveIdentity identity;
+    identity.public_z85 = z85_encode(curve_public, kCurveKeyBytes);
+    identity.secret_z85 = z85_encode(curve_secret, kCurveKeyBytes);
+    if (identity.public_z85.empty() || identity.secret_z85.empty())
+        return std::nullopt;
+    return identity;
+#else
+    (void)keystore;
+    return std::nullopt; // no real keys in a dependency-free build
+#endif
 }
 
 } // namespace mosaic

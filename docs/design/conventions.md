@@ -19,6 +19,13 @@
   must sit behind an interface (e.g. libsodium behind `Hasher`/`Signer`).
 - **Comments:** explain *why* and cite design docs/TODO ids (`// TODO(FLOW-2): ...`). Every TODO id must exist in
   [TODO.md](TODO.md).
+- **Warnings are checked in both build configurations.** The fast loop and the `all/` build compile the same sources with
+  different optimisation, and GCC's diagnostics differ too: an aggregate holding a `std::variant` that gets moved as a whole
+  trips a `-Werror=maybe-uninitialized` false positive at `-O2` but not at `-O0` (hit in `SimNetwork::Pending`, fixed by
+  holding the message directly). A clean fast loop is not evidence that the tree is warning-free.
+- **Records built by hand must stamp `hash_algo`.** `LogWriter` copies it from its hasher, but a `Record` literal defaults to
+  the build's default algorithm; sign and verify then disagree in a way that looks like a forgery. Prefer `LogWriter` or a
+  helper, and name the algorithm explicitly in tests.
 - **Adding a message / module / transport:** follow the checklist in the module README and the definition of done in
   [08-testing-strategy](08-testing-strategy.md).
 - **Upstream (libzmq/czmq/malamute/dafka):** never patch or file anything without maintainer sign-off; record

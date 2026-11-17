@@ -33,11 +33,24 @@ endif ()
 
 file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
 if (NOT TARGET mlm-static)
-    # ZeroMQ stack disabled (-DMOSAIC_BUILD_ZMQ_STACK=OFF): skip the ZeroMQ compile-check test
+    # ZeroMQ ecosystem not built here: skip its compile-check test
     list(FILTER sources EXCLUDE REGEX "malamute\\.cpp$")
+endif ()
+if (NOT TARGET MosaicZmq)
+    # No ZeroMQ transport in this configuration: its conformance run has nothing to test
+    list(FILTER sources EXCLUDE REGEX "test_transport_zmq\\.cpp$")
 endif ()
 add_executable(${PROJECT_NAME} ${sources})
 target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic)
+if (TARGET MosaicZmq)
+    target_link_libraries(${PROJECT_NAME} MosaicZmq)
+endif ()
+if (TARGET mosaic_sqlite3)
+    # The store test corrupts a row directly to prove a damaged tail is survivable.
+    target_link_libraries(${PROJECT_NAME} mosaic_sqlite3)
+elseif (TARGET SQLite::SQLite3)
+    target_link_libraries(${PROJECT_NAME} SQLite::SQLite3)
+endif ()
 if (TARGET mlm-static)
     target_link_libraries(${PROJECT_NAME} mlm-static)
 endif ()

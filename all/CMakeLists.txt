@@ -13,6 +13,9 @@ include(../cmake/tools.cmake)
 # needed to generate test target
 enable_testing()
 
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../standalone ${CMAKE_BINARY_DIR}/standalone)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../test ${CMAKE_BINARY_DIR}/test)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/documentation)
+# Outputs live under build/all/ so a full-stack build can never overwrite the fast loop's
+# build/test/MosaicTests. Before this, whichever built last silently won and a "full stack" run could
+# execute the core-only binary and report a green that never touched ZeroMQ.
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../standalone ${CMAKE_BINARY_DIR}/all/standalone)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../test ${CMAKE_BINARY_DIR}/all/test)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/all/documentation)

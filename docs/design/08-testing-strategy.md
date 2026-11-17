@@ -8,7 +8,7 @@
 | Contract/conformance | `MemoryLogStore contract` (to become a reusable suite: STORE-0, NET-0) | every backend/transport behaves the same |
 | Simulation | `test_node_sim.cpp` (late joiner, 30% loss + 10% dup convergence, forged records) | whole-system properties |
 | Compat | `malamute.cpp` (needs ZeroMQ stack) | "ZeroMQ still compiles and works in 2026" |
-| Fuzz | ⬜ decoder (ENC-1) | hostile input |
+| Fuzz | seeded mutation test over every message (`test_codec.cpp`), plus an opt-in libFuzzer target in `fuzz/` | hostile input |
 
 ## The headline property
 > Whatever the network does (loss, duplication, delay, reorder, partitions), after it heals every follower's log is identical
@@ -20,13 +20,13 @@ behaviour. SIM-2 turns this into a seed sweep so failures print a reproducible s
 ## Definition of done (any task)
 1. Header doc comment states the contract; module README updated; design doc row updated (✅/🟡/⬜).
 2. Unit tests + (if it touches Node/proto/net) a SimNetwork scenario.
-3. Builds warning-free with `-DMOSAIC_BUILD_ZMQ_STACK=OFF` **and** ON; all tests pass; `clang-format` clean.
+3. Builds warning-free with ZeroMQ **on and off** and with libsodium on and off; all tests pass; `clang-format` clean.
 4. No new dependency in `core`..`node`; no ZeroMQ headers outside the ZeroMQ transport.
 5. Every `TODO(ID)` you leave behind exists in [TODO.md](TODO.md).
 
 ## Commands
 ```bash
-cmake -S test -B build/test -DMOSAIC_BUILD_ZMQ_STACK=OFF && cmake --build build/test -j && ./build/test/MosaicTests   # fast loop
-cmake -S all  -B build && cmake --build build -j && ./build/test/MosaicTests                                         # full, with ZeroMQ stack
-./build/test/MosaicTests -tc="*converges*"                                                                           # one test
+cmake -S test -B build/test -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF && cmake --build build/test -j && ./build/test/MosaicTests   # fast loop
+cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests                                       # full, with ZeroMQ stack
+./build/test/MosaicTests -tc="*converges*"                        # one test                                                                           # one test
 ```

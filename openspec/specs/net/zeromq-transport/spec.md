@@ -1,10 +1,9 @@
-# Spec Delta
+# net/zeromq-transport Specification
 
 ## Purpose
-
 Defines how the replication protocol is carried over ZeroMQ between real processes, including what the socket layer is trusted to decide and what it is not.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Live traffic and repair unicast use separate socket kinds
 
@@ -53,52 +52,42 @@ messages that are counted, never in a blocked publisher. Repair traffic MUST rem
 - **WHEN** a follower has lost live records to overflow
 - **THEN** it fetches the missing range and converges
 
-### Requirement: Every connection is authenticated before it carries log data
+### Requirement: Links are encrypted and the server is authenticated
 
-Connections MUST be encrypted and authenticated with CURVE, and a peer whose public key is not on the allow-list MUST NOT be
-able to connect or exchange any message. A node's transport identity and its record-signing identity MUST be the same key, so
-authenticating a link authenticates the writer behind it.
+Every connection MUST be CURVE-encrypted, and a client MUST verify the key of the server it connects to. A node MUST NOT
+require a pre-provisioned or central membership list to accept a connection: data authority comes from record signatures, so a
+link key never decides what is true.
 
-#### Scenario: An unlisted key cannot connect
+#### Scenario: An unknown but properly authenticated key can join
 
-- **WHEN** a peer with a public key absent from the allow-list attempts to connect
-- **THEN** the connection is refused and no message is exchanged
+- **WHEN** a peer whose key the node has never seen connects to an endpoint it is configured to accept
+- **THEN** the connection is encrypted, established, and its key is recorded for that endpoint
 
-#### Scenario: Identity agrees between link and log
+#### Scenario: A server that is not the expected one is refused
 
-- **WHEN** a node is addressed by its identity and sends signed records
-- **THEN** the identity used to authenticate the link derives from the same key that signed the records
+- **WHEN** a client is configured with the wrong server key for a peer
+- **THEN** the handshake fails and no message crosses the link
 
-### Requirement: ZeroMQ stays confined to one target
+### Requirement: Peer keys are pinned where observable, and the gap is counted
 
-No module outside the ZeroMQ transport MUST include a ZeroMQ header, and the core library MUST build and pass its tests with no
-ZeroMQ present. The transport MUST be an implementation of the transport contract, verified by the same conformance suite as any
-other implementation.
+Where the transport can observe a peer's authenticated key, it MUST pin it per endpoint on first use and refuse a later
+change. Where it cannot, it MUST count the connection as unauthenticated rather than claim a check it did not perform. Closed
+mode MUST refuse peers that are not explicitly listed.
 
-#### Scenario: The core builds without ZeroMQ
+#### Scenario: A pinned identity cannot change silently
 
-- **WHEN** the project is built with no ZeroMQ installed
-- **THEN** the core library and its tests build and pass
+- **WHEN** a peer connects to an endpoint it has used before but presents a different key
+- **THEN** the connection is refused and counted, once enforcement is possible
 
-#### Scenario: The transport passes the shared conformance suite
+#### Scenario: An unobservable key is reported, not assumed
 
-- **WHEN** the ZeroMQ transport runs the transport conformance suite over loopback
-- **THEN** it passes without transport-specific exceptions in the suite
+- **WHEN** a message is accepted over CURVE without an observable peer key
+- **THEN** it is counted as unauthenticated, so the missing enforcement is measurable
 
-### Requirement: Two processes converge over a real link
+#### Scenario: Closed mode refuses keys outside the list
 
-Two nodes in separate processes MUST converge: a follower reaches the writer's head and keeps up, and convergence MUST hold
-after a link loss that is repaired.
-
-#### Scenario: Follower reaches the writer's head
-
-- **WHEN** two processes are configured as peers and one publishes 500 records
-- **THEN** the other holds all 500 in order
-
-#### Scenario: Reconnect repairs the gap
-
-- **WHEN** a peer link is broken during publication and later restored
-- **THEN** the follower converges to the writer's head without operator action
+- **WHEN** a node runs in closed mode and a peer presents a key that is not on the allow-list
+- **THEN** the connection is refused before any message is exchanged
 
 ### Requirement: CURVE keys derive from the writer identity and stay interoperable
 

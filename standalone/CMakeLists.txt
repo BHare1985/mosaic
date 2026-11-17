@@ -24,3 +24,7 @@ add_executable(${PROJECT_NAME} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON OUTPUT_NAME "Mosaic")
 
 target_link_libraries(${PROJECT_NAME} Mosaic::Mosaic)
+# The CLI is the operator surface for real links, so it needs the ZeroMQ transport.
+if (TARGET MosaicZmq)
+    target_link_libraries(${PROJECT_NAME} MosaicZmq)
+endif ()

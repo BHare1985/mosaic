@@ -31,4 +31,14 @@ bool save_keystore(const Keystore& keystore, const std::string& path);
 /// Load and validate sizes. Empty when the file is missing, unreadable or malformed.
 std::optional<Keystore> load_keystore(const std::string& path);
 
+/// The same identity in the form ZeroMQ's CURVE wants: a curve25519 key pair, z85-encoded (40 chars
+/// each). Derived from the Ed25519 secret, so the key that authenticates a link is the key that signs
+/// records - see docs/design/07-security.md, "One identity, two representations".
+struct CurveIdentity {
+    std::string public_z85;
+    std::string secret_z85;
+};
+
+std::optional<CurveIdentity> curve_identity_from_keystore(const Keystore& keystore);
+
 } // namespace mosaic

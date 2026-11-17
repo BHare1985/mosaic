@@ -43,10 +43,10 @@
       only pins link identity, closed mode trusts the provisioned list. Verified by: the section says what each mode protects
       against and, explicitly, that a link key never authorises a record.
 
-- [ ] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then
-      `sodium_bin2z85`), instead of generating an independent pair. Verified by: a test where the key that authenticates a link
-      and the `WriterId` that signs records come from one keystore entry, and a second test proving two nodes with different
-      keystore entries cannot impersonate each other.
+- [ ] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then z85), instead of
+      generating an independent pair. **Derivation done** (`curve_identity_from_keystore`, `core/z85.h`, RFC 32 vector and
+      stability tests); the second half of the verification - two nodes with different keystores cannot impersonate each other -
+      needs CURVE on a live link and lands with 3.1/3.2.
 - [ ] 3.5 Import and export the ecosystem's certificate container (czmq `zcert` files) for the derived identity, without that
       file becoming the source of truth. This is what lets the surrounding ZeroMQ tooling be used, and it is the piece the
       2024 `key-loading` branch had (czmq `zcert_new`/`zcert_load`/`zcert_save`) - that branch made the file authoritative and
@@ -55,11 +55,11 @@
 
 ## 4. Durable store (STORE-1)
 
-- [ ] 4.0 Extract the store conformance suite before writing a second store (board item STORE-0): turn the inline
+- [x] 4.0 Extract the store conformance suite before writing a second store (board item STORE-0): turn the inline
       `MemoryLogStore contract` case into `run_store_conformance(factory)` in the style of
-      `run_transport_conformance`, covering contiguous appends, bounded ordered reads, empty unknown log, enumeration and
-      immutability. Without it the next store has nothing to be measured against - the same trap FLOW-2 was. Verified by:
-      `MemoryLogStore` runs through it, and adding a store costs one test case.
+      `run_transport_conformance`. Verified by: `store conformance: MemoryLogStore` passes, and the suite covers contiguity,
+      refused rewrites, bounded ordered reads, empty/unknown logs, per-writer and per-channel isolation, enumeration order and
+      the store-never-verifies rule - which the old inline case did not (it had one log and one writer).
 - [ ] 4.1 Implement a SQLite `LogStore` (one table keyed by writer, channel and sequence, WAL, one transaction per append).
       Verified by: it passes the store conformance suite that `MemoryLogStore` passes.
 - [ ] 4.2 Commit before reporting success, and resume at head plus one after reopen. Verified by: a test that appends, kills

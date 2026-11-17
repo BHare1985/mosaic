@@ -126,26 +126,3 @@ TEST_CASE_FIXTURE(Fixture, "seq 0 must have zero prev")
     r.sig = alice.sign(record_hash(r, hasher));
     CHECK(replica.ingest(r) == IngestResult::BadChain);
 }
-
-TEST_CASE("MemoryLogStore contract")
-{
-    MemoryLogStore store;
-    Record r;
-    r.writer = "w";
-    r.channel = "c";
-    CHECK(store.append(r) == AppendResult::Ok);
-    CHECK(store.append(r) == AppendResult::NotNext); // seq 0 again
-    r.seq = 5;
-    CHECK(store.append(r) == AppendResult::NotNext); // skip
-    r.seq = 1;
-    CHECK(store.append(r) == AppendResult::Ok);
-    const LogKey key { "w", "c" };
-    CHECK(*store.head_seq(key) == 1);
-    CHECK(store.read(key, 0, 10).size() == 2);
-    CHECK(store.read(key, 1, 10).size() == 1);
-    CHECK(store.read(key, 2, 10).empty());
-    CHECK(store.read(key, 0, 1).size() == 1);
-    CHECK_FALSE(store.get(key, 2).has_value());
-    CHECK_FALSE(store.head_seq({ "w", "nope" }).has_value());
-    CHECK(store.keys().size() == 1);
-}

@@ -18,9 +18,11 @@ to see what it is doing.
 
 - `mosaicd <config>`: a daemon that opens identity, store and transport from a config file, follows its patterns, and runs the
   pump/tick loop until told to stop.
-- Configuration in **ZPL** (ZeroMQ RFC 4) - the format czmq's `zconfig`, zproject, malamute and zyre all read - with sections for
-  node, limits, peers and follows. Using the ecosystem's format instead of inventing one means a file Mosaic reads is a file the
-  surrounding tooling already understands, and operators do not learn a second dialect.
+- Configuration in **ZPL** (ZeroMQ RFC 4), read with czmq's `zconfig` - the format zproject, malamute and zyre all use - with
+  sections for node, limits, peers and follows. Using the ecosystem's format *and its parser* means a file Mosaic reads is a file
+  the surrounding tooling already understands, and there is no second implementation of the RFC to keep compatible.
+- czmq becomes a dependency of the CLI and daemon targets only. `core`..`node` remain dependency-free, and the configurations that
+  prove that are untouched.
 - Validation that reports **all** errors at once and exits before opening a socket, including unknown keys - a typo must not be
   a silent default.
 - `mosaicd --defaults` prints a fully commented config generated from the same defaults the code uses, so documentation cannot
@@ -54,6 +56,8 @@ to see what it is doing.
   one flag each.
 - `include/mosaic/` unchanged: the daemon consumes the library's public API only, which is the test of whether that API is
   sufficient for an operator-facing tool.
+- `standalone/CMakeLists.txt` and the root build: czmq found on the system, else fetched from source with the existing pinned
+  block; `Mosaic` and `MosaicTests` still build without it.
 - Tests: config parsing and validation in the library-independent module, plus a two-process test where `mosaicd` replicates from
   a publishing CLI and its store grows.
 - `README.md` and `docs/design/00-overview.md`: the daemon stops being a promise.

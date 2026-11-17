@@ -2,12 +2,12 @@
 
 ## 1. Configuration
 
-- [ ] 1.1 Write the ZPL parser (RFC 4): indentation-defined sections, `name = value` properties, `#` comments, a repeated
-      section name building a list, and `${NAME}` expansion from the environment. Verified by: unit tests for nesting, a repeated
-      section, a comment, a missing value, an unset variable, and a property that steps out of its section.
-- [ ] 1.2 Cross-check the parser against the reference implementation: in the ecosystem build, load one fixture with czmq's
-      `zconfig` and with ours and assert the same tree. Verified by: the comparison running where czmq is available, and reported
-      as skipped (not silently absent) where it is not.
+- [ ] 1.1 Make czmq available to the CLI and daemon targets: `find_package` first, falling back to the pinned source fetch
+      already used for the ecosystem check. Verified by: the daemon builds both ways, and `Mosaic` plus `MosaicTests` still build
+      with no czmq at all (the `core` configuration).
+- [ ] 1.2 Read ZPL with `zconfig_load` and expand `${NAME}` with `zconfig_resolve`, failing and naming the variable when one is
+      unset. Verified by: unit tests for nesting, a repeated section, a comment, a missing value, an unset variable, and a
+      property that steps out of its section.
 - [ ] 1.3 Add the defaults table and have the parser fill absent settings from it. Verified by: a file naming only identity,
       store and a peer yields a complete config equal to the documented defaults elsewhere.
 - [ ] 1.4 Validate everything at once: unknown sections or properties, unparsable numbers, out-of-range values and missing
@@ -43,6 +43,10 @@
       "repairing repeatedly", each mapped to a counter. Verified by: the section names each counter and what it implies.
 
 ## 5. Close out
+
+- [ ] 5.0 Record the dependency policy the config decision implies: czmq is allowed in the CLI and daemon targets, never in
+      `core`..`node`, and it must not change what the `core` and `no-crypto` configurations build. Verified by: `00-overview.md`
+      and `conventions.md` state it, and the two dependency-free configurations still build and pass.
 
 - [ ] 5.1 Update `README.md` and `docs/design/00-overview.md` so the daemon is described as shipped, with the command and the
       file format. Verified by: the README's build-and-run section includes the daemon.

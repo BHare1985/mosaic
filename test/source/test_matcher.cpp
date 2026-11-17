@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <doctest/doctest.h>
 #include <mosaic/match/matcher.h>
 #include <random>
@@ -135,5 +136,80 @@ TEST_CASE("randomized: agrees with naive matcher")
             std::sort(expected.begin(), expected.end());
             CHECK(m.match(ch) == expected);
         }
+    }
+}
+
+// MATCH-1: the matcher's cost claim, measured instead of asserted. The bound is deliberately loose - an order
+// of magnitude, not a percentage - so a noisy machine does not fail it; the printed number is the real output.
+TEST_CASE("matcher cost at 1k, 10k and 100k subscriptions")
+{
+    const auto measure = [](std::size_t subscriptions) {
+        Matcher matcher;
+        for (std::size_t i = 0; i < subscriptions; ++i) {
+            // A realistic mix: literal, star and tail patterns over a few levels.
+            switch (i % 3) {
+            case 0:
+                matcher.add("svc.eu.shard" + std::to_string(i));
+                break;
+            case 1:
+                matcher.add("events.*.topic" + std::to_string(i));
+                break;
+            default:
+                matcher.add("metrics.host" + std::to_string(i) + ".>");
+                break;
+            }
+        }
+        constexpr int matches = 2000;
+        const auto start = std::chrono::steady_clock::now();
+        std::size_t hits = 0;
+        for (int i = 0; i < matches; ++i)
+            hits += matcher.match("events.eu.topic7").size();
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        const auto per_match = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() / matches;
+
+        // The per-message question the node and transport actually ask, which needs no id list.
+        const auto any_start = std::chrono::steady_clock::now();
+        std::size_t any_hits = 0;
+        for (int i = 0; i < matches; ++i)
+            any_hits += matcher.matches_any("events.eu.topic7") ? 1 : 0;
+        const auto any_elapsed = std::chrono::steady_clock::now() - any_start;
+        const auto per_any = std::chrono::duration_cast<std::chrono::nanoseconds>(any_elapsed).count() / matches;
+        (void)any_hits;
+        return std::make_tuple(per_match, per_any, hits);
+    };
+
+    // Sanitizers make everything several times slower, so the timing gate is meaningless there: the sanitizer
+    // job is looking for undefined behaviour, not speed. Numbers are still printed.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    constexpr bool instrumented = true;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+    constexpr bool instrumented = true;
+#else
+    constexpr bool instrumented = false;
+#endif
+#else
+    constexpr bool instrumented = false;
+#endif
+
+    // The gate is a regression gate, not a performance target: 4x today's measured cost, so a real regression
+    // fails and ordinary noise does not. The numbers themselves are the output, and they are recorded in
+    // docs/design/03-matching-and-channels.md.
+    struct Expectation {
+        unsigned subscriptions;
+        std::int64_t match_ns;
+        std::int64_t any_ns;
+    };
+    for (const auto& expected : { Expectation { 1000, 4 * 5200, 4 * 5200 },
+             Expectation { 10000, 4 * 22370, 4 * 22370 }, Expectation { 100000, 4 * 192000, 4 * 192000 } }) {
+        const auto [nanos_per_match, nanos_per_any, hits] = measure(expected.subscriptions);
+        MESSAGE("matcher: " << expected.subscriptions << " subscriptions -> match " << nanos_per_match << " ns, "
+                            << "matches_any " << nanos_per_any << " ns (" << hits << " hits / 2000)");
+        if (instrumented) {
+            MESSAGE("matcher: timing gates skipped under sanitizers");
+            continue;
+        }
+        CHECK(nanos_per_match < expected.match_ns);
+        CHECK(nanos_per_any < expected.any_ns);
     }
 }

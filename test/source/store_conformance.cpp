@@ -109,6 +109,25 @@ void mosaic::test::run_store_conformance(const StoreFactory& factory)
         CHECK(std::is_sorted(keys.begin(), keys.end()));
     }
 
+    SUBCASE("a batch behaves exactly like the same records appended one at a time")
+    {
+        auto store = factory();
+        REQUIRE(store);
+
+        std::vector<Record> batch;
+        for (Seq seq = 0; seq < 3; ++seq)
+            batch.push_back(make_record("w", "c", seq));
+        CHECK(store->append_batch(batch) == AppendResult::Ok);
+        CHECK(store->head_seq({ "w", "c" }) == 2);
+        CHECK(store->read({ "w", "c" }, 0, 10).size() == 3);
+
+        // A batch with a gap in the middle is refused whole: a batch never half-applies.
+        std::vector<Record> gapped { make_record("w", "c", 4), make_record("w", "c", 3) };
+        CHECK(store->append_batch(gapped) == AppendResult::NotNext);
+        CHECK(store->head_seq({ "w", "c" }) == 2);
+        CHECK_FALSE(store->get({ "w", "c" }, 4).has_value());
+    }
+
     SUBCASE("the store is dumb: it accepts a record it would never verify")
     {
         auto store = factory();

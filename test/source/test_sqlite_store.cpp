@@ -102,23 +102,54 @@ TEST_CASE("a damaged tail ends the log instead of breaking it")
     std::remove((path + "-shm").c_str());
 }
 
+TEST_CASE("batch append is one commit, and the fast durability mode is opt-in")
+{
+    for (const auto durability : { Durability::PerRecord, Durability::Batched }) {
+        const std::string mode = durability == Durability::Batched ? "batched" : "per-record";
+        const std::string path = "test-store-batch-" + mode + ".db";
+        std::remove(path.c_str());
+        auto store = SqliteLogStore::open(path, durability);
+        REQUIRE(store.has_value());
+        CHECK((*store)->durability() == durability);
+
+        const auto start = std::chrono::steady_clock::now();
+        for (Seq base = 0; base < 2000; base += 500) {
+            std::vector<Record> batch;
+            for (Seq seq = base; seq < base + 500; ++seq)
+                batch.push_back(record_at(seq));
+            REQUIRE((*store)->append_batch(batch) == AppendResult::Ok);
+        }
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        MESSAGE("batch of 2000 in mode " << mode << ": " << micros << "us (" << (micros * 1000 / 2000) << "ns each)");
+        CHECK((*store)->head_seq({ "w", "c" }) == 1999);
+
+        for (const auto& suffix : { "", "-wal", "-shm" })
+            std::remove((path + suffix).c_str());
+    }
+}
+
 TEST_CASE("append throughput is measured, not guessed")
 {
-    const std::string path = temp_path("test-store-bench.db");
-    auto store = SqliteLogStore::open(path);
-    REQUIRE(store.has_value());
+    // Both durability modes, one record per append: this is the number an operator sizes a writer from.
+    for (const auto durability : { Durability::PerRecord, Durability::Batched }) {
+        const std::string mode = durability == Durability::Batched ? "batched" : "per-record";
+        const std::string path = temp_path(("test-store-bench-" + mode + ".db").c_str());
+        auto store = SqliteLogStore::open(path, durability);
+        REQUIRE(store.has_value());
 
-    const auto start = std::chrono::steady_clock::now();
-    constexpr Seq total = 5000;
-    for (Seq seq = 0; seq < total; ++seq)
-        REQUIRE((*store)->append(record_at(seq)) == AppendResult::Ok);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    MESSAGE("SqliteLogStore: " << total << " durable appends in " << micros << "us ("
-                               << (micros / total) << "us each)");
-    std::remove(path.c_str());
-    std::remove((path + "-wal").c_str());
-    std::remove((path + "-shm").c_str());
+        constexpr Seq total = 2000;
+        const auto start = std::chrono::steady_clock::now();
+        for (Seq seq = 0; seq < total; ++seq)
+            REQUIRE((*store)->append(record_at(seq)) == AppendResult::Ok);
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        MESSAGE("SqliteLogStore (" << mode << "): " << total << " appends in " << micros << "us ("
+                                   << (micros / total) << "us each)");
+        std::remove(path.c_str());
+        std::remove((path + "-wal").c_str());
+        std::remove((path + "-shm").c_str());
+    }
 }
 
 #else

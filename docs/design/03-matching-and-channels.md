@@ -22,7 +22,25 @@ result = set bits of acc
 ```
 Cost O(m × subscribers/64): no per-subscriber work, and independent of how many subscribers do not match.
 Correctness is tested against a naive matcher on random patterns, including removals and id reuse.
-Whitepaper's ~2 µs/message claim is **unverified** → MATCH-1 adds a benchmark and records real numbers here.
+### Measured cost (MATCH-1)
+
+The whitepaper's "~2 µs/message" claim was inherited aspiration; it is wrong. Measured on the reference machine
+(`./build/test/MosaicTests -tc="*matcher cost*"`, 2000 matches per case, mixed literal/star/tail patterns):
+
+| subscriptions | `match()` (id list) | `matches_any()` (per message) |
+|---|---|---|
+| 1,000 | 6.7 µs | 4.8 µs |
+| 10,000 | 22.7 µs | 21.0 µs |
+| 100,000 | 191.7 µs | 179.7 µs |
+
+The growth is **linear in subscriptions**, which is what the algorithm predicts: cost is O(segments × subscribers/64), so
+100k subscriptions is ~1,500 words per position, several positions per match. What the design guarantees - that cost does not
+depend on how many subscribers *do not* match - holds; the absolute number is simply not 2 µs.
+
+`matches_any()` skips materialising the hit list, which is worth ~6% at 100k and ~29% at 1k. The dominant cost is the bitset
+work itself: each position builds a temporary `allowed` bitset by copying `open`. Removing those temporaries (a reused scratch
+buffer) and scanning word-wise with an early exit are the obvious next steps; they are recorded as MATCH-4 rather than done here,
+because this change's job was to measure first.
 
 ## How nodes "listen only to what they follow"
 1. `Node::follow(pattern)` registers the pattern in its own `Matcher` and calls `Transport::subscribe(pattern)`.

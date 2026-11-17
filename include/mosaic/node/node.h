@@ -202,6 +202,9 @@ private:
     std::map<NodeId, CreditWindow> live_credits_; // live-path credit, opt-in per peer
     std::map<NodeId, bool> live_credit_enabled_;
     std::map<LogKey, std::uint64_t> last_ack_ms_;
+    /// Logs we have accepted records for. Acknowledgements iterate this set, never the store's inventory:
+    /// asking the store for its keys is a full scan in the durable backend and would run every tick.
+    std::set<LogKey> ingested_logs_;
     std::map<LogKey, NodeId> source_peer_; // where a log's records actually came from (acks go there)
     std::map<NodeId, std::uint64_t> last_heads_request_ms_;
     std::vector<std::string> patterns_; // what we follow, replayed to peers when asking for heads

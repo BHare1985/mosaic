@@ -47,6 +47,16 @@ std::vector<LogKey> MemoryLogStore::keys() const
     return out;
 }
 
+AppendResult LogStore::append_batch(const std::vector<Record>& records)
+{
+    for (const auto& record : records) {
+        const auto result = append(record);
+        if (result != AppendResult::Ok)
+            return result; // same rule as one at a time: the first non-next record stops the batch
+    }
+    return AppendResult::Ok;
+}
+
 bool MemoryLogStore::save_fork(const ForkEvidence& evidence)
 {
     forks_[evidence.key][evidence.seq] = evidence; // same log and sequence: idempotent

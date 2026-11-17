@@ -42,14 +42,15 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | LOG-1 | Keep fork evidence (both records) and expose `forks()`; `Node::on_fork` receives both | M | – | Test: equivocating writer yields evidence retrievable after restart (with persistent store) | ✅
-| LOG-2 | Batch ingest `ingest(span<const Record>)` with one store call | S | – | Same results as per-record ingest (property test); fewer store round trips |
+| LOG-2 | Batch ingest `ingest(span<const Record>)` with one store call | S | – | Same results as per-record ingest (property test); fewer store round trips | 🟡 store-level append_batch landed (MEASURE); log-layer ingest batching still open
 
 ## match
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| MATCH-1 | Benchmark (1k/10k/100k subscriptions) and write the numbers in [03](03-matching-and-channels.md) | S | – | Reproducible command; compares with naive scan; claim "µs/match" confirmed or corrected |
+| MATCH-1 | Benchmark (1k/10k/100k subscriptions) and write the numbers in [03](03-matching-and-channels.md) | S | – | Reproducible command; compares with naive scan; claim "µs/match" confirmed or corrected | ✅
 | MATCH-2 | `patterns()` listing for Hello | S | – | Returns active patterns; test with removals |
 | MATCH-3 | Erase empty literal entries on `remove` | S | – | Memory returns to baseline after add/remove churn (test via size accessor) |
+| MATCH-4 | Reduce matcher per-position allocations: reuse a scratch bitset instead of copying `open`, and exit word-wise early. MATCH-1 measured 6.7/22.7/191.7 µs at 1k/10k/100k | M | MATCH-1 | The MATCH-1 benchmark improves at 100k without changing semantics, and the randomised-vs-naive test still passes | ⬜ |
 
 ## flow
 | ID | Task | Size | Depends | Acceptance criteria |

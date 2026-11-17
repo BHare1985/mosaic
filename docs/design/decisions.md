@@ -14,5 +14,5 @@ Recorded 2026-11-09 by the maintainer. These are settled; change them only by ad
 ## Defaults taken where the maintainer did not rule (change by adding an entry)
 - **Matching** is on the channel name only (no header/field matching). Revisit when a use-case needs it.
 - **ZeroMQ is a hard dependency of the product.** Only the core library is ZeroMQ-free, so it can be tested with `SimNetwork`.
-  The CMake option `MOSAIC_BUILD_ZMQ_STACK` controls only whether libzmq/czmq/malamute are *compiled from source* in our build,
+  The CMake option `MOSAIC_BUILD_ZMQ_FROM_SOURCE` controls only whether libzmq/czmq/malamute are *compiled from source* in our build,
   which is slow. See ZMQ-0 in [TODO.md](TODO.md).

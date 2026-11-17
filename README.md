@@ -38,11 +38,11 @@ Requires a C++20 compiler and CMake ≥ 3.14 (developed on GCC 15 / CMake 4).
 
 ```bash
 # fast loop: core library and tests only
-cmake -S test -B build/test -DMOSAIC_BUILD_ZMQ_STACK=OFF
+cmake -S test -B build/test -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF
 cmake --build build/test -j && ./build/test/MosaicTests
 
 # everything, including libzmq/czmq/malamute compiled from source (slow; also the ZeroMQ compile check)
-cmake -S all -B build && cmake --build build -j && ./build/test/MosaicTests
+cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./build/standalone/Mosaic match 'storage.*.shard7' storage.eu.shard7
 ```
 

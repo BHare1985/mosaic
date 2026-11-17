@@ -31,9 +31,16 @@ layers that consume logs; none may be required to use a log.
 ```
 
 ### Dependency rules (enforce in review)
+**Third-party code.** Two dependencies exist, both behind interfaces: `libsodium` behind `Hasher`/`Signer`/`Verifier` (fetched
+by CPM, optional via `MOSAIC_WITH_SODIUM`) and `libzmq` behind `Transport`, confined to the separate `MosaicZmq` target. A
+consumer that packages Mosaic must supply `libzmq` and, if `MOSAIC_WITH_SODIUM` was used, `libsodium`: they are linked
+`PRIVATE $<BUILD_INTERFACE:...>` today, so they are deliberately absent from the install export. `MOSAIC_WITH_SODIUM=OFF` and
+`-DMOSAIC_WITH_ZMQ=OFF` together produce a dependency-free core.
+
 `core` ← `store` ← `log` ← `proto` ← `net` ← `node` ← `jobs`. `match` and `flow` have **no** dependencies and may be used
 by anyone. A module may include only modules to its left. ZeroMQ headers may appear only inside the future ZeroMQ
-transport. The core library must keep building and testing with `-DMOSAIC_BUILD_ZMQ_STACK=OFF`.
+transport, confined to the `MosaicZmq` target. The core library and its tests must keep building with
+`-DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF`.
 
 ### Module map
 

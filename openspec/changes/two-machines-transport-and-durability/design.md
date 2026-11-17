@@ -103,6 +103,20 @@ be authoritative: czmq's container generates its own curve25519 pair, and this d
 record identity. Hence derive (`crypto_sign_ed25519_sk_to_curve25519` → `sodium_bin2z85`) and convert only at the edges. The
 2024 `key-loading` branch took the other route and is the reference for the file format, not for the decision.
 
+**D11 - Open by default, pinned per endpoint, closed by configuration.**
+CURVE on a ZeroMQ link gives encryption and peer authentication, but `zmq_curve` with no ZAP handler accepts any client key.
+That is the correct default here, not a gap: in a brokerless log the *data* authenticates itself (signed, hash-chained, and
+verifiable by anyone holding it), so a link key must never be what decides whether a record is true. Making a central
+allow-list mandatory would reintroduce exactly the provisioning dependency D1 rejects, and would break the open use cases
+(local-first sync, edge/IoT swarms, agent buses) where the peers are not known in advance.
+
+Two things are still required, and they are cheap: **pin the key per configured endpoint on first use** (TOFU), so a peer
+cannot silently change identity mid-deployment, and keep CURVE mandatory, so traffic is never plaintext. Closed mode -
+an explicit allow-list - stays available for the cross-organisation audit-log case, where the participants *are* known and
+"only these organisations may connect" is a real requirement. That is a policy switch, not a different architecture.
+*Alternative:* mandatory allow-list - rejected, see above. *Alternative:* plaintext links authenticated only by records -
+rejected: it leaks content and lets anyone inject fetches.
+
 ## Risks / Trade-offs
 
 - **Most of this is untestable in the fast loop** → every new requirement gets a conformance or loopback test that runs in the

@@ -74,8 +74,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | NET-0 | Transport conformance suite | S | – | Checks all rules in `transport.h` contract; `SimTransport` passes | ✅
 | SIM-1 | Latency, reordering, partitions, per-link loss in `SimNetwork` | M | – | Seeded; heal-then-converge test with a partition | ✅
 | SIM-2 | Scenario runner: seed sweep (N seeds), prints failing seed, CLI `Mosaic sim` | M | SIM-1 | One command runs 1000 seeds of the convergence scenario | 🟡 runner + sweep done (`MOSAIC_SEEDS=1000`); `Mosaic sim` CLI deferred, see decision D8 |
-| ZMQ-0 | Split CMake into `Mosaic` (core, no ZeroMQ) and `MosaicZmq` (transport); find system libzmq first, fall back to building from source; rename `MOSAIC_BUILD_ZMQ_STACK` to say what it does | M | – | Core still builds and tests with no ZeroMQ installed; `MosaicZmq` links libzmq; docs explain both paths |
-| ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested |
+| ZMQ-0 | Split CMake into `Mosaic` (core, no ZeroMQ) and `MosaicZmq` (transport); find system libzmq first, fall back to building from source; rename `MOSAIC_BUILD_ZMQ_STACK` to say what it does | M | – | Core still builds and tests with no ZeroMQ installed; `MosaicZmq` links libzmq; docs explain both paths | ✅
+| ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested | 🟡 transport + conformance over loopback done; two-process test open
 | DISC-1 | Wire `Discovery` into the ZeroMQ transport (static list) | M | ZMQ-1 | Nodes connect to peers from config |
 | DISC-2 | LAN beacon discovery | M | DISC-1 | Two hosts on a LAN find each other with no config |
 | DISC-3 | Gossip peer lists over the protocol | L | DISC-1, HELLO-1 | Removing any single node does not stop discovery |

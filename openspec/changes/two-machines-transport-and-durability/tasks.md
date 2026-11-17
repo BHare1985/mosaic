@@ -2,44 +2,46 @@
 
 ## 1. Split the build so the core stays dependency-free (ZMQ-0)
 
-- [ ] 1.1 Create `MosaicZmq` as a separate target containing the ZeroMQ transport and discovery wiring; keep `Mosaic` free of
+- [x] 1.1 Create `MosaicZmq` as a separate target containing the ZeroMQ transport and discovery wiring; keep `Mosaic` free of
       ZeroMQ. Verified by: building `Mosaic` and `MosaicTests` on a machine with no ZeroMQ installed succeeds.
-- [ ] 1.2 Find system libzmq before falling back to building from source, and rename the option to
+- [x] 1.2 Find system libzmq before falling back to building from source, and rename the option to
       `MOSAIC_BUILD_ZMQ_FROM_SOURCE`. Verified by: both paths configure and build; the old option name is gone from docs and
       CMake (`rg -n "MOSAIC_BUILD_ZMQ_STACK" .` returns only intentional migration notes).
-- [ ] 1.3 Assert the confinement rule in the build: no ZeroMQ header may be included outside the transport source. Verified
+- [x] 1.3 Assert the confinement rule in the build: no ZeroMQ header may be included outside the transport source. Verified
       by: a grep check in the build or a review note; `rg -n "<zmq" include source --glob '!source/net/zmq*'` returns nothing.
 
-- [ ] 1.4 Give the fast loop and the `all/` build separate output directories. Today both write
+- [x] 1.4 Give the fast loop and the `all/` build separate output directories. Today both write
       `build/test/MosaicTests`, so whichever built last silently wins: a "full stack" run can execute the core-only binary
       and report a green that never touched ZeroMQ. Verified by: building both in one session and getting two distinct
       binaries with distinct case counts (the `all/` build includes the Malamute compile check).
-- [ ] 1.5 Decide and record how libsodium reaches a consumer of the packaged library. It is currently linked
+- [x] 1.5 Decide and record how libsodium reaches a consumer of the packaged library. It is currently linked
       `PRIVATE $<BUILD_INTERFACE:sodium>` to keep it out of `install(EXPORT)`; that is right for building Mosaic and wrong for
       anyone consuming it. Verified by: either the export carries sodium as a deliberate requirement, or the CMake comment and
       `docs/design/00-overview.md` say plainly that consumers must supply it.
 
 ## 2. ZeroMQ transport, loopback first (ZMQ-1)
 
-- [ ] 2.1 Implement `ZmqTransport` with PUB for live publication and ROUTER/DEALER for unicast, one poll set, non-blocking
+- [x] 2.1 Implement `ZmqTransport` with PUB for live publication and ROUTER/DEALER for unicast, one poll set, non-blocking
       poll returning at most one envelope. Verified by: the shared transport conformance suite passes against a loopback
       implementation.
-- [ ] 2.2 Map each pattern to its literal prefix up to the first wildcard, including `>` mapping to an empty prefix, and keep
+- [x] 2.2 Map each pattern to its literal prefix up to the first wildcard, including `>` mapping to an empty prefix, and keep
       the local matcher authoritative. Verified by: a test per wildcard case, including that `storage.*.shard7` does not admit
       `storage.eu.frankfurt.shard7`.
-- [ ] 2.3 Set explicit queue limits on publication and on unicast, and count live-path overflow as a drop. Verified by: a test
+- [x] 2.3 Set explicit queue limits on publication and on unicast, and count live-path overflow as a drop. Verified by: a test
       where a stalled subscriber does not block the publisher and the drop counter increases.
 - [ ] 2.4 Prove two processes converge over TCP without authentication. Verified by: a two-process test reaching the writer's
       head and surviving a link break that is later restored.
 
 ## 3. Link authentication (SEC-1)
 
-- [ ] 3.1 Enable CURVE on both socket kinds with the node identity as the key, and refuse peers absent from the allow-list.
-      Verified by: a test where an unlisted key cannot connect and one where a listed key connects and replicates.
+- [ ] 3.1 Enable CURVE on both socket kinds with the node identity as the key, and implement the two policies: open with
+      per-endpoint key pinning (default), and closed with an explicit allow-list. Verified by: an unseen key connects and is
+      pinned; a pinned endpoint refuses a changed key; closed mode refuses an unlisted key before any message.
 - [ ] 3.2 Assert identity agreement: the key that authenticates a link is the key that signed the records it delivers.
       Verified by: a test rejecting a peer whose delivered record carries a different writer identity.
-- [ ] 3.3 Document the key distribution assumption (who holds whose public key) in `docs/design/07-security.md`. Verified by:
-      the section names the trust assumption and what it does not protect against.
+- [ ] 3.3 Document the key distribution assumption in `docs/design/07-security.md`: open mode trusts self-verifying data and
+      only pins link identity, closed mode trusts the provisioned list. Verified by: the section says what each mode protects
+      against and, explicitly, that a link key never authorises a record.
 
 - [ ] 3.4 Derive the CURVE key pair from the Ed25519 identity (`crypto_sign_ed25519_sk_to_curve25519`, then
       `sodium_bin2z85`), instead of generating an independent pair. Verified by: a test where the key that authenticates a link

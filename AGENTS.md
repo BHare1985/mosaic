@@ -32,9 +32,9 @@ The original vision (parity coding, proof of replication, tokens, chain) is an o
 
 ```bash
 # fast loop (no ZeroMQ stack)
-cmake -S test -B build/test -DMOSAIC_BUILD_ZMQ_STACK=OFF && cmake --build build/test -j && ./build/test/MosaicTests
+cmake -S test -B build/test -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF && cmake --build build/test -j && ./build/test/MosaicTests
 # everything, incl. libzmq/czmq/malamute from source
-cmake -S all -B build && cmake --build build -j && ./build/test/MosaicTests
+cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./scripts/check_todo_ids.sh
 ```
 

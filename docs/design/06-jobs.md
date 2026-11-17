@@ -1,6 +1,6 @@
 # 06 — Jobs / services over logs (✅ ranking, envelopes, worker and requester; JOBS-4 open)
 
-Malamute's "service" pattern without a broker. A job is just records on channels, so it inherits verification,
+[Malamute](https://github.com/zeromq/malamute)'s "service" pattern without a broker. A job is just records on channels, so it inherits verification,
 replication, replay and flow control.
 
 ```

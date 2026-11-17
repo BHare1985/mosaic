@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-SITE="build/all/documentation/doxygen/html/index.html"
+SITE_DIR="build/all/site"
 
 if ! command -v doxygen >/dev/null 2>&1; then
     echo "docs: SKIPPED - doxygen not found."
@@ -41,10 +41,14 @@ if grep -E "^.*: error:" /tmp/mosaic-docs.log | grep -v "include/mosaic" >/dev/n
     exit 1
 fi
 
-if [ ! -f "$SITE" ]; then
-    echo "docs: FAILED - no $SITE was produced" >&2
+# m.css decides where the html lands relative to its own working directory, so locate the landing page instead
+# of hardcoding a path that moves whenever the source layout does.
+SITE=$(find "$SITE_DIR" -name index.html 2>/dev/null | head -1)
+if [ -z "$SITE" ]; then
+    echo "docs: FAILED - no index.html was produced under $SITE_DIR" >&2
     exit 1
 fi
 
-pages=$(find build/all/documentation/doxygen/html -name '*.html' | wc -l | tr -d ' ')
-echo "docs: $pages pages written to build/all/documentation/doxygen/html/"
+SITE_HTML_DIR=$(dirname "$SITE")
+pages=$(find "$SITE_HTML_DIR" -name '*.html' | wc -l | tr -d ' ')
+echo "docs: $pages pages written to $SITE_HTML_DIR/"

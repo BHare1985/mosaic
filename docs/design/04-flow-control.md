@@ -2,7 +2,7 @@
 
 ## Principles
 1. **The receiver controls the rate.** It hands out credit; the sender spends it and never sends at zero.
-2. **Drop, don't block.** One slow consumer must not slow producers or other consumers (Malamute's whitepaper, IP congestion
+2. **Drop, don't block.** One slow consumer must not slow producers or other consumers ([Malamute](https://github.com/zeromq/malamute)'s design notes, IP congestion
    model). Dropped live messages are recoverable because logs can be fetched.
 3. **Bound everything**: in-flight records per peer, records per FETCH, bytes per record, queue sizes.
 

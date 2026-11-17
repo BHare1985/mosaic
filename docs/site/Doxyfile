@@ -7,12 +7,15 @@ PROJECT_NAME = @DOXYGEN_PROJECT_NAME@
 PROJECT_NUMBER = @DOXYGEN_PROJECT_VERSION@
 
 # Add sources
-INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/documentation/pages
+INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/docs/site/pages
 EXTRACT_ALL = YES
 RECURSIVE = YES
 # The published site is the public surface - README, public headers, module READMEs and these pages. The internal
 # design set and the fetched reference trees are deliberately not rendered: they address contributors, not readers.
-EXCLUDE = @DOXYGEN_PROJECT_ROOT@/docs
+# (Excluding the whole docs tree would also exclude these pages, which live under it.)
+EXCLUDE = @DOXYGEN_PROJECT_ROOT@/docs/design \
+          @DOXYGEN_PROJECT_ROOT@/docs/references \
+          @DOXYGEN_PROJECT_ROOT@/docs/direction.md \
 OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
 
 # Use the README as a main page

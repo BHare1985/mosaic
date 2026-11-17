@@ -19,15 +19,21 @@ GenerateDocs` → m.css's `doxygen.py`, and it reads `README.md` plus `include/`
 *Alternative:* put the Doxyfile at the repository root - rejected: it is one of three files that belong together, and the root
 already carries enough configuration.
 
-**D2 - The output moves with it, to `build/all/site/doxygen/`.**
+**D2 - The output moves with it, to `build/all/site/html/`.**
 The build directory mirrors the source layout, so a reader who finds `docs/site/` knows where the output is without reading CMake.
+m.css writes `html/` beside the directory its Doxyfile configures for XML, which is not where the first draft of this change guessed
+(`build/all/site/doxygen/html/`); `scripts/docs.sh` now *locates* `index.html` rather than hardcoding a path, because the location
+depends on a third-party tool's convention rather than on ours.
 *Trade-off:* every existing bookmark to the old path breaks. Acceptable for a path that has existed for one change and is
 git-ignored anyway.
 
-**D3 - Relative paths in `docs/site/CMakeLists.txt` become three levels up, not one.**
+**D3 - Relative paths in `docs/site/CMakeLists.txt` gain exactly one `..`.**
 The file moves from `<root>/documentation/` to `<root>/docs/site/`, so `../cmake/CPM.cmake` becomes `../../cmake/CPM.cmake` and
-`SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..` becomes `/../../..`. This is the only part of the move that can silently produce a wrong
-build, so it is a named task with the build as its verification.
+`SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..` becomes `/../..` - two levels, not three. This is the only part of the move that can
+silently produce a wrong build, so it is a named task with the build as its verification.
+*Second correction found while doing it:* `EXCLUDE = docs` (which kept the internal design set out of the site) also excluded
+`docs/site/pages`, so the navbar's pages vanished and m.css asserted. The exclusion now names the internal parts
+(`docs/design`, `docs/references`, `docs/direction.md`) instead of the containing folder.
 
 **D4 - `docs/README.md` becomes the map.**
 One short table: `design/` rationale and the board, `site/` the generator and its pages, `references/` fetched upstream material

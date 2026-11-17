@@ -8,7 +8,7 @@ no consensus and no coordinator in the data path. Credit-based flow control keep
 optional job layer lets you call services by name over the same logs.
 
 It descends from [Dafka](https://github.com/zeromq/dafka) (brokerless log) and [Malamute](https://github.com/zeromq/malamute)
-(channels, services, flow control), implementing the parts of Malamute's design that were only ever on paper. Not wire-compatible
+(channels, services, flow control), implementing the parts of [Malamute](https://github.com/zeromq/malamute)'s design that were only ever on paper. Not wire-compatible
 with either.
 
 > **Status: it runs between two machines.** Signed, hash-chained logs; pattern subscriptions; credit-paced repair; a versioned
@@ -52,8 +52,14 @@ cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 # the whole check, as CI runs it: four configurations, sanitizers, docs, format
 ./scripts/ci.sh
 
-# reference documentation (API from the public headers + the design set)
-./scripts/docs.sh && open build/all/documentation/doxygen/html/index.html
+# reference documentation (public headers, module READMEs and the site's pages)
+./scripts/docs.sh && open build/all/site/html/index.html
+```
+
+The published site is built by `.github/workflows/pages.yml` and deployed to GitHub Pages. It needs one repository setting —
+*Settings → Pages → Source: **GitHub Actions*** — which a workflow cannot set for you. Without it the deploy job fails loudly
+rather than publishing nothing.
+```
 ```
 
 ## Running a node

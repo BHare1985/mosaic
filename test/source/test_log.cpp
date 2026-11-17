@@ -1,43 +1,45 @@
-#include <doctest/doctest.h>
 #include <mosaic/core/insecure_test_signer.h>
 #include <mosaic/log/log.h>
 #include <mosaic/store/memory_log_store.h>
 
+#include <doctest/doctest.h>
+
+using std::string;
+
 using namespace mosaic;
 
 namespace {
-Bytes bytes(const std::string& s) { return Bytes(s.begin(), s.end()); }
+Bytes bytes(const string& s) {
+    return Bytes(s.begin(), s.end());
+}
 
 struct Fixture {
     Sha256Hasher hasher;
-    InsecureTestSigner alice { "alice" };
+    InsecureTestSigner alice{"alice"};
     MemoryLogStore writer_store, replica_store;
-    LogWriter writer { writer_store, hasher, alice, "chan.one" };
-    ReplicaLog replica { replica_store, hasher, alice };
+    LogWriter writer{writer_store, hasher, alice, "chan.one"};
+    ReplicaLog replica{replica_store, hasher, alice};
 };
-}
+}  // namespace
 
-TEST_CASE_FIXTURE(Fixture, "writer builds a hash chain")
-{
+TEST_CASE_FIXTURE(Fixture, "writer builds a hash chain") {
     const auto r0 = writer.append("t", bytes("a"), 1);
     const auto r1 = writer.append("t", bytes("b"), 2);
     CHECK(r0.seq == 0);
-    CHECK(r0.prev == Hash { });
+    CHECK(r0.prev == Hash{});
     CHECK(r1.seq == 1);
     CHECK(r1.prev == record_hash(r0, hasher));
     CHECK(writer.head()->seq == 1);
     CHECK(writer.head()->hash == record_hash(r1, hasher));
 }
 
-TEST_CASE_FIXTURE(Fixture, "writer resumes from the store")
-{
+TEST_CASE_FIXTURE(Fixture, "writer resumes from the store") {
     writer.append("t", bytes("a"), 1);
-    LogWriter again { writer_store, hasher, alice, "chan.one" };
+    LogWriter again{writer_store, hasher, alice, "chan.one"};
     CHECK(again.append("t", bytes("b"), 2).seq == 1);
 }
 
-TEST_CASE_FIXTURE(Fixture, "replica accepts in order, reports duplicates and gaps")
-{
+TEST_CASE_FIXTURE(Fixture, "replica accepts in order, reports duplicates and gaps") {
     const auto r0 = writer.append("t", bytes("a"), 1);
     const auto r1 = writer.append("t", bytes("b"), 2);
     const auto r2 = writer.append("t", bytes("c"), 3);
@@ -52,8 +54,7 @@ TEST_CASE_FIXTURE(Fixture, "replica accepts in order, reports duplicates and gap
     CHECK(replica.head(r0.key())->hash == writer.head()->hash);
 }
 
-TEST_CASE_FIXTURE(Fixture, "replica rejects tampering and forgery")
-{
+TEST_CASE_FIXTURE(Fixture, "replica rejects tampering and forgery") {
     auto r0 = writer.append("t", bytes("a"), 1);
 
     Record tampered = r0;
@@ -61,14 +62,13 @@ TEST_CASE_FIXTURE(Fixture, "replica rejects tampering and forgery")
     CHECK(replica.ingest(tampered) == IngestResult::BadSignature);
 
     Record forged = r0;
-    forged.writer = "mallory"; // signature was made for "alice"
+    forged.writer = "mallory";  // signature was made for "alice"
     CHECK(replica.ingest(forged) == IngestResult::BadSignature);
 
     CHECK_FALSE(replica.head(r0.key()).has_value());
 }
 
-TEST_CASE_FIXTURE(Fixture, "replica detects equivocation (fork)")
-{
+TEST_CASE_FIXTURE(Fixture, "replica detects equivocation (fork)") {
     const auto r0 = writer.append("t", bytes("a"), 1);
     REQUIRE(replica.ingest(r0) == IngestResult::Accepted);
 
@@ -92,8 +92,7 @@ TEST_CASE_FIXTURE(Fixture, "replica detects equivocation (fork)")
 // docs/design/01-data-model.md fixes the order of the checks: signature, then stored history, then
 // gap, then link. A record that violates two rules must therefore be classified by the first one,
 // otherwise two replicas disagree about the same bytes.
-TEST_CASE_FIXTURE(Fixture, "verification order: signature is checked before structure")
-{
+TEST_CASE_FIXTURE(Fixture, "verification order: signature is checked before structure") {
     const auto r0 = writer.append("t", bytes("a"), 1);
     REQUIRE(replica.ingest(r0) == IngestResult::Accepted);
 
@@ -116,8 +115,7 @@ TEST_CASE_FIXTURE(Fixture, "verification order: signature is checked before stru
     CHECK(replica.head(r0.key())->seq == 0);
 }
 
-TEST_CASE_FIXTURE(Fixture, "seq 0 must have zero prev")
-{
+TEST_CASE_FIXTURE(Fixture, "seq 0 must have zero prev") {
     Record r;
     r.writer = "alice";
     r.channel = "chan.one";

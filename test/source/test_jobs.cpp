@@ -1,17 +1,25 @@
 // JOBS: calling a service by name over logs, with no coordinator (spec: jobs/service-calls).
-#include <doctest/doctest.h>
 #include <mosaic/core/insecure_test_signer.h>
 #include <mosaic/jobs/runtime.h>
 #include <mosaic/net/sim_network.h>
 #include <mosaic/store/memory_log_store.h>
 
+#include <doctest/doctest.h>
+
+using std::initializer_list;
+using std::string;
+using std::uint32_t;
+using std::uint64_t;
+using std::vector;
+
 using namespace mosaic;
 
 namespace {
-Bytes bytes(const std::string& s) { return Bytes(s.begin(), s.end()); }
+Bytes bytes(const string& s) {
+    return Bytes(s.begin(), s.end());
+}
 
-JobRequest request_for(const std::string& id, const std::string& requester, std::uint32_t timeout_ms = 1000)
-{
+JobRequest request_for(const string& id, const string& requester, uint32_t timeout_ms = 1000) {
     JobRequest request;
     request.job_id = id;
     request.service = "resize";
@@ -27,15 +35,11 @@ struct JobsNode {
     MemoryLogStore store;
     Node node;
     JobsNode(SimNetwork& net, const NodeId& id, const Hasher& hasher, const Verifier& verifier)
-        : transport(net, id)
-        , node(NodeConfig { .id = id }, transport, store, hasher, verifier)
-    {
-    }
+        : transport(net, id), node(NodeConfig{.id = id}, transport, store, hasher, verifier) {}
 };
 
-void step(SimNetwork& net, std::uint64_t now_ms, std::initializer_list<JobsNode*> nodes,
-    std::initializer_list<JobWorker*> workers, std::initializer_list<JobRequester*> requesters)
-{
+void step(SimNetwork& net, uint64_t now_ms, initializer_list<JobsNode*> nodes,
+          initializer_list<JobWorker*> workers, initializer_list<JobRequester*> requesters) {
     net.advance(now_ms);
     for (JobsNode* node : nodes) {
         node->node.pump(now_ms);
@@ -45,10 +49,9 @@ void step(SimNetwork& net, std::uint64_t now_ms, std::initializer_list<JobsNode*
         worker->tick(now_ms);
     (void)requesters;
 }
-} // namespace
+}  // namespace
 
-TEST_CASE("job envelopes round-trip and reject damage")
-{
+TEST_CASE("job envelopes round-trip and reject damage") {
     const auto request = request_for("job-1", "alice");
     const auto decoded = decode_job_request(encode_job_request(request));
     REQUIRE(decoded.has_value());
@@ -71,18 +74,18 @@ TEST_CASE("job envelopes round-trip and reject damage")
     auto wire = encode_job_request(request);
     wire.resize(wire.size() - 2);
     CHECK_FALSE(decode_job_request(wire).has_value());
-    CHECK_FALSE(decode_job_request(Bytes { }).has_value());
+    CHECK_FALSE(decode_job_request(Bytes{}).has_value());
 }
 
-TEST_CASE("exactly one of several healthy workers runs a job")
-{
+TEST_CASE("exactly one of several healthy workers runs a job") {
     Sha256Hasher hasher;
     InsecureTestSigner alice("alice");
     SimNetwork net(51);
 
-    JobsNode w0(net, "w0", hasher, alice), w1(net, "w1", hasher, alice), w2(net, "w2", hasher, alice);
+    JobsNode w0(net, "w0", hasher, alice), w1(net, "w1", hasher, alice),
+        w2(net, "w2", hasher, alice);
     JobsNode requester(net, "requester", hasher, alice);
-    const std::vector<NodeId> workers { "w0", "w1", "w2" };
+    const vector<NodeId> workers{"w0", "w1", "w2"};
 
     int runs = 0;
     const auto handler = [&runs](const JobRequest& job) {
@@ -90,7 +93,7 @@ TEST_CASE("exactly one of several healthy workers runs a job")
         JobResult result;
         result.job_id = job.job_id;
         result.ok = true;
-        result.body = Bytes { 'o', 'k' };
+        result.body = Bytes{'o', 'k'};
         return result;
     };
 
@@ -101,21 +104,20 @@ TEST_CASE("exactly one of several healthy workers runs a job")
 
     REQUIRE(caller.submit(alice, request_for("job-a", "requester"), 0));
 
-    std::uint64_t now = 0;
+    uint64_t now = 0;
     for (int i = 0; i < 200 && !caller.result_for("job-a"); ++i) {
         now += 25;
-        step(net, now, { &w0, &w1, &w2, &requester }, { &worker0, &worker1, &worker2 }, { &caller });
+        step(net, now, {&w0, &w1, &w2, &requester}, {&worker0, &worker1, &worker2}, {&caller});
     }
 
     const auto result = caller.result_for("job-a");
     REQUIRE(result.has_value());
     CHECK(result->ok);
-    CHECK(runs == 1); // the whole point: one runner, no coordination
+    CHECK(runs == 1);  // the whole point: one runner, no coordination
     CHECK(worker0.runs() + worker1.runs() + worker2.runs() == 1);
 }
 
-TEST_CASE("a job is not lost when the first-ranked worker never answers")
-{
+TEST_CASE("a job is not lost when the first-ranked worker never answers") {
     Sha256Hasher hasher;
     InsecureTestSigner alice("alice");
     SimNetwork net(53);
@@ -123,9 +125,9 @@ TEST_CASE("a job is not lost when the first-ranked worker never answers")
     JobsNode w0(net, "w0", hasher, alice), w1(net, "w1", hasher, alice);
     JobsNode requester(net, "requester", hasher, alice);
 
-    // Three workers are known, but "ghost" never runs: whichever of these two is not rank 0 must take
-    // over after its wait.
-    const std::vector<NodeId> workers { "w0", "w1", "ghost" };
+    // Three workers are known, but "ghost" never runs: whichever of these two is not rank 0 must
+    // take over after its wait.
+    const vector<NodeId> workers{"w0", "w1", "ghost"};
     int runs = 0;
     const auto handler = [&runs](const JobRequest& job) {
         ++runs;
@@ -141,18 +143,17 @@ TEST_CASE("a job is not lost when the first-ranked worker never answers")
 
     REQUIRE(caller.submit(alice, request_for("job-b", "requester", 600), 0));
 
-    std::uint64_t now = 0;
+    uint64_t now = 0;
     for (int i = 0; i < 400 && !caller.result_for("job-b"); ++i) {
         now += 25;
-        step(net, now, { &w0, &w1, &requester }, { &worker0, &worker1 }, { &caller });
+        step(net, now, {&w0, &w1, &requester}, {&worker0, &worker1}, {&caller});
     }
 
     REQUIRE(caller.result_for("job-b").has_value());
     CHECK(runs == 1);
 }
 
-TEST_CASE("a restarted requester still accepts the result it is waiting for")
-{
+TEST_CASE("a restarted requester still accepts the result it is waiting for") {
     Sha256Hasher hasher;
     InsecureTestSigner alice("alice");
     SimNetwork net(59);
@@ -176,20 +177,20 @@ TEST_CASE("a restarted requester still accepts the result it is waiting for")
     result.job_id = "job-r";
     result.ok = true;
     result.body = bytes("late");
-    worker.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(result), 10);
+    worker.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(result),
+                        10);
 
-    std::uint64_t now = 0;
+    uint64_t now = 0;
     for (int i = 0; i < 60 && !after_restart.result_for("job-r"); ++i) {
         now += 25;
-        step(net, now, { &requester, &worker }, { }, { &after_restart });
+        step(net, now, {&requester, &worker}, {}, {&after_restart});
     }
     const auto restored = after_restart.result_for("job-r");
     REQUIRE(restored.has_value());
     CHECK(restored->body == result.body);
 }
 
-TEST_CASE("a requester accepts the first result and reports a timeout when none comes")
-{
+TEST_CASE("a requester accepts the first result and reports a timeout when none comes") {
     Sha256Hasher hasher;
     InsecureTestSigner alice("alice");
     SimNetwork net(57);
@@ -202,12 +203,12 @@ TEST_CASE("a requester accepts the first result and reports a timeout when none 
     CHECK(caller.waiting().size() == 1);
     CHECK_FALSE(caller.timed_out("job-c", 100));
 
-    std::uint64_t now = 0;
+    uint64_t now = 0;
     for (int i = 0; i < 40; ++i) {
         now += 25;
-        step(net, now, { &requester }, { }, { &caller });
+        step(net, now, {&requester}, {}, {&caller});
     }
-    CHECK(caller.timed_out("job-c", now)); // a visible failure, not a silent success
+    CHECK(caller.timed_out("job-c", now));  // a visible failure, not a silent success
     CHECK_FALSE(caller.result_for("job-c").has_value());
 
     // Two results for one job id: the first wins and the second is not even the answer we return.
@@ -220,14 +221,17 @@ TEST_CASE("a requester accepts the first result and reports a timeout when none 
 
     // Delivered straight into the requester's log through the network, as another node would.
     JobsNode other(net, "other", hasher, alice);
-    JobRequester caller2(requester.node, requester.store, "res.requester"); // re-installs the callback
+    JobRequester caller2(requester.node, requester.store,
+                         "res.requester");  // re-installs the callback
     REQUIRE(caller2.submit(alice, request_for("job-d", "requester", 1000), now));
-    other.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(first), now);
-    other.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(second), now);
+    other.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(first),
+                       now);
+    other.node.publish(alice, "res.requester", kJobResultContentType, encode_job_result(second),
+                       now);
 
     for (int i = 0; i < 40 && !caller2.result_for("job-d"); ++i) {
         now += 25;
-        step(net, now, { &requester, &other }, { }, { &caller2 });
+        step(net, now, {&requester, &other}, {}, {&caller2});
     }
     const auto result = caller2.result_for("job-d");
     REQUIRE(result.has_value());

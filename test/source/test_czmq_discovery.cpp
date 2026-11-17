@@ -1,34 +1,37 @@
 // Real czmq actors: do two nodes on the same host find each other without configuration?
+#include <mosaic/net/czmq_discovery.h>
+
 #include <chrono>
 #include <doctest/doctest.h>
-#include <mosaic/net/czmq_discovery.h>
 #include <thread>
+
+namespace chrono = std::chrono;
+namespace this_thread = std::this_thread;
+using std::string;
+using std::vector;
 
 #ifdef MOSAIC_HAS_CZMQ
 
 using namespace mosaic;
 
 namespace {
-DiscoveredPeer self_for(const std::string& id, const std::string& endpoint)
-{
-    return DiscoveredPeer { id, endpoint, "" };
+DiscoveredPeer self_for(const string& id, const string& endpoint) {
+    return DiscoveredPeer{id, endpoint, ""};
 }
 
 /// Drains both sides for up to `attempts` rounds, returning everything found.
-std::vector<DiscoveredPeer> wait_for_candidates(CzmqDiscovery& discovery, int attempts = 40)
-{
-    std::vector<DiscoveredPeer> found;
+vector<DiscoveredPeer> wait_for_candidates(CzmqDiscovery& discovery, int attempts = 40) {
+    vector<DiscoveredPeer> found;
     for (int i = 0; i < attempts && found.empty(); ++i) {
         for (auto& peer : discovery.poll_discovered())
             found.push_back(peer);
-        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        this_thread::sleep_for(chrono::milliseconds(25));
     }
     return found;
 }
-} // namespace
+}  // namespace
 
-TEST_CASE("two nodes on the same host find each other with the beacon, without configuration")
-{
+TEST_CASE("two nodes on the same host find each other with the beacon, without configuration") {
     CzmqDiscoveryConfig left_config;
     left_config.cluster = "mosaic-test-cluster";
     left_config.beacon_port = 4567;
@@ -39,7 +42,7 @@ TEST_CASE("two nodes on the same host find each other with the beacon, without c
     CzmqDiscovery left(left_config);
     if (!left.beacon_active()) {
         MESSAGE("this host has no broadcast-capable interface: beacon test skipped");
-        return; // an honest skip: a UDP broadcast that cannot run proves nothing
+        return;  // an honest skip: a UDP broadcast that cannot run proves nothing
     }
 
     CzmqDiscoveryConfig right_config = left_config;
@@ -57,8 +60,7 @@ TEST_CASE("two nodes on the same host find each other with the beacon, without c
     }
 }
 
-TEST_CASE("an unrelated broadcaster is ignored rather than half-understood")
-{
+TEST_CASE("an unrelated broadcaster is ignored rather than half-understood") {
     // A different cluster name means a different beacon filter: the two must not see each other.
     CzmqDiscoveryConfig other;
     other.cluster = "someone-elses-cluster";
@@ -79,4 +81,4 @@ TEST_CASE("an unrelated broadcaster is ignored rather than half-understood")
     CHECK(wait_for_candidates(mine_discovery, 8).empty());
 }
 
-#endif // MOSAIC_HAS_CZMQ
+#endif  // MOSAIC_HAS_CZMQ

@@ -61,6 +61,26 @@ else
     grep -E '^docs:' /tmp/ci-docs.log | tail -1
 fi
 
+step "lint"
+if command -v clang-tidy >/dev/null 2>&1; then
+    DB=$(find build/ci-* -name compile_commands.json | head -1)
+    if [ -z "$DB" ]; then
+        echo "lint: FAILED - no compile_commands.json (configure ran without the database?)" >&2
+        fail "lint"
+    else
+        FILES=$(git ls-files 'source/**/*.cpp' 'standalone/**/*.cpp' 'test/**/*.cpp' | head -200)
+        if ! clang-tidy --quiet -p "$(dirname "$DB")" $FILES > /tmp/ci-lint.log 2>&1; then
+            tail -30 /tmp/ci-lint.log >&2
+            fail "lint"
+        else
+            echo "lint: clean over $(echo "$FILES" | wc -l | tr -d ' ') files"
+        fi
+    fi
+else
+    echo "lint: SKIPPED - clang-tidy not found."
+    echo "      install it (apt install clang-tidy, or an LLVM release) and re-run."
+fi
+
 step "format"
 if command -v clang-format >/dev/null 2>&1; then
     dirty=0

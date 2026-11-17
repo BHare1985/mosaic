@@ -8,8 +8,9 @@
 // verifiable after the default changes. Records are signed with Ed25519 over the record hash; the
 // writer identity is the hex public key, which is content-derived and survives restarts.
 
-#include <cstdint>
 #include <mosaic/core/types.h>
+
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -50,8 +51,12 @@ public:
 
 class Sha256Hasher final : public Hasher {
 public:
-    Hash hash(const Bytes& data) const override { return sha256(data); }
-    HashAlgo algorithm() const override { return HashAlgo::Sha256; }
+    Hash hash(const Bytes& data) const override {
+        return sha256(data);
+    }
+    HashAlgo algorithm() const override {
+        return HashAlgo::Sha256;
+    }
 };
 
 class Signer {
@@ -65,7 +70,8 @@ public:
 class Verifier {
 public:
     virtual ~Verifier() = default;
-    virtual bool verify(const WriterId& writer, const Hash& record_hash, const Bytes& signature) const = 0;
+    virtual bool verify(const WriterId& writer, const Hash& record_hash,
+                        const Bytes& signature) const = 0;
 };
 
 #ifdef MOSAIC_HAS_SODIUM
@@ -73,18 +79,24 @@ public:
 class Blake2bHasher final : public Hasher {
 public:
     Hash hash(const Bytes& data) const override;
-    HashAlgo algorithm() const override { return HashAlgo::Blake2b; }
+    HashAlgo algorithm() const override {
+        return HashAlgo::Blake2b;
+    }
 };
 
-/// Ed25519 signing over the record hash. `id()` is the hex public key, so two writers with different
-/// keys can never share an identity and a restart keeps the same one.
+/// Ed25519 signing over the record hash. `id()` is the hex public key, so two writers with
+/// different keys can never share an identity and a restart keeps the same one.
 class Ed25519Signer final : public Signer {
 public:
     /// `public_key` is 32 bytes, `secret_key` is libsodium's 64-byte form.
     Ed25519Signer(Bytes public_key, Bytes secret_key);
-    WriterId id() const override { return to_hex(public_key_); }
+    WriterId id() const override {
+        return to_hex(public_key_);
+    }
     Bytes sign(const Hash& record_hash) const override;
-    const Bytes& public_key() const { return public_key_; }
+    const Bytes& public_key() const {
+        return public_key_;
+    }
 
 private:
     Bytes public_key_;
@@ -93,12 +105,13 @@ private:
 
 class Ed25519Verifier final : public Verifier {
 public:
-    bool verify(const WriterId& writer, const Hash& record_hash, const Bytes& signature) const override;
+    bool verify(const WriterId& writer, const Hash& record_hash,
+                const Bytes& signature) const override;
 };
 
 /// Generate a fresh Ed25519 key pair (32-byte public, 64-byte secret).
 std::optional<std::pair<Bytes, Bytes>> ed25519_generate();
 
-#endif // MOSAIC_HAS_SODIUM
+#endif  // MOSAIC_HAS_SODIUM
 
-} // namespace mosaic
+}  // namespace mosaic

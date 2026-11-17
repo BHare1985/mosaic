@@ -1,48 +1,58 @@
-#include <mosaic/daemon/daemon.h>
-
-#include <chrono>
-#include <cstdlib>
-#include <iostream>
 #include <mosaic/core/keystore.h>
+#include <mosaic/daemon/daemon.h>
 #include <mosaic/net/czmq_discovery.h>
 #include <mosaic/net/peer_discovery.h>
 #include <mosaic/net/zmq_transport.h>
 #include <mosaic/node/channel_rules.h>
 #include <mosaic/node/node.h>
 #include <mosaic/store/sqlite_log_store.h>
+
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
 #include <sstream>
 #include <thread>
+
+namespace chrono = std::chrono;
+namespace this_thread = std::this_thread;
+using std::atoi;
+using std::cout;
+using std::endl;
+using std::function;
+using std::make_unique;
+using std::move;
+using std::ostringstream;
+using std::size_t;
+using std::string;
+using std::uint64_t;
+using std::unique_ptr;
 
 namespace mosaic::daemon {
 
 struct Daemon::Impl {
     Config config;
-    std::unique_ptr<SqliteLogStore> store;
-    std::unique_ptr<ZmqTransport> transport;
-    std::unique_ptr<Sha256Hasher> hasher;
-    std::unique_ptr<Ed25519Verifier> verifier;
-    std::unique_ptr<ChannelRules> rules;
-    std::unique_ptr<CzmqDiscovery> discovery;
-    PeerBook discovered; // dial each peer once, bound the set, forget silent ones
+    unique_ptr<SqliteLogStore> store;
+    unique_ptr<ZmqTransport> transport;
+    unique_ptr<Sha256Hasher> hasher;
+    unique_ptr<Ed25519Verifier> verifier;
+    unique_ptr<ChannelRules> rules;
+    unique_ptr<CzmqDiscovery> discovery;
+    PeerBook discovered;  // dial each peer once, bound the set, forget silent ones
     bool discovery_tick = false;
-    std::unique_ptr<Node> node;
-    std::uint64_t now_ms = 0;
-    std::uint64_t last_status_ms = 0;
-    std::string pub;
-    std::string router;
+    unique_ptr<Node> node;
+    uint64_t now_ms = 0;
+    uint64_t last_status_ms = 0;
+    string pub;
+    string router;
     bool curve_on = false;
-    std::string curve_public;
+    string curve_public;
 };
 
-Daemon::Daemon()
-    : impl_(std::make_unique<Impl>())
-{
-}
+Daemon::Daemon() : impl_(make_unique<Impl>()) {}
 
 Daemon::~Daemon() = default;
 
-std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
-{
+unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
     const auto keystore = load_keystore(config.keys);
     if (!keystore) {
         error = "cannot load keys: " + config.keys;
@@ -54,21 +64,21 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
         return nullptr;
     }
 
-    auto daemon = std::unique_ptr<Daemon>(new Daemon());
+    auto daemon = unique_ptr<Daemon>(new Daemon());
     auto& self = *daemon->impl_;
     self.config = config;
-    self.store = std::move(*store);
+    self.store = move(*store);
 
     // listen is host:port for the PUB; the ROUTER takes the next port.
     ZmqConfig transport_config;
     transport_config.id = config.id;
     const auto colon = config.listen.rfind(':');
-    if (colon == std::string::npos) {
+    if (colon == string::npos) {
         error = "node.listen must be host:port";
         return nullptr;
     }
     const auto host = config.listen.substr(0, colon);
-    const auto port = std::atoi(config.listen.c_str() + colon + 1);
+    const auto port = atoi(config.listen.c_str() + colon + 1);
     transport_config.pub_bind = "tcp://" + host + ":" + std::to_string(port);
     transport_config.router_bind = "tcp://" + host + ":" + std::to_string(port + 1);
 
@@ -77,23 +87,23 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
         endpoint.id = peer.id;
         endpoint.pub_endpoint = "tcp://" + peer.endpoint;
         const auto peer_colon = peer.endpoint.rfind(':');
-        endpoint.router_endpoint = "tcp://" + peer.endpoint.substr(0, peer_colon + 1)
-            + std::to_string(std::atoi(peer.endpoint.c_str() + peer_colon + 1) + 1);
+        endpoint.router_endpoint = "tcp://" + peer.endpoint.substr(0, peer_colon + 1) +
+                                   std::to_string(atoi(peer.endpoint.c_str() + peer_colon + 1) + 1);
         endpoint.curve_public_z85 = peer.curve_public;
         transport_config.peers.push_back(endpoint);
     }
     if (config.curve)
         if (const auto curve = curve_identity_from_keystore(*keystore))
-            transport_config.curve = ZmqCurveConfig { true, curve->public_z85, curve->secret_z85, "" };
+            transport_config.curve = ZmqCurveConfig{true, curve->public_z85, curve->secret_z85, ""};
 
     self.curve_on = transport_config.curve.enabled;
     self.curve_public = transport_config.curve.public_z85;
-    self.transport = std::make_unique<ZmqTransport>(transport_config);
+    self.transport = make_unique<ZmqTransport>(transport_config);
     self.pub = self.transport->pub_endpoint();
     self.router = self.transport->router_endpoint();
 
     if (!config.allow.empty()) {
-        self.rules = std::make_unique<ChannelRules>();
+        self.rules = make_unique<ChannelRules>();
         for (const auto& rule : config.allow)
             if (!self.rules->allow(rule.pattern, rule.writers)) {
                 error = "invalid allow pattern: " + rule.pattern;
@@ -101,19 +111,21 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
             }
     }
 
-    // Discovery, when configured: candidates are pulled once per loop iteration and dialled through the same
-    // add_peer path a configured peer uses, so the key policy still decides whether they are trusted.
+    // Discovery, when configured: candidates are pulled once per loop iteration and dialled through
+    // the same add_peer path a configured peer uses, so the key policy still decides whether they
+    // are trusted.
     if (config.discover.enabled()) {
         CzmqDiscoveryConfig discovery_config;
         discovery_config.cluster = config.discover.cluster;
         discovery_config.beacon_port = config.discover.beacon_port;
-        discovery_config.self = DiscoveredPeer { config.id, config.listen,
-            transport_config.curve.enabled ? transport_config.curve.public_z85 : std::string { } };
-        self.discovery = std::make_unique<CzmqDiscovery>(discovery_config);
+        discovery_config.self = DiscoveredPeer{
+            config.id, config.listen,
+            transport_config.curve.enabled ? transport_config.curve.public_z85 : string{}};
+        self.discovery = make_unique<CzmqDiscovery>(discovery_config);
     }
 
-    self.hasher = std::make_unique<Sha256Hasher>();
-    self.verifier = std::make_unique<Ed25519Verifier>();
+    self.hasher = make_unique<Sha256Hasher>();
+    self.verifier = make_unique<Ed25519Verifier>();
 
     NodeConfig node_config;
     node_config.id = config.id;
@@ -130,8 +142,8 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
     node_config.max_head_patterns = config.max_head_patterns;
     node_config.max_requests_per_interval = config.max_requests_per_interval;
 
-    self.node = std::make_unique<Node>(
-        node_config, *self.transport, *self.store, *self.hasher, *self.verifier);
+    self.node =
+        make_unique<Node>(node_config, *self.transport, *self.store, *self.hasher, *self.verifier);
     if (self.rules)
         self.node->set_rules(self.rules.get());
     for (const auto& pattern : config.follows)
@@ -142,17 +154,16 @@ std::unique_ptr<Daemon> Daemon::create(const Config& config, std::string& error)
     return daemon;
 }
 
-RunResult Daemon::run(const std::function<bool()>& stop, const std::function<void()>& on_iteration)
-{
+RunResult Daemon::run(const function<bool()>& stop, const function<void()>& on_iteration) {
     auto& self = *impl_;
-    const auto started = std::chrono::steady_clock::now();
+    const auto started = chrono::steady_clock::now();
     auto last_tick = started;
 
     while (!stop()) {
         // Time is read once per iteration and handed to the node, which never reads a clock itself.
-        const auto elapsed = std::chrono::steady_clock::now() - started;
-        self.now_ms = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+        const auto elapsed = chrono::steady_clock::now() - started;
+        self.now_ms =
+            static_cast<uint64_t>(chrono::duration_cast<chrono::milliseconds>(elapsed).count());
 
         self.node->pump(self.now_ms);
         self.node->tick(self.now_ms);
@@ -160,69 +171,88 @@ RunResult Daemon::run(const std::function<bool()>& stop, const std::function<voi
         if (self.discovery) {
             for (const auto& candidate : self.discovery->poll_discovered()) {
                 if (!self.discovered.observe(candidate, self.now_ms))
-                    continue; // already known, or the book is full
+                    continue;  // already known, or the book is full
                 ZmqPeerEndpoint endpoint;
                 endpoint.id = candidate.id;
                 endpoint.pub_endpoint = "tcp://" + candidate.endpoint;
                 const auto colon = candidate.endpoint.rfind(':');
-                endpoint.router_endpoint = "tcp://" + candidate.endpoint.substr(0, colon + 1)
-                    + std::to_string(std::atoi(candidate.endpoint.c_str() + colon + 1) + 1);
+                endpoint.router_endpoint =
+                    "tcp://" + candidate.endpoint.substr(0, colon + 1) +
+                    std::to_string(atoi(candidate.endpoint.c_str() + colon + 1) + 1);
                 endpoint.curve_public_z85 = candidate.curve_public;
                 self.transport->add_peer(endpoint);
             }
-            // Expiry runs at the status cadence: often enough to notice a disappeared peer, rarely enough to
-            // be free.
-            if (self.config.status_interval_ms != 0
-                && self.now_ms - self.last_status_ms >= self.config.status_interval_ms)
+            // Expiry runs at the status cadence: often enough to notice a disappeared peer, rarely
+            // enough to be free.
+            if (self.config.status_interval_ms != 0 &&
+                self.now_ms - self.last_status_ms >= self.config.status_interval_ms)
                 self.discovered.expire(self.now_ms);
         }
 
-        if (self.config.status_interval_ms != 0
-            && self.now_ms - self.last_status_ms >= self.config.status_interval_ms) {
+        if (self.config.status_interval_ms != 0 &&
+            self.now_ms - self.last_status_ms >= self.config.status_interval_ms) {
             self.last_status_ms = self.now_ms;
             if (self.config.level != "error")
-                std::cout << status_line() << std::endl;
+                cout << status_line() << endl;
         }
 
-        // A bounded wait: the transport's poll is non-blocking and has no socket-wait, so the loop paces
-        // itself. A quiet daemon therefore does not spin, and a busy one adds at most this much latency.
+        // A bounded wait: the transport's poll is non-blocking and has no socket-wait, so the loop
+        // paces itself. A quiet daemon therefore does not spin, and a busy one adds at most this
+        // much latency.
         if (on_iteration)
             on_iteration();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        this_thread::sleep_for(chrono::milliseconds(5));
         (void)last_tick;
     }
 
-    // Finish the iteration, then let the store close through its destructor: a signal must not leave a
-    // half-written record behind.
+    // Finish the iteration, then let the store close through its destructor: a signal must not
+    // leave a half-written record behind.
     self.transport.reset();
     return RunResult::Stopped;
 }
 
-std::string Daemon::status_line() const
-{
+string Daemon::status_line() const {
     const auto& counters = impl_->node->counters();
-    std::ostringstream out;
+    ostringstream out;
     out << "status accepted=" << counters.accepted << " duplicates=" << counters.duplicate
-        << " gaps=" << counters.gap << " forks=" << counters.fork << " repair_sent=" << counters.fetches_sent
-        << " retained=" << impl_->node->retained_records() << " shortfall=" << counters.retention_shortfall
-        << " throttled=" << counters.requests_throttled << " handshake_rejects=" << counters.version_rejects
-        << " unauthorized=" << counters.unauthorized_records << " discovered=" << impl_->discovered.size();
+        << " gaps=" << counters.gap << " forks=" << counters.fork
+        << " repair_sent=" << counters.fetches_sent
+        << " retained=" << impl_->node->retained_records()
+        << " shortfall=" << counters.retention_shortfall
+        << " throttled=" << counters.requests_throttled
+        << " handshake_rejects=" << counters.version_rejects
+        << " unauthorized=" << counters.unauthorized_records
+        << " discovered=" << impl_->discovered.size();
     return out.str();
 }
 
-std::size_t Daemon::discovered_peers() const { return impl_->discovered.size(); }
+size_t Daemon::discovered_peers() const {
+    return impl_->discovered.size();
+}
 
-const char* Daemon::discovery_kind() const { return impl_->discovery ? impl_->discovery->kind() : "none"; }
+const char* Daemon::discovery_kind() const {
+    return impl_->discovery ? impl_->discovery->kind() : "none";
+}
 
-bool Daemon::curve_enabled() const { return impl_->curve_on && impl_->transport->curve_available(); }
+bool Daemon::curve_enabled() const {
+    return impl_->curve_on && impl_->transport->curve_available();
+}
 
-std::string Daemon::curve_public() const { return impl_->curve_on ? impl_->curve_public : std::string { }; }
+string Daemon::curve_public() const {
+    return impl_->curve_on ? impl_->curve_public : string{};
+}
 
-void Daemon::dump_status() const { std::cout << status_line() << std::endl; }
+void Daemon::dump_status() const {
+    cout << status_line() << endl;
+}
 
-std::string Daemon::pub_endpoint() const { return impl_->pub; }
+string Daemon::pub_endpoint() const {
+    return impl_->pub;
+}
 
-std::string Daemon::router_endpoint() const { return impl_->router; }
+string Daemon::router_endpoint() const {
+    return impl_->router;
+}
 
-} // namespace mosaic::daemon
+}  // namespace mosaic::daemon

@@ -1,8 +1,8 @@
 #pragma once
 
-// Z85 (ZeroMQ RFC 32): the text encoding ZeroMQ uses for CURVE keys. 4 binary bytes -> 5 characters.
-// Implemented here rather than pulled from a dependency, because the output must match libzmq's
-// byte-for-byte and the alphabet is stable and tiny.
+// Z85 (ZeroMQ RFC 32): the text encoding ZeroMQ uses for CURVE keys. 4 binary bytes -> 5
+// characters. Implemented here rather than pulled from a dependency, because the output must match
+// libzmq's byte-for-byte and the alphabet is stable and tiny.
 
 #include <cstddef>
 #include <cstdint>
@@ -19,4 +19,4 @@ std::string z85_encode(const std::uint8_t* data, std::size_t size);
 /// alphabet - a malformed key must be rejected, never guessed at.
 std::optional<std::string> z85_decode(std::string_view text);
 
-} // namespace mosaic
+}  // namespace mosaic

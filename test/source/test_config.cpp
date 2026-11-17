@@ -1,10 +1,15 @@
 // The daemon's configuration (spec: daemon/mosaicd): ZPL, validated whole, defaults printable.
+#include <mosaic/daemon/config.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <doctest/doctest.h>
 #include <fstream>
-#include <mosaic/daemon/config.h>
 #include <string>
+
+using std::ofstream;
+using std::remove;
+using std::string;
 
 #ifdef MOSAIC_HAS_CZMQ
 
@@ -12,10 +17,9 @@ using namespace mosaic;
 using mosaic::daemon::load_config;
 
 namespace {
-std::string write_temp(const char* name, const std::string& body)
-{
-    const std::string path = name;
-    std::ofstream out(path, std::ios::trunc);
+string write_temp(const char* name, const string& body) {
+    const string path = name;
+    ofstream out(path, std::ios::trunc);
     out << body;
     return path;
 }
@@ -36,10 +40,9 @@ allow
     writer = abc123
     writer = def456
 )";
-} // namespace
+}  // namespace
 
-TEST_CASE("a valid ZPL config is read, with defaults for what it omits")
-{
+TEST_CASE("a valid ZPL config is read, with defaults for what it omits") {
     const auto path = write_temp("test-config-ok.zpl", kMinimal);
     const auto result = load_config(path);
     for (const auto& error : result.errors)
@@ -49,7 +52,7 @@ TEST_CASE("a valid ZPL config is read, with defaults for what it omits")
     CHECK(result.config.id == "alpha");
     CHECK(result.config.store == "alpha.db");
     CHECK(result.config.min_replicas == 2);
-    CHECK(result.config.listen == "127.0.0.1:6200"); // default, not written in the file
+    CHECK(result.config.listen == "127.0.0.1:6200");  // default, not written in the file
     CHECK(result.config.max_record_bytes == 262144);
     REQUIRE(result.config.peers.size() == 1);
     CHECK(result.config.peers.front().id == "beta");
@@ -58,11 +61,10 @@ TEST_CASE("a valid ZPL config is read, with defaults for what it omits")
     CHECK(result.config.follows.front() == "events.>");
     REQUIRE(result.config.allow.size() == 1);
     CHECK(result.config.allow.front().writers.size() == 2);
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
-TEST_CASE("an unknown setting is an error that names it")
-{
+TEST_CASE("an unknown setting is an error that names it") {
     const auto path = write_temp("test-config-typo.zpl", R"(node
     id = alpha
     store = alpha.db
@@ -73,26 +75,24 @@ TEST_CASE("an unknown setting is an error that names it")
     REQUIRE_FALSE(result.ok());
     bool named = false;
     for (const auto& error : result.errors)
-        if (error.where == "node.min_replicaz" && error.message.find("unknown") != std::string::npos)
+        if (error.where == "node.min_replicaz" && error.message.find("unknown") != string::npos)
             named = true;
     CHECK(named);
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
-TEST_CASE("every problem is reported at once")
-{
+TEST_CASE("every problem is reported at once") {
     const auto path = write_temp("test-config-bad.zpl", R"(node
     store = alpha.db
     max_serve = lots
 )");
     const auto result = load_config(path);
     REQUIRE_FALSE(result.ok());
-    CHECK(result.errors.size() >= 3); // missing id, missing keys, and a non-number
-    std::remove(path.c_str());
+    CHECK(result.errors.size() >= 3);  // missing id, missing keys, and a non-number
+    remove(path.c_str());
 }
 
-TEST_CASE("an unset environment variable is an error, not an empty value")
-{
+TEST_CASE("an unset environment variable is an error, not an empty value") {
     const auto path = write_temp("test-config-env.zpl", R"(node
     id = alpha
     store = ${MOSAIC_TEST_UNSET_VAR}/alpha.db
@@ -102,14 +102,13 @@ TEST_CASE("an unset environment variable is an error, not an empty value")
     REQUIRE_FALSE(result.ok());
     bool named = false;
     for (const auto& error : result.errors)
-        if (error.message.find("MOSAIC_TEST_UNSET_VAR") != std::string::npos)
+        if (error.message.find("MOSAIC_TEST_UNSET_VAR") != string::npos)
             named = true;
     CHECK(named);
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
-TEST_CASE("a set environment variable is expanded")
-{
+TEST_CASE("a set environment variable is expanded") {
     setenv("MOSAIC_TEST_SET_VAR", "/tmp/mosaic", 1);
     const auto path = write_temp("test-config-env2.zpl", R"(node
     id = alpha
@@ -119,14 +118,13 @@ TEST_CASE("a set environment variable is expanded")
     const auto result = load_config(path);
     REQUIRE(result.ok());
     CHECK(result.config.store == "/tmp/mosaic/alpha.db");
-    std::remove(path.c_str());
+    remove(path.c_str());
     unsetenv("MOSAIC_TEST_SET_VAR");
 }
 
-TEST_CASE("the printed defaults are themselves a valid config")
-{
-    // The document `--defaults` prints, with the three required values filled in, must load cleanly -
-    // which is what makes the printed defaults authoritative rather than decorative.
+TEST_CASE("the printed defaults are themselves a valid config") {
+    // The document `--defaults` prints, with the three required values filled in, must load cleanly
+    // - which is what makes the printed defaults authoritative rather than decorative.
     auto body = mosaic::daemon::render_defaults();
     body += "\nnode\n    id = alpha\n    store = alpha.db\n    keys = alpha.key\n";
     const auto path = write_temp("test-config-defaults.zpl", body);
@@ -134,16 +132,15 @@ TEST_CASE("the printed defaults are themselves a valid config")
     for (const auto& error : result.errors)
         MESSAGE(error.where << ": " << error.message);
     CHECK(result.ok());
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
-#endif // MOSAIC_HAS_CZMQ
+#endif  // MOSAIC_HAS_CZMQ
 
 #ifdef MOSAIC_HAS_CZMQ
-TEST_CASE("a quoted curve key survives a '#' in the value, and a truncated one is rejected")
-{
-    // Z85 keys legitimately contain '#', which ZPL treats as a comment unless the value is quoted. This is
-    // the failure that made a two-process daemon test silently deliver nothing.
+TEST_CASE("a quoted curve key survives a '#' in the value, and a truncated one is rejected") {
+    // Z85 keys legitimately contain '#', which ZPL treats as a comment unless the value is quoted.
+    // This is the failure that made a two-process daemon test silently deliver nothing.
     const auto quoted = write_temp("test-config-quoted.zpl", R"(node
     id = alpha
     store = alpha.db
@@ -157,7 +154,7 @@ peer
     REQUIRE(good.ok());
     REQUIRE(good.config.peers.size() == 1);
     CHECK(good.config.peers.front().curve_public == "Wu{9<Z=*2?-]ru6:P*ytm=W(7[pZTYM&7Gv)#.=j");
-    std::remove(quoted.c_str());
+    remove(quoted.c_str());
 
     const auto unquoted = write_temp("test-config-unquoted.zpl", R"(node
     id = alpha
@@ -169,12 +166,12 @@ peer
     curve = Wu{9<Z=*2?-]ru6:P*ytm=W(7[pZTYM&7Gv)#.=j
 )");
     const auto bad = load_config(unquoted);
-    REQUIRE_FALSE(bad.ok()); // truncated at '#' -> 33 chars -> named as an error
+    REQUIRE_FALSE(bad.ok());  // truncated at '#' -> 33 chars -> named as an error
     bool named = false;
     for (const auto& error : bad.errors)
         if (error.where == "peer.curve")
             named = true;
     CHECK(named);
-    std::remove(unquoted.c_str());
+    remove(unquoted.c_str());
 }
 #endif

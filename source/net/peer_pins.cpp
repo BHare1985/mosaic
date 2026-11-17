@@ -3,54 +3,59 @@
 #include <fstream>
 #include <sstream>
 
+using std::getline;
+using std::ifstream;
+using std::istringstream;
+using std::nullopt;
+using std::ofstream;
+using std::optional;
+using std::string;
+
 namespace mosaic {
 namespace {
-    constexpr const char* kHeader = "mosaic-pins 1";
-} // namespace
+constexpr const char* kHeader = "mosaic-pins 1";
+}  // namespace
 
-const char* to_string(PinVerdict verdict)
-{
+const char* to_string(PinVerdict verdict) {
     switch (verdict) {
-    case PinVerdict::Allowed:
-        return "allowed";
-    case PinVerdict::AllowedAndPinned:
-        return "allowed-and-pinned";
-    case PinVerdict::Mismatch:
-        return "mismatch";
-    case PinVerdict::NotListed:
-        return "not-listed";
+        case PinVerdict::Allowed:
+            return "allowed";
+        case PinVerdict::AllowedAndPinned:
+            return "allowed-and-pinned";
+        case PinVerdict::Mismatch:
+            return "mismatch";
+        case PinVerdict::NotListed:
+            return "not-listed";
     }
     return "?";
 }
 
-std::optional<PeerPins> PeerPins::load(const std::string& path, Mode mode)
-{
+optional<PeerPins> PeerPins::load(const string& path, Mode mode) {
     PeerPins pins(mode);
-    std::ifstream in(path);
+    ifstream in(path);
     if (!in)
-        return pins; // first run: an empty store, not a failure
+        return pins;  // first run: an empty store, not a failure
 
-    std::string header;
-    if (!std::getline(in, header) || header != kHeader)
-        return std::nullopt; // a file we do not understand must not silently accept anyone
+    string header;
+    if (!getline(in, header) || header != kHeader)
+        return nullopt;  // a file we do not understand must not silently accept anyone
 
-    std::string line;
-    while (std::getline(in, line)) {
+    string line;
+    while (getline(in, line)) {
         if (line.empty())
             continue;
-        std::istringstream stream(line);
-        std::string peer;
-        std::string key;
+        istringstream stream(line);
+        string peer;
+        string key;
         if (!(stream >> peer >> key))
-            return std::nullopt;
+            return nullopt;
         pins.pins_[peer] = key;
     }
     return pins;
 }
 
-bool PeerPins::save(const std::string& path) const
-{
-    std::ofstream out(path, std::ios::trunc);
+bool PeerPins::save(const string& path) const {
+    ofstream out(path, std::ios::trunc);
     if (!out)
         return false;
     out << kHeader << "\n";
@@ -59,10 +64,11 @@ bool PeerPins::save(const std::string& path) const
     return out.good();
 }
 
-void PeerPins::pin(const std::string& peer_id, const std::string& key_z85) { pins_[peer_id] = key_z85; }
+void PeerPins::pin(const string& peer_id, const string& key_z85) {
+    pins_[peer_id] = key_z85;
+}
 
-PinVerdict PeerPins::observe(const std::string& peer_id, const std::string& key_z85)
-{
+PinVerdict PeerPins::observe(const string& peer_id, const string& key_z85) {
     const auto it = pins_.find(peer_id);
     if (it == pins_.end()) {
         if (mode_ == Mode::Closed)
@@ -73,27 +79,24 @@ PinVerdict PeerPins::observe(const std::string& peer_id, const std::string& key_
     return it->second == key_z85 ? PinVerdict::Allowed : PinVerdict::Mismatch;
 }
 
-bool PeerPins::allows_key(const std::string& key_z85) const
-{
+bool PeerPins::allows_key(const string& key_z85) const {
     for (const auto& [peer, key] : pins_)
         if (key == key_z85)
             return true;
     return false;
 }
 
-PinVerdict PeerPins::decide(const std::string& who, const std::string& key_z85)
-{
+PinVerdict PeerPins::decide(const string& who, const string& key_z85) {
     if (mode_ == Mode::Closed)
         return allows_key(key_z85) ? PinVerdict::Allowed : PinVerdict::NotListed;
     return observe(who, key_z85);
 }
 
-std::optional<std::string> PeerPins::pinned(const std::string& peer_id) const
-{
+optional<string> PeerPins::pinned(const string& peer_id) const {
     const auto it = pins_.find(peer_id);
     if (it == pins_.end())
-        return std::nullopt;
+        return nullopt;
     return it->second;
 }
 
-} // namespace mosaic
+}  // namespace mosaic

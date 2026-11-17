@@ -27,7 +27,7 @@ using Channel = std::string;
 
 /// 256-bit hash. All-zero means "no previous record" (used as prev of Seq 0).
 struct Hash {
-    std::array<std::uint8_t, 32> bytes { };
+    std::array<std::uint8_t, 32> bytes{};
     friend bool operator==(const Hash&, const Hash&) = default;
 };
 
@@ -40,4 +40,4 @@ std::string to_hex(const Bytes& bytes);
 /// malformed identity is rejected instead of silently becoming an empty key.
 std::optional<Bytes> from_hex(std::string_view text);
 
-} // namespace mosaic
+}  // namespace mosaic

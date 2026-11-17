@@ -1,6 +1,9 @@
 #include <mosaic/core/encoding.h>
 #include <mosaic/core/record.h>
 
+using std::optional;
+using std::uint8_t;
+
 namespace mosaic {
 
 // Layout (all integers big-endian, every variable-length field is u32-length-prefixed):
@@ -9,12 +12,11 @@ namespace mosaic {
 //
 // The algorithm tag is inside the hashed bytes on purpose: a verifier reads the algorithm from the
 // bytes it already holds instead of from a build setting (see proto/wire-format spec).
-Bytes canonical_bytes(const Record& r)
-{
+Bytes canonical_bytes(const Record& r) {
     Bytes out;
     ByteWriter writer(out);
-    writer.put_u8(1); // record format version
-    writer.put_u8(static_cast<std::uint8_t>(r.hash_algo));
+    writer.put_u8(1);  // record format version
+    writer.put_u8(static_cast<uint8_t>(r.hash_algo));
     writer.put_string(r.writer);
     writer.put_string(r.channel);
     writer.put_u64(r.seq);
@@ -25,8 +27,12 @@ Bytes canonical_bytes(const Record& r)
     return out;
 }
 
-Hash record_hash(const Record& record, const Hasher& hasher) { return hasher.hash(canonical_bytes(record)); }
+Hash record_hash(const Record& record, const Hasher& hasher) {
+    return hasher.hash(canonical_bytes(record));
+}
 
-std::optional<Hash> record_hash_tagged(const Record& record) { return hash_with(record.hash_algo, canonical_bytes(record)); }
+optional<Hash> record_hash_tagged(const Record& record) {
+    return hash_with(record.hash_algo, canonical_bytes(record));
+}
 
-} // namespace mosaic
+}  // namespace mosaic

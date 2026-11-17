@@ -1,27 +1,38 @@
-#include <algorithm>
 #include <mosaic/node/node.h>
+
+#include <algorithm>
+
+using std::greater;
+using std::make_unique;
+using std::max;
+using std::min;
+using std::move;
+using std::nullopt;
+using std::optional;
+using std::pair;
+using std::remove;
+using std::size_t;
+using std::sort;
+using std::string;
+using std::uint32_t;
+using std::uint64_t;
+using std::vector;
+using std::visit;
 
 namespace mosaic {
 namespace {
-    template <class... Fs>
-    struct Overloaded : Fs... {
-        using Fs::operator()...;
-    };
-    template <class... Fs>
-    Overloaded(Fs...) -> Overloaded<Fs...>;
-} // namespace
+template <class... Fs> struct Overloaded : Fs... {
+    using Fs::operator()...;
+};
+template <class... Fs> Overloaded(Fs...) -> Overloaded<Fs...>;
+}  // namespace
 
-Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher, const Verifier& verifier)
-    : config_(std::move(config))
-    , transport_(transport)
-    , store_(store)
-    , hasher_(hasher)
-    , replica_(store, hasher, verifier)
-{
-}
+Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher,
+           const Verifier& verifier)
+    : config_(move(config)), transport_(transport), store_(store), hasher_(hasher),
+      replica_(store, hasher, verifier) {}
 
-bool Node::follow(const std::string& pattern)
-{
+bool Node::follow(const string& pattern) {
     if (!following_.add(pattern))
         return false;
     patterns_.push_back(pattern);
@@ -29,47 +40,44 @@ bool Node::follow(const std::string& pattern)
     return true;
 }
 
-std::size_t Node::publish_batch(const Signer& signer, const Channel& channel, const std::string& content_type,
-    const std::vector<Bytes>& payloads, std::uint64_t now_ms)
-{
-    std::size_t written = 0;
+size_t Node::publish_batch(const Signer& signer, const Channel& channel, const string& content_type,
+                           const vector<Bytes>& payloads, uint64_t now_ms) {
+    size_t written = 0;
     for (const auto& payload : payloads) {
         if (!publish(signer, channel, content_type, payload, now_ms))
-            break; // refused (oversized or not ours to write): stop rather than silently skip
+            break;  // refused (oversized or not ours to write): stop rather than silently skip
         ++written;
     }
     return written;
 }
 
-std::optional<Record> Node::publish(const Signer& signer, const Channel& channel, std::string content_type, Bytes payload,
-    std::uint64_t now_ms)
-{
-    const LogKey key { signer.id(), channel };
+optional<Record> Node::publish(const Signer& signer, const Channel& channel, string content_type,
+                               Bytes payload, uint64_t now_ms) {
+    const LogKey key{signer.id(), channel};
     if (payload.size() > config_.max_record_bytes) {
         ++counters_.oversized_records;
-        return std::nullopt; // a writer must not create history its own peers would refuse
+        return nullopt;  // a writer must not create history its own peers would refuse
     }
     if (!authorized(key))
-        return std::nullopt;
+        return nullopt;
     auto it = writers_.find(key);
     if (it == writers_.end()) {
-        WriterSlot slot { std::make_unique<LogWriter>(store_, hasher_, signer, channel), now_ms };
-        it = writers_.emplace(key, std::move(slot)).first;
+        WriterSlot slot{make_unique<LogWriter>(store_, hasher_, signer, channel), now_ms};
+        it = writers_.emplace(key, move(slot)).first;
     }
-    Record record = it->second.log->append(std::move(content_type), std::move(payload), now_ms);
-    transport_.publish(channel, RecordMsg { record });
+    Record record = it->second.log->append(move(content_type), move(payload), now_ms);
+    transport_.publish(channel, RecordMsg{record});
     return record;
 }
 
-void Node::pump(std::uint64_t now_ms)
-{
+void Node::pump(uint64_t now_ms) {
     while (auto envelope = transport_.poll())
         handle(envelope->from, envelope->message, now_ms);
 }
 
-void Node::tick(std::uint64_t now_ms)
-{
-    // 0. Version handshake: every peer we can address hears our version until it answers with its own.
+void Node::tick(uint64_t now_ms) {
+    // 0. Version handshake: every peer we can address hears our version until it answers with its
+    // own.
     greet_peers(now_ms);
 
     // 0b. Control-plane work: find logs we are missing, and tell writers what we hold.
@@ -81,22 +89,23 @@ void Node::tick(std::uint64_t now_ms)
         if (now_ms - slot.last_head_ms < config_.head_interval_ms)
             continue;
         if (auto head = slot.log->head())
-            transport_.publish(key.channel, HeadMsg { key, head->seq, head->hash });
+            transport_.publish(key.channel, HeadMsg{key, head->seq, head->hash});
         slot.last_head_ms = now_ms;
     }
 
     // 2. FETCH housekeeping: forget finished requests, retry timed-out ones.
-    // Credit is returned per request, and only once: a request that is abandoned returns what it owed
-    // right here, so responses that arrive afterwards find no live request and cannot create credit
-    // (FLOW-2). Resetting the peer's whole window instead would let one slow round inflate the next.
-    std::vector<std::pair<LogKey, NodeId>> retry;
+    // Credit is returned per request, and only once: a request that is abandoned returns what it
+    // owed right here, so responses that arrive afterwards find no live request and cannot create
+    // credit (FLOW-2). Resetting the peer's whole window instead would let one slow round inflate
+    // the next.
+    vector<pair<LogKey, NodeId>> retry;
     for (auto it = fetches_.begin(); it != fetches_.end();) {
         const auto& [key_peer, state] = *it;
         if (next_seq(key_peer.first) > state.end_seq) {
-            return_credit(key_peer.second, state.credit_left); // complete
+            return_credit(key_peer.second, state.credit_left);  // complete
             it = fetches_.erase(it);
         } else if (now_ms - state.sent_ms >= config_.fetch_timeout_ms) {
-            return_credit(key_peer.second, state.credit_left); // abandoned; may still answer later
+            return_credit(key_peer.second, state.credit_left);  // abandoned; may still answer later
             retry.push_back(key_peer);
             ++counters_.fetch_retries;
             it = fetches_.erase(it);
@@ -108,30 +117,28 @@ void Node::tick(std::uint64_t now_ms)
         request_fetch(key, peer, now_ms);
 }
 
-void Node::handle(const NodeId& from, const Message& message, std::uint64_t now_ms)
-{
-    std::visit(Overloaded {
-                   [&](const RecordMsg& m) { handle_record(from, m.record, false, now_ms); },
-                   [&](const DirectRecordMsg& m) { handle_record(from, m.record, true, now_ms); },
-                   [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
-                   [&](const FetchMsg& m) { handle_fetch(from, m, now_ms); },
-                   [&](const HelloMsg& m) { handle_hello(from, m); },
-                   [&](const AckMsg& m) { handle_ack(from, m); },
-                   [&](const GetHeadsMsg& m) { handle_get_heads(from, m, now_ms); },
-                   [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
-                   [&](const CreditMsg& m) { handle_credit(from, m); },
+void Node::handle(const NodeId& from, const Message& message, uint64_t now_ms) {
+    visit(Overloaded{
+              [&](const RecordMsg& m) { handle_record(from, m.record, false, now_ms); },
+              [&](const DirectRecordMsg& m) { handle_record(from, m.record, true, now_ms); },
+              [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
+              [&](const FetchMsg& m) { handle_fetch(from, m, now_ms); },
+              [&](const HelloMsg& m) { handle_hello(from, m); },
+              [&](const AckMsg& m) { handle_ack(from, m); },
+              [&](const GetHeadsMsg& m) { handle_get_heads(from, m, now_ms); },
+              [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
+              [&](const CreditMsg& m) { handle_credit(from, m); },
 
-               },
-        message);
+          },
+          message);
 }
 
-void Node::handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms)
-{
+void Node::handle_record(const NodeId& from, const Record& record, bool direct, uint64_t now_ms) {
     if (!accept_payload(from))
         return;
     if (!direct && live_credit_enabled_[from]) {
-        // Credit was granted on this link, so live delivery is paced; a record we cannot afford is lost
-        // and repaired, never queued (FLOW-3).
+        // Credit was granted on this link, so live delivery is paced; a record we cannot afford is
+        // lost and repaired, never queued (FLOW-3).
         if (live_credits_[from].take_up_to(1) == 0) {
             ++counters_.credit_drops;
             return;
@@ -142,149 +149,146 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
 
     if (record.payload.size() > config_.max_record_bytes) {
         ++counters_.oversized_records;
-        return; // refused before the store, the callback or the chain
+        return;  // refused before the store, the callback or the chain
     }
     if (!authorized(record.key()))
-        return; // a channel rule does not permit this writer: never stored, never delivered
+        return;  // a channel rule does not permit this writer: never stored, never delivered
 
     const LogKey key = record.key();
     if (direct)
         consume_credit(from, key, record.seq);
     else if (record.seq > next_seq(key) + config_.slow_follower_threshold) {
-        // Too far behind to keep up with a firehose: stop trusting live delivery for this log and let
-        // the repair path do the work, which bounds our backlog by our own request size (FLOW-4).
-        // The comparison is against this record's own sequence: the head we know is updated below.
+        // Too far behind to keep up with a firehose: stop trusting live delivery for this log and
+        // let the repair path do the work, which bounds our backlog by our own request size
+        // (FLOW-4). The comparison is against this record's own sequence: the head we know is
+        // updated below.
         ++counters_.slow_follower_switches;
         request_fetch(key, from, now_ms);
         return;
     }
 
     auto& known = remote_head_[key];
-    known = std::max(known, record.seq);
+    known = max(known, record.seq);
     if (source_peer_.find(key) == source_peer_.end())
         source_peer_[key] = from;
 
     switch (replica_.ingest(record)) {
-    case IngestResult::Accepted:
-        ++counters_.accepted;
-        ingested_logs_.insert(key);
-        if (on_record_)
-            on_record_(record);
-        if (direct && next_seq(key) <= known)
-            request_fetch(key, from, now_ms); // more to catch up on
-        break;
-    case IngestResult::Gap:
-        ++counters_.gap;
-        request_fetch(key, from, now_ms);
-        break;
-    case IngestResult::Fork:
-        ++counters_.fork;
-        if (on_fork_)
-            on_fork_(record);
-        break;
-    case IngestResult::Duplicate:
-        ++counters_.duplicate;
-        break;
-    case IngestResult::BadChain:
-        ++counters_.bad_chain;
-        break; // TODO(SEC-2): rate-limit peers that keep sending bad data
-    case IngestResult::BadSignature:
-        ++counters_.bad_signature;
-        break;
+        case IngestResult::Accepted:
+            ++counters_.accepted;
+            ingested_logs_.insert(key);
+            if (on_record_)
+                on_record_(record);
+            if (direct && next_seq(key) <= known)
+                request_fetch(key, from, now_ms);  // more to catch up on
+            break;
+        case IngestResult::Gap:
+            ++counters_.gap;
+            request_fetch(key, from, now_ms);
+            break;
+        case IngestResult::Fork:
+            ++counters_.fork;
+            if (on_fork_)
+                on_fork_(record);
+            break;
+        case IngestResult::Duplicate:
+            ++counters_.duplicate;
+            break;
+        case IngestResult::BadChain:
+            ++counters_.bad_chain;
+            break;  // TODO(SEC-2): rate-limit peers that keep sending bad data
+        case IngestResult::BadSignature:
+            ++counters_.bad_signature;
+            break;
     }
 }
 
-void Node::handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms)
-{
+void Node::handle_head(const NodeId& from, const HeadMsg& head, uint64_t now_ms) {
     if (!accept_payload(from))
         return;
     if (unauthorized_logs_.count(head.key) != 0)
-        return; // a rule refuses this log; its heads are not worth acting on
+        return;  // a rule refuses this log; its heads are not worth acting on
     if (!following_.matches_any(head.key.channel))
         return;
     auto& known = remote_head_[head.key];
-    known = std::max(known, head.seq);
+    known = max(known, head.seq);
     if (next_seq(head.key) <= head.seq)
         request_fetch(head.key, from, now_ms);
 }
 
-void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t now_ms)
-{
+void Node::handle_fetch(const NodeId& from, const FetchMsg& fetch, uint64_t now_ms) {
     if (!accept_payload(from))
         return;
     if (!admit_request(from, now_ms))
         return;
-    const auto count = std::min(fetch.count, config_.max_serve);
+    const auto count = min(fetch.count, config_.max_serve);
     for (auto& record : store_.read(fetch.key, fetch.from, count))
-        transport_.send(from, DirectRecordMsg { std::move(record) });
+        transport_.send(from, DirectRecordMsg{move(record)});
 }
 
-void Node::request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t now_ms)
-{
+void Node::request_fetch(const LogKey& key, const NodeId& peer, uint64_t now_ms) {
     if (unauthorized_logs_.count(key) != 0)
-        return; // never fetch a log a rule forbids
+        return;  // never fetch a log a rule forbids
     const Seq from = next_seq(key);
     const auto known = remote_head_.find(key);
     if (known == remote_head_.end() || known->second < from)
-        return; // nothing missing as far as we know
+        return;  // nothing missing as far as we know
 
-    const auto pending = fetches_.find({ key, peer });
-    if (pending != fetches_.end() && from <= pending->second.end_seq && now_ms - pending->second.sent_ms < config_.fetch_timeout_ms)
-        return; // a request for this range is already in flight
+    const auto pending = fetches_.find({key, peer});
+    if (pending != fetches_.end() && from <= pending->second.end_seq &&
+        now_ms - pending->second.sent_ms < config_.fetch_timeout_ms)
+        return;  // a request for this range is already in flight
 
-    const auto wanted = static_cast<std::uint32_t>(std::min<Seq>(known->second - from + 1, config_.fetch_batch));
+    const auto wanted =
+        static_cast<uint32_t>(min<Seq>(known->second - from + 1, config_.fetch_batch));
     const auto granted = credits_for(peer).take_up_to(wanted);
     if (granted == 0) {
         ++counters_.credit_drops;
-        return; // no credit: wait for responses (or the timeout) before asking again
+        return;  // no credit: wait for responses (or the timeout) before asking again
     }
 
     if (pending != fetches_.end()) {
-        return_credit(peer, pending->second.credit_left); // the range moved on; close the old request
+        return_credit(peer,
+                      pending->second.credit_left);  // the range moved on; close the old request
         fetches_.erase(pending);
     }
 
-    transport_.send(peer, FetchMsg { key, from, granted });
+    transport_.send(peer, FetchMsg{key, from, granted});
     counters_.credit_spent += granted;
-    fetches_[{ key, peer }] = FetchState { now_ms, from, from + granted - 1, granted };
+    fetches_[{key, peer}] = FetchState{now_ms, from, from + granted - 1, granted};
     ++counters_.fetches_sent;
 }
 
-void Node::consume_credit(const NodeId& peer, const LogKey& key, Seq seq)
-{
-    const auto it = fetches_.find({ key, peer });
-    if (it == fetches_.end() || seq < it->second.from || seq > it->second.end_seq || it->second.credit_left == 0)
-        return; // late or unsolicited: its credit was already returned, so it must not create any
+void Node::consume_credit(const NodeId& peer, const LogKey& key, Seq seq) {
+    const auto it = fetches_.find({key, peer});
+    if (it == fetches_.end() || seq < it->second.from || seq > it->second.end_seq ||
+        it->second.credit_left == 0)
+        return;  // late or unsolicited: its credit was already returned, so it must not create any
     --it->second.credit_left;
     credits_for(peer).grant(1);
     ++counters_.credit_returned;
 }
 
-void Node::return_credit(const NodeId& peer, std::uint32_t amount)
-{
+void Node::return_credit(const NodeId& peer, uint32_t amount) {
     if (amount != 0) {
         credits_for(peer).grant(amount);
         counters_.credit_returned += amount;
     }
 }
 
-std::uint32_t Node::credit_available(const NodeId& peer) const
-{
+uint32_t Node::credit_available(const NodeId& peer) const {
     const auto it = peer_credits_.find(peer);
     // Nothing has been spent for a peer we never fetched from, so the whole window is available.
     return it == peer_credits_.end() ? config_.fetch_window : it->second.available();
 }
 
-void Node::grant_live_credit(const NodeId& peer, std::uint32_t credits)
-{
+void Node::grant_live_credit(const NodeId& peer, uint32_t credits) {
     live_credit_enabled_[peer] = true;
     auto& window = live_credits_.try_emplace(peer, credits, credits).first->second;
     window.grant(credits);
 }
 
-std::uint32_t Node::retained_records() const
-{
-    std::uint32_t total = 0;
+uint32_t Node::retained_records() const {
+    uint32_t total = 0;
     for (const auto& [key, slot] : writers_) {
         const auto head = store_.head_seq(key);
         if (!head)
@@ -292,47 +296,46 @@ std::uint32_t Node::retained_records() const
         const auto released = released_through_.find(key);
         const Seq floor = released == released_through_.end() ? 0 : released->second;
         if (*head > floor)
-            total += static_cast<std::uint32_t>(*head - floor);
+            total += static_cast<uint32_t>(*head - floor);
     }
     return total;
 }
 
-std::vector<LogKey> Node::retention_shortfalls() const
-{
-    std::vector<LogKey> out;
+vector<LogKey> Node::retention_shortfalls() const {
+    vector<LogKey> out;
     for (const auto& [key, at] : shortfall_at_)
         out.push_back(key);
     return out;
 }
 
-void Node::handle_ack(const NodeId& from, const AckMsg& ack)
-{
+void Node::handle_ack(const NodeId& from, const AckMsg& ack) {
     ++counters_.acks_received;
-    auto& known = acked_[{ ack.key, from }];
-    // Idempotent and monotonic: a duplicate or stale acknowledgement can never regress or double count.
-    known = std::max(known, ack.seq);
+    auto& known = acked_[{ack.key, from}];
+    // Idempotent and monotonic: a duplicate or stale acknowledgement can never regress or double
+    // count.
+    known = max(known, ack.seq);
     advance_retention(ack.key);
 }
 
-void Node::advance_retention(const LogKey& key)
-{
+void Node::advance_retention(const LogKey& key) {
     if (config_.min_replicas == 0)
         return;
     const auto head = store_.head_seq(key);
     if (!head)
         return;
 
-    // The floor is the highest sequence that at least min_replicas replicas have confirmed - which is just
-    // the min_replicas-th largest acknowledgement. Collecting and selecting is O(r log r) in the number of
-    // replicas; the previous version walked every sequence in the range and counted acks per sequence.
+    // The floor is the highest sequence that at least min_replicas replicas have confirmed - which
+    // is just the min_replicas-th largest acknowledgement. Collecting and selecting is O(r log r)
+    // in the number of replicas; the previous version walked every sequence in the range and
+    // counted acks per sequence.
     Seq candidate = released_through_.count(key) ? released_through_[key] : 0;
-    std::vector<Seq> acks;
+    vector<Seq> acks;
     for (const auto& [entry, acked] : acked_)
         if (entry.first == key)
             acks.push_back(acked);
     if (acks.size() >= config_.min_replicas && config_.min_replicas > 0) {
-        std::sort(acks.begin(), acks.end(), std::greater<Seq>());
-        candidate = std::max(candidate, acks[config_.min_replicas - 1]);
+        sort(acks.begin(), acks.end(), greater<Seq>());
+        candidate = max(candidate, acks[config_.min_replicas - 1]);
     }
     released_through_[key] = candidate;
 
@@ -345,10 +348,10 @@ void Node::advance_retention(const LogKey& key)
     }
 }
 
-void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std::uint64_t now_ms)
-{
+void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request, uint64_t now_ms) {
     if (request.patterns.size() > config_.max_head_patterns) {
-        ++counters_.head_requests_refused; // refused whole: a matcher is never built for a hostile request
+        ++counters_.head_requests_refused;  // refused whole: a matcher is never built for a hostile
+                                            // request
         return;
     }
     if (!admit_request(from, now_ms))
@@ -356,10 +359,10 @@ void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std:
     Matcher patterns;
     for (const auto& pattern : request.patterns)
         if (!patterns.add(pattern))
-            return; // an invalid pattern is a caller error: answer nothing rather than guess
+            return;  // an invalid pattern is a caller error: answer nothing rather than guess
 
     ++counters_.heads_answered;
-    std::uint32_t answered = 0;
+    uint32_t answered = 0;
     for (const auto& key : store_.keys()) {
         if (answered >= config_.max_serve)
             break;
@@ -374,49 +377,46 @@ void Node::handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std:
         const auto hash = record_hash_tagged(*last);
         if (!hash)
             continue;
-        transport_.send(from, DirectHeadMsg { key, *head, *hash });
+        transport_.send(from, DirectHeadMsg{key, *head, *hash});
         ++answered;
     }
 }
 
-void Node::handle_direct_head(const NodeId& from, const DirectHeadMsg& head, std::uint64_t now_ms)
-{
+void Node::handle_direct_head(const NodeId& from, const DirectHeadMsg& head, uint64_t now_ms) {
     if (!following_.matches_any(head.key.channel))
         return;
     auto& known = remote_head_[head.key];
-    known = std::max(known, head.seq);
+    known = max(known, head.seq);
     if (next_seq(head.key) <= head.seq)
         request_fetch(head.key, from, now_ms);
 }
 
-void Node::handle_credit(const NodeId& from, const CreditMsg& credit)
-{
+void Node::handle_credit(const NodeId& from, const CreditMsg& credit) {
     live_credit_enabled_[from] = true;
-    live_credits_.try_emplace(from, credit.credits * 4, credit.credits).first->second.grant(credit.credits);
+    live_credits_.try_emplace(from, credit.credits * 4, credit.credits)
+        .first->second.grant(credit.credits);
 }
 
-void Node::request_heads(std::uint64_t now_ms)
-{
+void Node::request_heads(uint64_t now_ms) {
     for (const auto& peer : transport_.peers()) {
         auto& last = last_heads_request_ms_[peer];
         if (last != 0 && now_ms - last < config_.control_interval_ms)
             continue;
         last = now_ms;
         ++counters_.heads_requested;
-        // Ask for everything we follow: the answer is a set of heads, which is exactly what a newcomer
-        // needs when the writer is not around to announce them.
-        std::vector<std::string> patterns;
+        // Ask for everything we follow: the answer is a set of heads, which is exactly what a
+        // newcomer needs when the writer is not around to announce them.
+        vector<string> patterns;
         for (const auto& pattern : patterns_)
             patterns.push_back(pattern);
         if (!patterns.empty())
-            transport_.send(peer, GetHeadsMsg { patterns });
+            transport_.send(peer, GetHeadsMsg{patterns});
     }
 }
 
-void Node::acknowledge(std::uint64_t now_ms)
-{
-    // Only logs we have actually accepted records for: a writer is not its own replica, and walking the
-    // store's inventory here would be a full scan every tick.
+void Node::acknowledge(uint64_t now_ms) {
+    // Only logs we have actually accepted records for: a writer is not its own replica, and walking
+    // the store's inventory here would be a full scan every tick.
     for (const auto& key : ingested_logs_) {
         if (writers_.count(key))
             continue;
@@ -430,16 +430,15 @@ void Node::acknowledge(std::uint64_t now_ms)
             continue;
         const auto source = source_peer_.find(key);
         if (source == source_peer_.end())
-            continue; // nothing arrived from a peer yet, so there is nobody to acknowledge to
+            continue;  // nothing arrived from a peer yet, so there is nobody to acknowledge to
         last = now_ms;
         // Acknowledge to the peer that supplied the log. The writer *identity* is not an address.
-        transport_.send(source->second, AckMsg { key, *head });
+        transport_.send(source->second, AckMsg{key, *head});
         ++counters_.acks_sent;
     }
 }
 
-Seq Node::behind_by(const LogKey& key) const
-{
+Seq Node::behind_by(const LogKey& key) const {
     const auto known = remote_head_.find(key);
     if (known == remote_head_.end())
         return 0;
@@ -447,8 +446,7 @@ Seq Node::behind_by(const LogKey& key) const
     return known->second >= next ? known->second - next + 1 : 0;
 }
 
-bool Node::authorized(const LogKey& key)
-{
+bool Node::authorized(const LogKey& key) {
     if (rules_ == nullptr || rules_->size() == 0)
         return true;
     if (rules_->permits(key.channel, key.writer))
@@ -461,10 +459,9 @@ bool Node::authorized(const LogKey& key)
     return false;
 }
 
-bool Node::admit_request(const NodeId& peer, std::uint64_t now_ms)
-{
-    // A sliding window per peer: cheap, bounded, and it never disconnects anyone. Requests over budget are
-    // dropped and counted, so one bursty peer looks bursty rather than partitioned.
+bool Node::admit_request(const NodeId& peer, uint64_t now_ms) {
+    // A sliding window per peer: cheap, bounded, and it never disconnects anyone. Requests over
+    // budget are dropped and counted, so one bursty peer looks bursty rather than partitioned.
     if (config_.max_requests_per_interval == 0)
         return true;
     auto& [window_start, used] = request_budget_[peer];
@@ -480,8 +477,7 @@ bool Node::admit_request(const NodeId& peer, std::uint64_t now_ms)
     return true;
 }
 
-void Node::greet_peers(std::uint64_t now_ms)
-{
+void Node::greet_peers(uint64_t now_ms) {
     for (const auto& peer : transport_.peers()) {
         auto& link = peer_links_[peer];
         if (link.version_known)
@@ -490,29 +486,29 @@ void Node::greet_peers(std::uint64_t now_ms)
         // negotiates must not look like a peer that simply has nothing to say.
         if (link.hello_sent && now_ms - link.last_hello_ms < config_.head_interval_ms)
             continue;
-        transport_.send(peer, HelloMsg { kProtocolVersion, { } });
+        transport_.send(peer, HelloMsg{kProtocolVersion, {}});
         link.hello_sent = true;
         link.last_hello_ms = now_ms;
     }
 }
 
-void Node::handle_hello(const NodeId& from, const HelloMsg& hello)
-{
+void Node::handle_hello(const NodeId& from, const HelloMsg& hello) {
     auto& link = peer_links_[from];
     link.version_known = true;
     link.version = hello.version;
-    // A peer speaking a version we cannot decode cannot be asked to speak ours; its payload is refused
-    // from here on and counted, which is what makes the mismatch visible instead of mysterious.
+    // A peer speaking a version we cannot decode cannot be asked to speak ours; its payload is
+    // refused from here on and counted, which is what makes the mismatch visible instead of
+    // mysterious.
     if (hello.version != kProtocolVersion)
         ++counters_.version_rejects;
 }
 
-bool Node::accept_payload(const NodeId& peer)
-{
+bool Node::accept_payload(const NodeId& peer) {
     const auto it = peer_links_.find(peer);
     if (it == peer_links_.end() || !it->second.version_known) {
-        // The hello may simply be late or lost. Records are self-verifying, so accepting and counting is
-        // better than stalling replication to enforce metadata (docs/design/02-protocol.md).
+        // The hello may simply be late or lost. Records are self-verifying, so accepting and
+        // counting is better than stalling replication to enforce metadata
+        // (docs/design/02-protocol.md).
         ++counters_.unnegotiated;
         return true;
     }
@@ -523,26 +519,24 @@ bool Node::accept_payload(const NodeId& peer)
     return true;
 }
 
-bool Node::unfollow(const std::string& pattern)
-{
-    // Remove it from our own matcher: everything below (storage, the app callback, repair) is gated on that
-    // matcher, so this is the whole behavioural change. The transport subscription remains, because the
-    // contract has no unsubscribe; a peer may keep sending and we drop it on arrival.
+bool Node::unfollow(const string& pattern) {
+    // Remove it from our own matcher: everything below (storage, the app callback, repair) is gated
+    // on that matcher, so this is the whole behavioural change. The transport subscription remains,
+    // because the contract has no unsubscribe; a peer may keep sending and we drop it on arrival.
     if (!following_.remove_pattern(pattern))
         return false;
-    patterns_.erase(std::remove(patterns_.begin(), patterns_.end(), pattern), patterns_.end());
+    patterns_.erase(remove(patterns_.begin(), patterns_.end(), pattern), patterns_.end());
     return true;
 }
 
-Seq Node::next_seq(const LogKey& key) const
-{
+Seq Node::next_seq(const LogKey& key) const {
     const auto head = store_.head_seq(key);
     return head ? *head + 1 : 0;
 }
 
-CreditWindow& Node::credits_for(const NodeId& peer)
-{
-    return peer_credits_.try_emplace(peer, config_.fetch_window, config_.fetch_window).first->second;
+CreditWindow& Node::credits_for(const NodeId& peer) {
+    return peer_credits_.try_emplace(peer, config_.fetch_window, config_.fetch_window)
+        .first->second;
 }
 
-} // namespace mosaic
+}  // namespace mosaic

@@ -9,6 +9,9 @@ project(
         LANGUAGES CXX
 )
 
+# A compilation database, so clang-tidy knows the flags without a manual configure.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ---- Include guards ----
 
 if (PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)

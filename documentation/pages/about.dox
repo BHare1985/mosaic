@@ -1,5 +1,26 @@
-/** @page about About
-  @section doc ModernCppStarter Documentation 
-  This is the auto-generated documentation for the initial project of the ModernCppStarter.
-  It shows how we can use Doxygen to automatically build a browsable documentation for your projects.
+/** @page about Mosaic
+  @section purpose What Mosaic is
+
+  A brokerless, verifiable, replicated-log library and daemon for C++20 on ZeroMQ. Every writer owns signed,
+  hash-chained, append-only logs per channel; nodes subscribe to channel patterns, replicate the logs they follow
+  directly from each other, and repair anything they missed from any peer that holds it. There is no broker, no
+  consensus and no coordinator in the data path.
+
+  @section where Where the truth lives
+
+  The behaviour of the system is specified in `openspec/specs/` - one capability per file, requirements and
+  scenarios. The reasoning behind those specifications is in `docs/design/`, starting with `00-overview.md`, and
+  the work items are on the board in `docs/design/TODO.md`.
+
+  @section modules The modules
+
+  - core: records, hashing, signing seams, keystore
+  - store: the persistence seam (memory, SQLite) and fork evidence
+  - log: writer-side chaining, replica-side verification, static store verification
+  - proto: the binary wire format and its total decoder
+  - net: the transport contract, the ZeroMQ transport, peer pinning, deterministic simulation
+  - node: the single-threaded state machine wiring everything together
+  - flow: credit control
+  - match: channel pattern matching
+  - jobs: calling a service by name over logs
 */

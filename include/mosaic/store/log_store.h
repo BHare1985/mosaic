@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mosaic/core/record.h>
+#include <mosaic/store/fork_evidence.h>
 #include <optional>
 #include <vector>
 
@@ -33,6 +34,11 @@ public:
 
     /// Every log this store holds, in key order.
     virtual std::vector<LogKey> keys() const = 0;
+
+    /// Optional: a backend that can persist fork evidence returns itself here, so the log layer can keep
+    /// evidence across restarts without every implementation having to support it.
+    virtual ForkEvidenceStore* evidence() { return nullptr; }
+    virtual const ForkEvidenceStore* evidence() const { return nullptr; }
 };
 
 } // namespace mosaic

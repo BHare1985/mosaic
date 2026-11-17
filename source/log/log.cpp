@@ -91,7 +91,11 @@ IngestResult ReplicaLog::ingest(const Record& record)
         const auto existing_hash = existing ? record_hash_tagged(*existing) : std::nullopt;
         if (!existing_hash)
             return IngestResult::Fork;
-        return *existing_hash == hash ? IngestResult::Duplicate : IngestResult::Fork;
+        if (*existing_hash == hash)
+            return IngestResult::Duplicate;
+        if (existing)
+            keep_evidence(*existing, record); // same sequence, different history: keep both sides
+        return IngestResult::Fork;
     }
     if (record.seq > next)
         return IngestResult::Gap;
@@ -102,12 +106,41 @@ IngestResult ReplicaLog::ingest(const Record& record)
     } else {
         const auto previous = store_.get(key, record.seq - 1);
         const auto previous_hash = previous ? record_hash_tagged(*previous) : std::nullopt;
-        if (!previous_hash || record.prev != *previous_hash)
-            return IngestResult::Fork; // writer signed a chain that disagrees with the one we hold
+        if (!previous_hash || record.prev != *previous_hash) {
+            // The writer signed a chain that disagrees with the one we hold: the evidence is the incoming
+            // record plus the predecessor it contradicts.
+            if (previous)
+                keep_evidence(*previous, record);
+            return IngestResult::Fork;
+        }
     }
 
     store_.append(record);
     return IngestResult::Accepted;
+}
+
+std::vector<ForkEvidence> ReplicaLog::forks() const
+{
+    std::vector<ForkEvidence> out;
+    for (const auto& [key, by_seq] : evidence_)
+        for (const auto& [seq, evidence] : by_seq)
+            out.push_back(evidence);
+    return out;
+}
+
+void ReplicaLog::keep_evidence(const Record& accepted, const Record& conflicting)
+{
+    // Evidence is keyed by the sequence the two records disagree at. For a same-sequence fork that is both
+    // records' sequence; for a chain conflict the incoming record is the one that does not belong.
+    ForkEvidence evidence { conflicting.key(), conflicting.seq, accepted, conflicting };
+    auto& by_seq = evidence_[evidence.key];
+    if (by_seq.find(evidence.seq) == by_seq.end() && by_seq.size() >= max_evidence) {
+        ++evidence_overflow; // a fork storm must not be able to grow a replica's memory without bound
+        return;
+    }
+    by_seq[evidence.seq] = evidence;
+    if (auto* persistent = store_.evidence())
+        persistent->save_fork(evidence);
 }
 
 } // namespace mosaic

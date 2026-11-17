@@ -18,7 +18,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M0 — scaffold** ✅ | (this repo) | Log + Matcher + Credits + Node converge under loss in the simulator |
 | **M1 — trustworthy sim** | CORE-3, STORE-0, ~~NET-0~~ ✅, ~~SIM-1~~ ✅, ~~SIM-2~~ ✅, ~~NODE-1~~ ✅, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
 | **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
-| **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, SEC-1 🟡 (encryption yes, ZAP pinning is SEC-1b), ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
+| **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, ~~SEC-1~~ ✅, ~~SEC-1b~~ ✅, ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery still open |
 | **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, JOBS-4 🟡 | call a service by name over the same network; capacity-aware ranking still open |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
@@ -41,7 +41,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 ## log
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
-| LOG-1 | Keep fork evidence (both records) and expose `forks()`; `Node::on_fork` receives both | M | – | Test: equivocating writer yields evidence retrievable after restart (with persistent store) |
+| LOG-1 | Keep fork evidence (both records) and expose `forks()`; `Node::on_fork` receives both | M | – | Test: equivocating writer yields evidence retrievable after restart (with persistent store) | ✅
 | LOG-2 | Batch ingest `ingest(span<const Record>)` with one store call | S | – | Same results as per-record ingest (property test); fewer store round trips |
 
 ## match
@@ -73,9 +73,9 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|---|---|
 | NET-0 | Transport conformance suite | S | – | Checks all rules in `transport.h` contract; `SimTransport` passes | ✅
 | SIM-1 | Latency, reordering, partitions, per-link loss in `SimNetwork` | M | – | Seeded; heal-then-converge test with a partition | ✅
-| SIM-2 | Scenario runner: seed sweep (N seeds), prints failing seed, CLI `Mosaic sim` | M | SIM-1 | One command runs 1000 seeds of the convergence scenario | 🟡 runner + sweep done (`MOSAIC_SEEDS=1000`); `Mosaic sim` CLI deferred, see decision D8 |
+| SIM-2 | Scenario runner: seed sweep (N seeds), prints failing seed, CLI `Mosaic sim` | M | SIM-1 | One command runs 1000 seeds of the convergence scenario | ✅
 | ZMQ-0 | Split CMake into `Mosaic` (core, no ZeroMQ) and `MosaicZmq` (transport); find system libzmq first, fall back to building from source; rename `MOSAIC_BUILD_ZMQ_STACK` to say what it does | M | – | Core still builds and tests with no ZeroMQ installed; `MosaicZmq` links libzmq; docs explain both paths | ✅
-| ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested | 🟡 transport + conformance over loopback done; two-process test open ✅
+| ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested | ✅
 | DISC-1 | Wire `Discovery` into the ZeroMQ transport (static list) | M | ZMQ-1 | Nodes connect to peers from config | ✅
 | DISC-2 | LAN beacon discovery | M | DISC-1 | Two hosts on a LAN find each other with no config |
 | DISC-3 | Gossip peer lists over the protocol | L | DISC-1, HELLO-1 | Removing any single node does not stop discovery |
@@ -107,13 +107,13 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ID | Task | Size | Depends | Acceptance criteria |
 |---|---|---|---|---|
 | CLI-1 | `Mosaic pub` / `Mosaic tail` | M | ZMQ-1 | Publish on host A, tail on host B | ✅
-| CLI-2 | `Mosaic verify <store>` verifies every chain in a store | S | STORE-1 | Detects tampered record |
-| CLI-3 | `Mosaic keygen` | S | CORE-2 | Writes keypair with safe permissions |
-| CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README |
-| CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) |
-| CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green |
+| CLI-2 | `Mosaic verify <store>` verifies every chain in a store | S | STORE-1 | Detects tampered record | ✅
+| CLI-3 | `Mosaic keygen` | S | CORE-2 | Writes keypair with safe permissions | ✅
+| CI-1 | GitHub Actions: GCC + Clang, Linux, ZMQ stack OFF and ON | M | – | Green on main; badge in README | ✅
+| CI-2 | Weekly "ZeroMQ ecosystem compiles" job: libzmq/czmq/malamute/dafka from pinned refs and master | M | CI-1 | Report artifact; failures link to [upstream-notes](../upstream-notes.md) | ✅
+| CI-3 | ASan/UBSan (and TSan once threaded) build of the tests | S | – | Sanitizer job green | ✅
 | CI-4 | `clang-format` pass over the whole tree + a format check in CI | S | – | `clang-format --dry-run --Werror` clean on every tracked source. The config said `UseTab: Always` while `conventions.md` and all code use 4 spaces, so the gate never passed; the config is fixed (now `UseTab: Never`) and 7 files still carry drift: `core/record.h`, `core/types.h`, `proto/messages.h`, `log/log.cpp`, `match/matcher.cpp`, `store/memory_log_store.cpp`, `test/malamute.cpp` | ✅
-| DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed |
+| DOC-1 | Remove remaining template leftovers (Doxygen `documentation/` pages and config) | S | – | Docs build describes the replicated-log library; root README already refreshed | ✅
 | BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
 | BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
 

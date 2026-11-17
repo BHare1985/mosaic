@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# The whole check, runnable locally and in CI. Local-first on purpose: every green this project reports
+# should be reproducible by one command on a plain machine (decision D4 keeps anything from going upstream).
+#
+#   ./scripts/ci.sh            # everything
+#   ./scripts/ci.sh fast       # core only: no ZeroMQ, no sanitizers
+#
+# Each step prints what it is doing so a failure names the configuration that broke.
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+MODE="${1:-all}"
+FAILED=0
+step() { printf '\n=== %s ===\n' "$1"; }
+fail() { printf 'FAILED: %s\n' "$1" >&2; FAILED=1; }
+
+run_matrix() {
+    # Four configurations: crypto on/off by ZeroMQ on/off. Each has caught something the others did not.
+    local name="$1" cmake_args="$2" dir="build/ci-$1"
+    step "$name"
+    # shellcheck disable=SC2086
+    if ! cmake -S test -B "$dir" $cmake_args >/dev/null; then fail "$name: configure"; return; fi
+    if ! cmake --build "$dir" -j >/dev/null; then fail "$name: build"; return; fi
+    if ! "$dir"/MosaicTests > "$dir/tests.log" 2>&1; then
+        tail -20 "$dir/tests.log" >&2
+        fail "$name: tests"
+    else
+        grep -E '^\[doctest\] (test cases|assertions)' "$dir/tests.log"
+    fi
+}
+
+run_matrix core          "-DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF"
+run_matrix no-crypto     "-DMOSAIC_WITH_SODIUM=OFF -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF"
+
+if [ "$MODE" != "fast" ]; then
+    run_matrix full          "-DMOSAIC_BUILD_ZMQ_FROM_SOURCE=ON"
+    run_matrix zmq-no-crypto "-DMOSAIC_WITH_SODIUM=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=ON"
+
+    step "sanitizers (ASan + UBSan)"
+    SAN="build/ci-sanitize"
+    if cmake -S test -B "$SAN" -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" >/dev/null \
+        && cmake --build "$SAN" -j >/dev/null; then
+        if ! "$SAN"/MosaicTests > "$SAN/tests.log" 2>&1; then
+            tail -30 "$SAN/tests.log" >&2
+            fail "sanitizers"
+        else
+            grep -E '^\[doctest\] (test cases|assertions)' "$SAN/tests.log"
+        fi
+    else
+        fail "sanitizers: build"
+    fi
+fi
+
+step "format"
+if command -v clang-format >/dev/null 2>&1; then
+    dirty=0
+    for f in $(git ls-files '*.cpp' '*.h' | grep -E '^(include|source|test|standalone|fuzz)/'); do
+        clang-format --dry-run --Werror "$f" >/dev/null 2>&1 || { echo "needs formatting: $f"; dirty=1; }
+    done
+    [ "$dirty" -eq 0 ] || fail "format"
+else
+    echo "clang-format not installed: skipping (install it or accept an unverified format claim)"
+fi
+
+printf '\n=== %s ===\n' "$([ "$FAILED" -eq 0 ] && echo 'CI: all checks passed' || echo 'CI: FAILURES ABOVE')"
+exit "$FAILED"

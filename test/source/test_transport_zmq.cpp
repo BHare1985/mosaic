@@ -21,6 +21,7 @@ void settle()
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
 }
 
+#ifdef MOSAIC_HAS_SODIUM
 /// With CURVE, libzmq blocks a handshake until the ZAP handler answers, so a caller that only sleeps
 /// would stall every connection. This services the handlers while time passes.
 std::function<void()> settle_with(std::vector<ZmqTransport*> transports)
@@ -34,6 +35,7 @@ std::function<void()> settle_with(std::vector<ZmqTransport*> transports)
         }
     };
 }
+#endif // MOSAIC_HAS_SODIUM
 } // namespace
 
 TEST_CASE("transport conformance: ZeroMQ over loopback")

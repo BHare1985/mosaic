@@ -37,7 +37,8 @@ store  LogStore (memory now, SQLite next)    core    Record, hashing, signing se
 Details: [docs/design](docs/design/README.md).
 
 ## Build and test
-Requires a C++20 compiler and CMake ≥ 3.14 (developed on GCC 15 / CMake 4).
+Requires a C++20 compiler and CMake ≥ 3.14 (developed on GCC 15 / CMake 4). `doxygen` is needed only for the
+reference documentation; `clang-format` only for the format check (both are reported as skipped if missing).
 
 ```bash
 # fast loop: core library and tests only
@@ -47,6 +48,12 @@ cmake --build build/test -j && ./build/test/MosaicTests
 # everything, including libzmq/czmq/malamute compiled from source (slow; also the ZeroMQ compile check)
 cmake -S all -B build && cmake --build build -j && ./build/all/test/MosaicTests
 ./build/standalone/Mosaic match 'storage.*.shard7' storage.eu.shard7
+
+# the whole check, as CI runs it: four configurations, sanitizers, docs, format
+./scripts/ci.sh
+
+# reference documentation (API from the public headers + the design set)
+./scripts/docs.sh && open build/all/documentation/doxygen/html/index.html
 ```
 
 ## Running a node

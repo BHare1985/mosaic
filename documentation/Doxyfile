@@ -7,9 +7,13 @@ PROJECT_NAME = @DOXYGEN_PROJECT_NAME@
 PROJECT_NUMBER = @DOXYGEN_PROJECT_VERSION@
 
 # Add sources
-INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/documentation/pages
+INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/documentation/pages @DOXYGEN_PROJECT_ROOT@/docs
 EXTRACT_ALL = YES
 RECURSIVE = YES
+EXCLUDE = @DOXYGEN_PROJECT_ROOT@/docs/references/dafka \
+          @DOXYGEN_PROJECT_ROOT@/docs/references/malamute \
+          @DOXYGEN_PROJECT_ROOT@/docs/references/zguide \
+          @DOXYGEN_PROJECT_ROOT@/docs/references/zyre
 OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
 
 # Use the README as a main page
@@ -21,6 +25,11 @@ STRIP_FROM_PATH = @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@
 
 # We use m.css to generate the html documentation, so we only need XML output
 GENERATE_XML = YES
+
+# An undocumented public symbol or a broken reference fails the build: -Werror applied to prose.
+WARN_IF_UNDOCUMENTED = YES
+WARN_IF_DOC_ERROR = YES
+WARN_AS_ERROR = YES
 GENERATE_HTML = NO
 GENERATE_LATEX = NO
 XML_PROGRAMLISTING = NO
@@ -28,4 +37,3 @@ CREATE_SUBDIRS = NO
 
 # Include all directories, files and namespaces in the documentation
 # Disable to include only explicitly documented objects
-M_SHOW_UNDOCUMENTED = YES

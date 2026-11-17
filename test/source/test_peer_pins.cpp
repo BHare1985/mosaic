@@ -60,3 +60,21 @@ TEST_CASE("pins survive a save and reload")
     REQUIRE(fresh.has_value());
     CHECK(fresh->size() == 0);
 }
+
+TEST_CASE("the handshake decision answers for both policies")
+{
+    // Open: first sight of an address is pinned; a later change from that address is refused.
+    PeerPins open(PeerPins::Mode::Open);
+    CHECK(open.decide("10.0.0.7", "key-one") == PinVerdict::AllowedAndPinned);
+    CHECK(open.decide("10.0.0.7", "key-one") == PinVerdict::Allowed);
+    CHECK(open.decide("10.0.0.7", "key-two") == PinVerdict::Mismatch);
+    CHECK(open.decide("10.0.0.8", "key-three") == PinVerdict::AllowedAndPinned); // a different address
+
+    // Closed: the key itself must be listed, because ZeroMQ's handshake never exposes a peer identity.
+    PeerPins closed(PeerPins::Mode::Closed);
+    closed.pin("b", "key-one");
+    CHECK(closed.allows_key("key-one"));
+    CHECK_FALSE(closed.allows_key("key-two"));
+    CHECK(closed.decide("10.0.0.7", "key-one") == PinVerdict::Allowed);
+    CHECK(closed.decide("10.0.0.7", "key-two") == PinVerdict::NotListed);
+}

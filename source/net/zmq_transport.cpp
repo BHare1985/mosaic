@@ -1,5 +1,6 @@
 #include <mosaic/net/zmq_transport.h>
 
+#include <mosaic/core/z85.h>
 #include <mosaic/match/matcher.h>
 #include <mosaic/net/peer_pins.h>
 #include <mosaic/proto/codec.h>
@@ -114,7 +115,8 @@ struct ZmqTransport::Impl {
     std::size_t dropped = 0;
     std::size_t curve_rejects = 0;
     std::size_t curve_unauthenticated = 0; // accepted without an observable peer key (needs SEC-1b)
-    std::unique_ptr<PeerPins> pins; // peer -> CURVE key, when CURVE is enabled
+    std::unique_ptr<PeerPins> pins; // address (open) or key list (closed), when CURVE is enabled
+    std::unique_ptr<Socket> zap; // inproc handler libzmq consults before a handshake completes
 
     explicit Impl(ZmqConfig cfg)
         : config(std::move(cfg))
@@ -148,6 +150,77 @@ struct ZmqTransport::Impl {
     }
 
     bool curve_active() const { return config.curve.enabled && curve_supported(); }
+
+    PeerPins& pin_store()
+    {
+        if (!pins) {
+            pins = std::make_unique<PeerPins>(
+                config.link_policy == ZmqLinkPolicy::Closed ? PeerPins::Mode::Closed : PeerPins::Mode::Open);
+            if (!config.curve.pins_path.empty())
+                if (auto loaded = PeerPins::load(config.curve.pins_path, pins->mode()))
+                    pins = std::make_unique<PeerPins>(*loaded);
+        }
+        return *pins;
+    }
+
+    /// Decide one CURVE handshake from a ZAP request:
+    ///   version, request_id, domain, address, identity, mechanism, credentials...
+    /// The reply is SIX frames - version, request id, status code, status text, user id, metadata - which
+    /// is what czmq's zauth sends. REP already holds the request's envelope and prepends it, so adding an
+    /// empty delimiter frame here shifts libzmq's indices and it reports ZAP_MALFORMED_REPLY.
+    bool handle_zap_request()
+    {
+        std::vector<std::string> frames;
+        for (;;) {
+            std::string frame;
+            if (!zap->receive_frame(frame))
+                break;
+            frames.push_back(std::move(frame));
+            int more = 0;
+            std::size_t size = sizeof(more);
+            zmq_getsockopt(zap->handle, ZMQ_RCVMORE, &more, &size);
+            if (!more)
+                break;
+        }
+        if (frames.size() < 6)
+            return false; // nothing pending, or not a request we understand
+
+        const std::string& request_id = frames[1];
+        const std::string& address = frames[3];
+        const std::string& identity = frames[4];
+        const std::string& mechanism = frames[5];
+
+        std::string status = "400";
+        std::string text = "denied";
+        std::string user_id;
+
+        if (mechanism != "CURVE" || frames.size() < 7 || frames[6].size() != 32) {
+            text = "unsupported mechanism"; // NULL is refused too: this transport is encrypted or nothing
+        } else {
+            const auto key_z85 = z85_encode(reinterpret_cast<const std::uint8_t*>(frames[6].data()), frames[6].size());
+            // The handshake does not expose the peer's configured identity, so open mode pins by address
+            // and closed mode checks the key against what was provisioned (PeerPins::decide).
+            const auto who = identity.empty() ? address : identity;
+            const auto verdict = pin_store().decide(who, key_z85);
+            if (verdict == PinVerdict::Allowed || verdict == PinVerdict::AllowedAndPinned) {
+                status = "200";
+                text = "ok";
+                user_id = key_z85;
+                if (verdict == PinVerdict::AllowedAndPinned && !config.curve.pins_path.empty())
+                    pin_store().save(config.curve.pins_path);
+            } else {
+                ++curve_rejects;
+                text = verdict == PinVerdict::Mismatch ? "key changed" : "key not allowed";
+            }
+        }
+
+        const auto send = [&](const std::string& data, bool more) { return zap->send_frame(data.data(), data.size(), more); };
+        const bool sent = send("1.0", true) && send(request_id, true) && send(status, true) && send(text, true)
+            && send(user_id, true) && send("", false);
+        if (!sent)
+            return false;
+        return status == "200";
+    }
 
     void apply_curve_server(Socket& socket) const
     {
@@ -241,6 +314,12 @@ ZmqTransport::ZmqTransport(ZmqConfig config)
     impl_->apply_curve_server(*impl_->router);
     impl_->router->bind(impl_->config.router_bind);
 
+    if (impl_->curve_active()) {
+        // Must exist before any peer connects: libzmq blocks the handshake until the handler answers.
+        impl_->zap = std::make_unique<Socket>(impl_->context.handle, ZMQ_REP);
+        impl_->zap->bind("inproc://zeromq.zap.01");
+    }
+
     for (const auto& peer : impl_->config.peers)
         impl_->wire_peer(peer);
 }
@@ -281,8 +360,17 @@ void ZmqTransport::send(const NodeId& to, Message message)
         ++impl_->dropped;
 }
 
+void ZmqTransport::service_handshakes()
+{
+    if (impl_->zap)
+        impl_->handle_zap_request(); // one per call: libzmq queues them and the call stays bounded
+}
+
 std::optional<Envelope> ZmqTransport::poll()
 {
+    // Handshakes first: a peer connecting right now must not wait for us to finish with traffic.
+    service_handshakes();
+
     // At most one message per call, so the caller's loop keeps control of time and ordering.
     zmq_pollitem_t items[2 + 1] = { };
     int count = 0;

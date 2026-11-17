@@ -4,8 +4,10 @@
 
 ### Requirement: Peer keys are pinned where observable, and the gap is counted
 
-A node MUST decide whether to accept a peer's key before any message is exchanged, using the policy it was configured with: open
-mode pins a key on first use and refuses a later change, closed mode refuses keys that are not listed. A refusal MUST be visible
+A node MUST decide whether to accept a peer's key before any message is exchanged, using the policy it was configured with. Open
+mode pins a key on first sight of a peer address and refuses a later change from that address; closed mode refuses any presented
+key that is not one of the provisioned keys. Where the handshake exposes no peer identity - ZeroMQ's does not - the decision MUST
+NOT depend on one. A refusal MUST be visible
 to the operator. A node MUST NOT accept an encrypted peer whose key it could not verify.
 
 #### Scenario: A pinned identity cannot change silently

@@ -70,24 +70,36 @@ link key never decides what is true.
 
 ### Requirement: Peer keys are pinned where observable, and the gap is counted
 
-Where the transport can observe a peer's authenticated key, it MUST pin it per endpoint on first use and refuse a later
-change. Where it cannot, it MUST count the connection as unauthenticated rather than claim a check it did not perform. Closed
-mode MUST refuse peers that are not explicitly listed.
+A node MUST decide whether to accept a peer's key before any message is exchanged, using the policy it was configured with. Open
+mode pins a key on first sight of a peer address and refuses a later change from that address; closed mode refuses any presented
+key that is not one of the provisioned keys. Where the handshake exposes no peer identity - ZeroMQ's does not - the decision MUST
+NOT depend on one. A refusal MUST be visible
+to the operator. A node MUST NOT accept an encrypted peer whose key it could not verify.
 
 #### Scenario: A pinned identity cannot change silently
 
 - **WHEN** a peer connects to an endpoint it has used before but presents a different key
-- **THEN** the connection is refused and counted, once enforcement is possible
-
-#### Scenario: An unobservable key is reported, not assumed
-
-- **WHEN** a message is accepted over CURVE without an observable peer key
-- **THEN** it is counted as unauthenticated, so the missing enforcement is measurable
+- **THEN** the handshake is refused before any message is decoded, and the refusal is counted
 
 #### Scenario: Closed mode refuses keys outside the list
 
 - **WHEN** a node runs in closed mode and a peer presents a key that is not on the allow-list
-- **THEN** the connection is refused before any message is exchanged
+- **THEN** the handshake is refused and the peer is never added to the pins
+
+#### Scenario: An unseen key is pinned in open mode
+
+- **WHEN** a node in open mode is contacted by a peer it has not seen before
+- **THEN** the handshake succeeds, the key is pinned for that peer, and later traffic must match it
+
+#### Scenario: An unobservable key is reported, not assumed
+
+- **WHEN** a message arrives over an encrypted link whose peer key was not established during the handshake
+- **THEN** it is refused and counted, so an unverifiable peer never contributes a record
+
+#### Scenario: Nothing is accepted unverified
+
+- **WHEN** any encrypted connection is established
+- **THEN** its peer key has been decided by the pinning policy before the first message is decoded
 
 ### Requirement: CURVE keys derive from the writer identity and stay interoperable
 

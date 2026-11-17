@@ -73,6 +73,21 @@ PinVerdict PeerPins::observe(const std::string& peer_id, const std::string& key_
     return it->second == key_z85 ? PinVerdict::Allowed : PinVerdict::Mismatch;
 }
 
+bool PeerPins::allows_key(const std::string& key_z85) const
+{
+    for (const auto& [peer, key] : pins_)
+        if (key == key_z85)
+            return true;
+    return false;
+}
+
+PinVerdict PeerPins::decide(const std::string& who, const std::string& key_z85)
+{
+    if (mode_ == Mode::Closed)
+        return allows_key(key_z85) ? PinVerdict::Allowed : PinVerdict::NotListed;
+    return observe(who, key_z85);
+}
+
 std::optional<std::string> PeerPins::pinned(const std::string& peer_id) const
 {
     const auto it = pins_.find(peer_id);

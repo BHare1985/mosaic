@@ -48,6 +48,15 @@ public:
     /// Record what a peer presented and decide whether to accept it.
     PinVerdict observe(const std::string& peer_id, const std::string& key_z85);
 
+    /// The decision the transport asks for at handshake time. `who` is the peer identity when the
+    /// handshake exposes one (ZeroMQ's ZAP does not) and otherwise the peer address:
+    ///   - open: pin on first sight of that address, refuse a later change
+    ///   - closed: the presented key must be one of the pinned keys, whatever the address
+    PinVerdict decide(const std::string& who, const std::string& key_z85);
+
+    /// Closed mode: is this key allowed under any pinned identity?
+    bool allows_key(const std::string& key_z85) const;
+
     std::optional<std::string> pinned(const std::string& peer_id) const;
     std::size_t size() const { return pins_.size(); }
     Mode mode() const { return mode_; }

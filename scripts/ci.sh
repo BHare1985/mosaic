@@ -27,6 +27,15 @@ run_matrix() {
     else
         grep -E '^\[doctest\] (test cases|assertions)' "$dir/tests.log"
     fi
+    # The C ABI is checked by a C program in every configuration: it is the one suite that must not need C++.
+    if [ -x "$dir/mosaic_c_test" ]; then
+        if ! "$dir/mosaic_c_test" > "$dir/cabi.log" 2>&1; then
+            tail -10 "$dir/cabi.log" >&2
+            fail "$name: C ABI"
+        else
+            tail -1 "$dir/cabi.log"
+        fi
+    fi
 }
 
 run_matrix core          "-DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF"

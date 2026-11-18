@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mosaic-mq"
+version = "0.6.0"
+description = "Mosaic from Python, over the library's C ABI"
+requires-python = ">=3.8"
+
+# The extension links the C ABI library, which CMake builds. MOSAIC_BUILD_DIR points at the build tree
+# (scripts/build_python.sh sets it); everything else is discovered from there.
+[tool.setuptools]
+packages = ["mosaic"]
+
+[tool.setuptools.package-dir]
+mosaic = "mosaic"
+
+# The extension itself is declared in setup.py: it needs paths from the CMake build tree, which pyproject's
+# declarative form cannot express.

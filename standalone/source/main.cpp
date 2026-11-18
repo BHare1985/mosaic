@@ -187,8 +187,17 @@ bool parse_options(int argc, char** argv, int first, Options& options, string& e
                 return false;
         } else if (flag == "--listen") {
             options.explicit_listen = true;
-            if (!next(options.listen))
+            string value;
+            if (!next(value))
                 return false;
+            // The documented form is host:port; --port still exists for the two-part spelling.
+            const auto colon = value.rfind(':');
+            if (colon != string::npos && colon + 1 < value.size()) {
+                options.listen = value.substr(0, colon);
+                options.port = atoi(value.c_str() + colon + 1);
+            } else {
+                options.listen = value;
+            }
         } else if (flag == "--port") {
             string value;
             if (!next(value))
@@ -291,6 +300,11 @@ optional<Runtime> make_runtime(const Options& options, vector<string> patterns, 
     Runtime runtime;
     runtime.store = move(*store);
     runtime.transport = make_unique<ZmqTransport>(config);
+    if (!runtime.transport->is_bound()) {
+        error =
+            "cannot bind " + config.pub_bind + " (port in use, or not an address of this machine)";
+        return nullopt;
+    }
 
     runtime.hasher = make_unique<Sha256Hasher>();
     runtime.verifier = make_unique<Ed25519Verifier>();
@@ -603,7 +617,7 @@ int main(int argc, char** argv) {
     const string command = argv[1];
 
     if (command == "version") {
-        cout << "Mosaic, version " << MOSAIC_VERSION << '\n';
+        cout << "Mosaic, version " << kVersion << '\n';
         return 0;
     }
     if (command == "match" && argc == 4) {

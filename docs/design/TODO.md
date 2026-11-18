@@ -123,8 +123,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | STYLE-1 | One written C++ style enforced by `.clang-format` (LLVM base, 100 cols) and `.clang-tidy` (correctness gated, naming enforced), with targeted `std::` imports in `.cpp` files | M | – | Format gated in CI; correctness lint clean; headers keep `std::` | ✅ |
 | STYLE-2 | Work through the clang-tidy style backlog: braces on single-statement bodies (the largest family), `nodiscard`, designated initialisers, `contains`, const-array indexing, implicit bool conversions. `MOSAIC_LINT_STYLE=1 ./scripts/ci.sh` prints the count | M | STYLE-1 | The style count reaches zero and the lint step gates style as well as correctness | ⬜ |
 | VERSION-1 | Versioning: `0.<closed milestones>.0` with CMake as the source of truth, an `inline constexpr` generated header, a drift test, a CHANGELOG and a version line in each design doc | M | – | `Mosaic version` reports 0.6.0; bumping CMake alone fails the test; the docs state which version they describe | ✅ |
-| BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ABI test in C; no C++ types exposed |
-| BIND-2 | Python binding over the C ABI | M | BIND-1 | `pip install` demo publishes and tails |
+| BIND-1 | Thin stable C ABI (`mosaic_c.h`) over the C++ core, for bindings only | L | M3 | ✅ | `include/mosaic/mosaic_c.h` + `MosaicC`; a C test compiles by the C compiler and a two-process pair publishes and tails |
+| BIND-2 | Python binding over the C ABI | M | BIND-1 | ✅ | `bindings/python`; `scripts/build_python.sh` in one command; demo and two-process test pass |
 
 ## Decisions
 All of D1–D6 are settled; see [decisions.md](decisions.md). One default remains open: matching is on **channel name only**

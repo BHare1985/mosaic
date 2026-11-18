@@ -41,8 +41,8 @@ shared, so no lock exists. Any future thread must follow the same rule or not ex
 ### Dependency rules (enforce in review)
 **Third-party code — three dependencies, each confined.** `libzmq` behind `Transport` (the `MosaicZmq` target); `czmq` behind
 the daemon and CLI only (ZPL config today, discovery next), never in `core`..`node` and never in the `core` / `no-crypto`
-builds; and `libsodium` behind `Hasher`/`Signer`/`Verifier`. `libsodium` behind `Hasher`/`Signer`/`Verifier` (fetched
-by CPM, optional via `MOSAIC_WITH_SODIUM`) and `libzmq` behind `Transport`, confined to the separate `MosaicZmq` target. A
+builds; and `libsodium` behind `Hasher`/`Signer`/`Verifier` (fetched by CPM, optional via `MOSAIC_WITH_SODIUM`) and `libzmq` behind
+`Transport`, confined to the separate `MosaicZmq` target. A
 consumer that packages Mosaic must supply `libzmq` and, if `MOSAIC_WITH_SODIUM` was used, `libsodium`: they are linked
 `PRIVATE $<BUILD_INTERFACE:...>` today, so they are deliberately absent from the install export. `MOSAIC_WITH_SODIUM=OFF` and
 `-DMOSAIC_WITH_ZMQ=OFF` together produce a dependency-free core.
@@ -65,6 +65,15 @@ transport, confined to the `MosaicZmq` target. The core library and its tests mu
 | net | `.../net` | `Transport`, `SimNetwork`, `Discovery` | [link](../../include/mosaic/net/README.md) |
 | node | `.../node` | `Node`, `NodeConfig` | [link](../../include/mosaic/node/README.md) |
 | jobs | `.../jobs` | `rendezvous_rank`, `JobRequest`, `JobResult` | [link](../../include/mosaic/jobs/README.md) |
+| C ABI | `include/mosaic/mosaic_c.h` | `mosaic_node`, `mosaic_record`, `mosaic_status` | target `MosaicC` |
+
+**The C ABI** is one header, `include/mosaic/mosaic_c.h`, and one target, `MosaicC`: opaque handles, value structs, status
+codes instead of exceptions, one free per handle, and borrowed records you copy out with `mosaic_record_clone`. It exists for
+language bindings (decision D2) and adds no behaviour of its own - every call is an adapter onto the same `Node`, `LogStore`
+and `Transport` the C++ API uses. `MosaicC` links `MosaicZmq` when the ZeroMQ build is present and answers
+`MOSAIC_ERR_UNSUPPORTED` from the transport constructors when it is not, so the same header compiles in both builds. It is
+tested by a C program, `test/capi/mosaic_c_test.c`, compiled by a C compiler, and by `test/capi/mosaic_c_pubtail.c` run as two
+processes; the Python binding in `bindings/python` is written against this header only.
 
 ## One record's journey (how the blocks fit)
 

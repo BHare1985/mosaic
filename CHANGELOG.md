@@ -39,6 +39,14 @@ started from.
   (czmq's event stream is private); tracked as DISC-3.
 - Per-channel write authorization, so `svc.*` can be closed to anyone but its named writers.
 
+**Reach: C and Python**
+
+- A C ABI: `include/mosaic/mosaic_c.h`, one header of opaque handles, value structs and status codes, with the records passed
+  to your callback borrowed and copyable. It adds no behaviour, and the Python binding is written against it alone.
+- `bindings/python`: a compiled extension plus a record iterator, built by `scripts/build_python.sh` in one command.
+- Proved from outside C++: a C test compiled by a C compiler, the same ABI as two processes (one publishing, one tailing), and a
+  Python process tailing records published by another Python process.
+
 **Operations**
 
 - `mosaicd` with a ZPL configuration read by czmq's `zconfig`: every setting in one file, validated whole before anything starts,
@@ -52,4 +60,4 @@ started from.
 - A CI script (four build configurations, sanitizers, documentation, lint, format) that runs the same way locally and in CI.
 
 **Not provided:** global ordering, consensus, consumer groups, exactly-once execution, retention with checkpoints, gossip
-discovery, a C ABI.
+discovery.

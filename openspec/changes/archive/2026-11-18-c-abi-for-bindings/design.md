@@ -51,3 +51,16 @@ ABI only.
 
 - Whether the ABI should expose the job layer before or after a Python job demo exists. Deferrable: core surface first.
 - Whether to publish prebuilt wheels. Deferrable: a source build is enough to prove the surface.
+
+## Found while implementing
+
+Two bugs in existing code surfaced the moment a second process was actually used, both invisible to the in-process suite:
+
+1. **`--listen host:port` never split the port.** Only the config-file path parsed `host:port`; the flag branch assigned the
+   whole string to the host and left the port at `0`, so `tcp://127.0.0.1:6410:0` was passed to `zmq_bind` - which failed.
+2. **Bind failures were silent.** `ZmqTransport` ignored the return value of both `zmq_bind` calls, so a process with no
+   sockets printed `ready` and sat there. Fixed by `ZmqTransport::is_bound()`, reported by the CLI as an error and by the ABI
+   as `MOSAIC_ERR_IO`.
+
+Both were found by the two-process C check (task 2.2), which is exactly why that task exists: nothing in one process can
+notice that the network is not there.

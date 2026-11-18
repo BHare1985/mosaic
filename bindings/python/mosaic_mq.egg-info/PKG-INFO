@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: mosaic-mq
+Version: 0.6.0
+Summary: Mosaic from Python, over the library's C ABI
+Requires-Python: >=3.8

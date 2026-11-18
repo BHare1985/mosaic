@@ -73,6 +73,29 @@ if (NOT TEST_INSTALLED_VERSION)
     endif ()
 endif ()
 
+# ---- The C ABI, tested from C ----
+
+# Compiled by a C compiler on purpose: the header must be usable with no C++ in the caller.
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/capi/mosaic_c_test.c)
+    enable_language(C)
+    add_executable(mosaic_c_test ${CMAKE_CURRENT_SOURCE_DIR}/capi/mosaic_c_test.c)
+    if (TARGET MosaicC)
+        target_link_libraries(mosaic_c_test MosaicC)
+    else ()
+        target_link_libraries(mosaic_c_test Mosaic::Mosaic)
+    endif ()
+    set_target_properties(mosaic_c_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+
+    # The two-process pair: same code, one role each.
+    add_executable(mosaic_c_pubtail ${CMAKE_CURRENT_SOURCE_DIR}/capi/mosaic_c_pubtail.c)
+    if (TARGET MosaicC)
+        target_link_libraries(mosaic_c_pubtail MosaicC)
+    else ()
+        target_link_libraries(mosaic_c_pubtail Mosaic::Mosaic)
+    endif ()
+    set_target_properties(mosaic_c_pubtail PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+endif ()
+
 # ---- Add MosaicTests ----
 
 enable_testing()

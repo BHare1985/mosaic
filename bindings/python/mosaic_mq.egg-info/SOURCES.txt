@@ -1,0 +1,8 @@
+module.c
+pyproject.toml
+setup.py
+mosaic/__init__.py
+mosaic_mq.egg-info/PKG-INFO
+mosaic_mq.egg-info/SOURCES.txt
+mosaic_mq.egg-info/dependency_links.txt
+mosaic_mq.egg-info/top_level.txt

@@ -154,6 +154,8 @@ if (MOSAIC_WITH_SQLITE)
         FetchContent_MakeAvailable(sqlite_amalgamation)
         enable_language(C) # sqlite3.c is C, and this project is otherwise CXX-only
         add_library(mosaic_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+        # Same reason as the library targets: a static archive ends up inside a shared object sooner or later.
+        set_target_properties(mosaic_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
         target_include_directories(mosaic_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
         target_compile_definitions(mosaic_sqlite3 PRIVATE SQLITE_THREADSAFE=1)
         set(MOSAIC_SQLITE_TARGET mosaic_sqlite3)
@@ -185,6 +187,9 @@ endif ()
 # target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+# A library that gets embedded (Python extension, JNI, any host process) must be position independent: the
+# default matters as soon as a static archive is linked into a shared object.
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if (MSVC)
     target_compile_definitions(${PROJECT_NAME} PUBLIC
@@ -232,11 +237,29 @@ if (MOSAIC_WITH_ZMQ AND MOSAIC_ZMQ_TARGET)
     target_compile_features(MosaicZmq PUBLIC cxx_std_20)
     target_link_libraries(MosaicZmq PUBLIC ${PROJECT_NAME} PRIVATE ${MOSAIC_ZMQ_TARGET})
     target_compile_definitions(MosaicZmq PUBLIC MOSAIC_HAS_ZMQ)
+    set_target_properties(MosaicZmq PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(
             MosaicZmq PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
     )
 endif ()
+
+# ---- C ABI target ----
+#
+# The ABI is C (include/mosaic/mosaic_c.h). Its implementation is C++ and thin, but it must sit above the
+# transport: publish and tail need a link. So it is its own target, linked against whatever exists - the
+# core-only build gets the same library with the transport constructors answering MOSAIC_ERR_UNSUPPORTED.
+add_library(MosaicC source/capi/mosaic_c.cpp include/mosaic/mosaic_c.h)
+target_compile_features(MosaicC PUBLIC cxx_std_20)
+set_target_properties(MosaicC PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(MosaicC PUBLIC ${PROJECT_NAME})
+if (TARGET MosaicZmq)
+    target_link_libraries(MosaicC PUBLIC MosaicZmq)
+endif ()
+target_include_directories(
+        MosaicC PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
+)
 
 # ---- Daemon target (czmq: ZPL config; discovery next) ----
 

@@ -128,6 +128,7 @@ struct ZmqTransport::Impl {
     size_t curve_unauthenticated = 0;  // accepted without an observable peer key (needs SEC-1b)
     unique_ptr<PeerPins> pins;         // address (open) or key list (closed), when CURVE is enabled
     unique_ptr<Socket> zap;  // inproc handler libzmq consults before a handshake completes
+    bool bound = false;      // both bind calls succeeded
 
     explicit Impl(ZmqConfig cfg) : config(move(cfg)) {}
 
@@ -322,12 +323,13 @@ ZmqTransport::ZmqTransport(ZmqConfig config) : impl_(make_unique<Impl>(move(conf
     impl_->pub = make_unique<Socket>(impl_->context.handle, ZMQ_PUB);
     impl_->apply_limits(*impl_->pub);
     impl_->apply_curve_server(*impl_->pub);
-    impl_->pub->bind(impl_->config.pub_bind);
+    const bool pub_bound = impl_->pub->bind(impl_->config.pub_bind);
 
     impl_->router = make_unique<Socket>(impl_->context.handle, ZMQ_ROUTER);
     impl_->apply_limits(*impl_->router);
     impl_->apply_curve_server(*impl_->router);
-    impl_->router->bind(impl_->config.router_bind);
+    const bool router_bound = impl_->router->bind(impl_->config.router_bind);
+    impl_->bound = pub_bound && router_bound;
 
     if (impl_->curve_active()) {
         // Must exist before any peer connects: libzmq blocks the handshake until the handler
@@ -341,6 +343,10 @@ ZmqTransport::ZmqTransport(ZmqConfig config) : impl_(make_unique<Impl>(move(conf
 }
 
 ZmqTransport::~ZmqTransport() = default;
+
+bool ZmqTransport::is_bound() const {
+    return impl_->bound;
+}
 
 NodeId ZmqTransport::self() const {
     return impl_->config.id;

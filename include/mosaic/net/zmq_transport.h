@@ -88,6 +88,11 @@ public:
     void add_peer(const ZmqPeerEndpoint& peer);
 
     /// The endpoint actually bound (resolved when the config asked for port 0).
+    /// False when a bind failed (port taken, address not ours). A transport that cannot bind is
+    /// deaf and mute: the constructor cannot throw, so callers that care check this before trusting
+    /// the endpoints.
+    bool is_bound() const;
+
     std::string pub_endpoint() const;
     std::string router_endpoint() const;
 

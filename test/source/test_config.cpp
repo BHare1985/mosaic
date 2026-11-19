@@ -1,5 +1,7 @@
 // The daemon's configuration (spec: daemon/mosaicd): ZPL, validated whole, defaults printable.
 #include <mosaic/daemon/config.h>
+#include <mosaic/daemon/daemon.h>
+#include <mosaic/node/node.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -135,6 +137,41 @@ TEST_CASE("the printed defaults are themselves a valid config") {
     remove(path.c_str());
 }
 
+TEST_CASE("the scoring limits are expressible in a config, with documented defaults") {
+    const auto path = write_temp("test-config-scoring.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+    strike_threshold = 3
+    strike_decay_ms = 30000
+    ban_base_ms = 2000
+    ban_max_ms = 60000
+)");
+    const auto result = load_config(path);
+    for (const auto& error : result.errors)
+        MESSAGE(error.where << ": " << error.message);
+    REQUIRE(result.ok());
+    CHECK(result.config.strike_threshold == 3);
+    CHECK(result.config.strike_decay_ms == 30000);
+    CHECK(result.config.ban_base_ms == 2000);
+    CHECK(result.config.ban_max_ms == 60000);
+    remove(path.c_str());
+
+    // Absent, they take the defaults - which are the numbers docs/design/07-security.md quotes.
+    const auto bare = write_temp("test-config-scoring-bare.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+)");
+    const auto defaults = load_config(bare);
+    REQUIRE(defaults.ok());
+    CHECK(defaults.config.strike_threshold == 8);
+    CHECK(defaults.config.strike_decay_ms == 60000);
+    CHECK(defaults.config.ban_base_ms == 5000);
+    CHECK(defaults.config.ban_max_ms == 600000);
+    remove(bare.c_str());
+}
+
 #endif  // MOSAIC_HAS_CZMQ
 
 #ifdef MOSAIC_HAS_CZMQ
@@ -173,5 +210,33 @@ peer
             named = true;
     CHECK(named);
     remove(unquoted.c_str());
+}
+#endif
+
+#ifdef MOSAIC_HAS_CZMQ
+TEST_CASE("the daemon reports bans, and every ban edge is one readable line") {
+    // What an operator sees: the status line must name the ban counters, and each edge must be a
+    // single line that says what happened without making them read a log. Both are pure functions
+    // of the values the node reports, so this needs no socket, keystore or running process.
+    mosaic::NodeCounters counters;
+    counters.accepted = 4;
+    counters.bans_started = 2;
+    counters.peer_bans = 1;
+    counters.banned_drops = 7;
+    const auto status = mosaic::daemon::counters_line(counters, 12, 3);
+    CHECK(status.find("accepted=4") != string::npos);
+    CHECK(status.find("bans=2") != string::npos);
+    CHECK(status.find("banned=1") != string::npos);
+    CHECK(status.find("banned_drops=7") != string::npos);
+    CHECK(status.find("discovered=3") != string::npos);
+
+    using mosaic::BanEdge;
+    using mosaic::BanEvent;
+    CHECK(mosaic::daemon::ban_line(BanEvent{"beta", BanEdge::Started, 2, 8, 5000}) ==
+          "ban peer=beta edge=start duration_ms=5000 strikes=8 bans=2");
+    CHECK(mosaic::daemon::ban_line(BanEvent{"beta", BanEdge::Expired, 2, 0, 0}) ==
+          "ban peer=beta edge=expired bans=2");
+    CHECK(mosaic::daemon::ban_line(BanEvent{"beta", BanEdge::Lifted, 2, 0, 0}) ==
+          "ban peer=beta edge=lifted bans=2");
 }
 #endif

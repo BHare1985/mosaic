@@ -34,21 +34,14 @@ void JobWorker::on_record(const Record& record) {
         // Watch the reply channel so a result published by any worker stops this one from running.
         node_.follow(request->reply_channel);
 
-        const auto ranking = rendezvous_rank(request->job_id, workers_, hasher_);
-        const auto self = find(ranking.begin(), ranking.end(), node_.id());
-        if (self == ranking.end())
-            return;  // not one of the workers for this service
-        const auto rank = static_cast<uint32_t>(distance(ranking.begin(), self));
-        const auto slots = static_cast<uint32_t>(ranking.size());
-        const auto slot_ms = slots == 0 ? request->timeout_ms : request->timeout_ms / slots;
-
+        // Whether this node is even in the ranking, and where, is decided on the first tick: that
+        // is where the clock is, and which peers are banned is a function of time.
         if (pending_.size() >= max_pending) {
             ++pending_overflow;  // bounded queue, counted overflow: never an unbounded map
             return;
         }
         Due due;
         due.request = *request;
-        due.delay_ms = rank * slot_ms;  // rank 0 runs immediately, rank 1 after one slot, and so on
         pending_.emplace(request->job_id, move(due));
         return;
     }
@@ -58,6 +51,15 @@ void JobWorker::on_record(const Record& record) {
             finished_[result->job_id] = true;
 }
 
+vector<NodeId> JobWorker::ranking_for(const string& job_id, uint64_t now_ms) const {
+    vector<NodeId> candidates;
+    candidates.reserve(workers_.size());
+    for (const auto& worker : workers_)
+        if (!node_.peer_banned(worker, now_ms))
+            candidates.push_back(worker);
+    return rendezvous_rank(job_id, candidates, hasher_);
+}
+
 void JobWorker::tick(uint64_t now_ms) {
     for (auto it = pending_.begin(); it != pending_.end();) {
         if (finished(it->first)) {
@@ -65,8 +67,19 @@ void JobWorker::tick(uint64_t now_ms) {
             continue;
         }
         if (!it->second.scheduled) {
-            it->second.scheduled = true;
+            const auto ranking = ranking_for(it->second.request.job_id, now_ms);
+            const auto self = find(ranking.begin(), ranking.end(), node_.id());
+            if (self == ranking.end()) {
+                it = pending_.erase(it);  // not a worker for this service (any more)
+                continue;
+            }
+            const auto rank = static_cast<uint32_t>(distance(ranking.begin(), self));
+            const auto slots = static_cast<uint32_t>(ranking.size());
+            const auto slot_ms =
+                slots == 0 ? it->second.request.timeout_ms : it->second.request.timeout_ms / slots;
+            it->second.delay_ms = rank * slot_ms;  // rank 0 now, rank 1 after one slot, and so on
             it->second.at_ms = now_ms + it->second.delay_ms;
+            it->second.scheduled = true;
         }
         if (now_ms < it->second.at_ms) {
             ++it;

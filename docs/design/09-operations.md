@@ -25,7 +25,7 @@ Two things about the format are worth knowing before writing a file:
 One status line per interval, and `kill -USR1 <pid>` for one on demand:
 
 ```
-status accepted=… duplicates=… gaps=… forks=… repair_sent=… retained=… shortfall=… throttled=… handshake_rejects=… unauthorized=…
+status accepted=… duplicates=… gaps=… forks=… repair_sent=… retained=… shortfall=… throttled=… handshake_rejects=… unauthorized=… bans=… banned=… banned_drops=… discovered=…
 ```
 
 | Symptom | Read this | It means |
@@ -37,9 +37,27 @@ status accepted=… duplicates=… gaps=… forks=… repair_sent=… retained=�
 | Records retained forever | `retained` grows, `shortfall=0` | `min_replicas` is set and replicas are not acknowledging |
 | Loss disguised as success | `shortfall` > 0 | the retention limit was hit without meeting `min_replicas`: durability is unmet |
 | Some writers ignored | `unauthorized` rising | a channel rule refuses that writer: check `allow` |
+| A peer went quiet | `bans`, `banned`, `banned_drops` | we banned it: each edge prints its own `ban peer=…` line, so a silence is explained rather than mysterious |
 
 `duplicates` and `gaps` rising together early in a node's life is normal - it is backfilling history. `forks` should be zero; a
 non-zero value is evidence of an equivocating writer and is kept (`Node::forks()`).
+
+### Bans are logged, not silent
+
+A peer that keeps sending wrong bytes is banned for a while (see [07](07-security.md) for the weights and durations), and the
+daemon says so - once when the ban starts, once when it ends:
+
+```
+ban peer=rogue edge=start duration_ms=500 strikes=1 bans=1
+ban peer=rogue edge=expired bans=1
+status accepted=0 … bans=1 banned=0 banned_drops=0 …
+```
+
+A run that reaches those lines needs nothing but the daemon and one peer willing to send garbage: start `mosaicd`, send a
+single undecodable frame to its ROUTER port from a `DEALER` with an identity (config `strike_threshold = 1`, `curve = off`
+makes it a one-liner), then `kill -USR1`. `banned_drops` climbing with `banned` at zero means bans are starting and lapsing
+faster than the interval you are reading: watch the `ban … edge=` lines. A ban never costs anybody data - only service - so
+`accepted` and the head of a log must not change because a peer was banned.
 
 ## What the daemon does not do
 

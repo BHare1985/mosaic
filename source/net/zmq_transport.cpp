@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <set>
 #include <zmq.h>
 
 using std::fprintf;
@@ -19,6 +20,7 @@ using std::min;
 using std::move;
 using std::nullopt;
 using std::optional;
+using std::set;
 using std::size_t;
 using std::string;
 using std::strlen;
@@ -123,6 +125,8 @@ struct ZmqTransport::Impl {
     map<NodeId, unique_ptr<Socket>> dealers;  // unicast to each peer
     map<NodeId, unique_ptr<Socket>> subs;     // live traffic from each peer
     Matcher matcher;                          // our own subscriptions: the exact decision
+    set<NodeId> ignored;  // peers the node has banned: their frames are dropped before decoding
+    vector<NodeId> decode_faults;  // senders of frames that did not decode, since the last call
     size_t dropped = 0;
     size_t curve_rejects = 0;
     size_t curve_unauthenticated = 0;  // accepted without an observable peer key (needs SEC-1b)
@@ -424,9 +428,17 @@ optional<Envelope> ZmqTransport::poll() {
             user_id = payload_user_id;
         if (!impl_->accept_key(identity, user_id))
             return nullopt;
+        // A banned peer's frame is dropped here, before the hash and the parse a decode costs. The
+        // node would drop it too; doing it at the wire is the whole point of SEC-2's "cheap to
+        // ignore".
+        if (impl_->ignored.count(identity) != 0) {
+            ++impl_->dropped;
+            return nullopt;
+        }
         const auto decoded = decode_message(Bytes(payload.begin(), payload.end()));
         if (!decoded.ok()) {
             ++impl_->dropped;
+            impl_->decode_faults.push_back(identity);
             return nullopt;
         }
         return Envelope{identity, *decoded.message};
@@ -454,14 +466,32 @@ optional<Envelope> ZmqTransport::poll() {
         // The byte-prefix subscription let this through; the real pattern decides.
         if (!impl_->matcher.matches_any(channel))
             continue;
+        if (impl_->ignored.count(sender) != 0) {
+            ++impl_->dropped;
+            continue;
+        }
         const auto decoded = decode_message(Bytes(payload.begin(), payload.end()));
         if (!decoded.ok()) {
             ++impl_->dropped;
+            impl_->decode_faults.push_back(sender);
             continue;
         }
         return Envelope{sender, *decoded.message};
     }
     return nullopt;
+}
+
+vector<NodeId> ZmqTransport::take_decode_faults() {
+    vector<NodeId> out;
+    out.swap(impl_->decode_faults);
+    return out;
+}
+
+void ZmqTransport::set_peer_ignored(const NodeId& peer, bool ignored) {
+    if (ignored)
+        impl_->ignored.insert(peer);
+    else
+        impl_->ignored.erase(peer);
 }
 
 vector<NodeId> ZmqTransport::peers() const {

@@ -5,6 +5,7 @@
 #include <mosaic/net/zmq_transport.h>
 
 #include <chrono>
+#include <cstring>
 #include <doctest/doctest.h>
 #include <memory>
 #include <thread>
@@ -20,6 +21,7 @@ using std::move;
 using std::remove;
 using std::shared_ptr;
 using std::string;
+using std::strlen;
 using std::uint64_t;
 using std::vector;
 
@@ -141,6 +143,60 @@ TEST_CASE("ZeroMQ prefix subscription does not admit a deeper channel") {
                 ++deeper;
     }
     CHECK(deeper == 0);
+}
+
+// A ban is cheap only if the wire does the dropping (SEC-2): an ignored peer's frames must be
+// discarded before they are decoded, and resuming must cost nothing but the flag.
+TEST_CASE("an ignored peer's traffic is dropped before decoding, and resumes on request") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqConfig b_cfg;
+    b_cfg.id = "b";
+    ZmqTransport a(a_cfg);
+    ZmqTransport b(b_cfg);
+    a.add_peer(ZmqPeerEndpoint{"b", b.pub_endpoint(), b.router_endpoint(), ""});
+    b.add_peer(ZmqPeerEndpoint{"a", a.pub_endpoint(), a.router_endpoint(), ""});
+    b.subscribe("events.>");
+
+    TransportPair pair;
+    pair.settle = settle;
+
+    const auto record = [](const char* payload) {
+        Record one;
+        one.writer = "writer";
+        one.channel = "events.a";
+        one.content_type = "t";
+        one.payload = Bytes(payload, payload + strlen(payload));
+        return Message{RecordMsg{one}};
+    };
+
+    // Get the subscription in place, so a missing message later is the drop and not the handshake.
+    vector<Envelope> first;
+    for (int attempt = 0; attempt < 30 && first.empty(); ++attempt) {
+        a.publish("events.a", record("before"));
+        pair.settle();
+        first = collect(b, pair, 1);
+    }
+    REQUIRE_FALSE(first.empty());
+
+    // The ban belongs to the node that is being sent to: it ignores the sender.
+    b.set_peer_ignored("a", true);
+    const auto dropped_before = b.dropped();
+    for (int i = 0; i < 5; ++i) {
+        a.publish("events.a", record("while-banned"));
+        pair.settle();
+    }
+    CHECK(b.poll() == std::nullopt);      // nothing arrives, and nothing is queued for later either
+    CHECK(b.dropped() > dropped_before);  // the drop is counted where it happened
+
+    b.set_peer_ignored("a", false);
+    vector<Envelope> resumed;
+    for (int attempt = 0; attempt < 30 && resumed.empty(); ++attempt) {
+        a.publish("events.a", record("after"));
+        pair.settle();
+        resumed = collect(b, pair, 1);
+    }
+    REQUIRE_FALSE(resumed.empty());  // the peer kept its place in the set, so service resumed
 }
 
 // Queue limits are explicit, and overflow is a counted drop rather than a blocked caller

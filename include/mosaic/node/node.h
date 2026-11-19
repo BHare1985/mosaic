@@ -15,6 +15,38 @@
 
 namespace mosaic {
 
+/// Why a peer earned a strike. Only faults that are wrong whatever the network is doing: wrong
+/// bytes. Lateness, loss, duplication and falling behind are network conditions and are never
+/// faults, because punishing them would turn a partition into a ban (spec: security/peer-scoring).
+enum class PeerFault {
+    Undecodable,      // a frame that did not decode at all
+    Unverified,       // a record whose signature or hash chain does not verify
+    Oversized,        // a record above max_record_bytes
+    Unrequested,      // a repair record nobody asked for
+    VersionMismatch,  // a hello announcing a protocol version we cannot speak
+};
+
+const char* to_string(PeerFault fault);
+
+/// What one fault costs a peer, in strikes. The single place these numbers live: a test asserts
+/// this table and docs/design/07-security.md quotes it.
+std::uint32_t strike_weight(PeerFault fault);
+
+/// The edges of a ban. A ban is loud, not silent: the daemon prints one line per edge (SEC-2).
+enum class BanEdge {
+    Started,  // the strike threshold was crossed
+    Expired,  // the ban lapsed on its own
+    Lifted,   // a well-formed hello plus a verifiable record ended it early
+};
+
+struct BanEvent {
+    NodeId peer;
+    BanEdge edge = BanEdge::Started;
+    std::uint32_t ban_count = 0;    // how many bans this peer has now had
+    std::uint32_t strikes = 0;      // the strikes it carried when the edge fired
+    std::uint64_t duration_ms = 0;  // Started: how long this ban lasts; otherwise 0
+};
+
 struct NodeConfig {
     NodeId id;
     std::uint32_t head_interval_ms = 1000;  // how often a writer announces its head
@@ -41,6 +73,15 @@ struct NodeConfig {
     std::uint32_t max_head_patterns = 64;
     /// Most requests of one kind a peer may have answered per control interval.
     std::uint32_t max_requests_per_interval = 32;
+    /// Strikes a peer may accumulate before it is banned. Zero disables banning: strikes are still
+    /// counted, but no peer is ever refused (SEC-2).
+    std::uint32_t strike_threshold = 8;
+    /// How long a strike takes to decay to nothing. Decay is proportional to elapsed time, so a
+    /// fault every window never accumulates and a flood does.
+    std::uint32_t strike_decay_ms = 60000;
+    /// First ban duration. Every further ban at least doubles it, up to `ban_max_ms`.
+    std::uint32_t ban_base_ms = 5000;
+    std::uint32_t ban_max_ms = 600000;
 };
 
 /// Cumulative counters, so tests assert on behaviour instead of eyeballing logs (NODE-1).
@@ -73,6 +114,13 @@ struct NodeCounters {
     std::uint64_t requests_throttled =
         0;  // per-peer budgets: requests dropped for arriving too fast
     std::uint64_t unauthorized_records = 0;  // refused: a channel rule does not permit this writer
+    std::uint64_t bans_started = 0;          // times this node banned a peer (SEC-2)
+    std::uint64_t banned_drops = 0;          // messages refused because their sender was banned
+    /// The one non-cumulative value here: peers banned right now. A ban lapsing lowers it, which is
+    /// what makes "is the node still refusing anyone?" answerable without keeping a history.
+    std::uint32_t peer_bans = 0;
+    /// Strikes awarded per fault kind, cumulatively. Weighted, like the score: see strike_weight().
+    std::map<PeerFault, std::uint64_t> strikes_by_kind;
 };
 
 /// The glue that makes the building blocks one system. A Node is simultaneously:
@@ -156,6 +204,18 @@ public:
         on_fork_ = std::move(handler);
     }
 
+    /// Called once per ban edge: when a peer is banned, when its ban lapses, and when it is lifted
+    /// early. Lets an operator see the decision instead of inferring it from silence (SEC-2).
+    void on_ban(std::function<void(const BanEvent&)> handler) {
+        on_ban_ = std::move(handler);
+    }
+
+    /// Strikes `peer` carries at `now_ms`, after decay. Read-only: it never changes the score.
+    std::uint32_t peer_strikes(const NodeId& peer, std::uint64_t now_ms) const;
+    /// Is `peer` banned right now? A ban expires by itself, so this is the only correct way to ask:
+    /// a deadline in the past reads as not banned even before the sweep has cleared it.
+    bool peer_banned(const NodeId& peer, std::uint64_t now_ms) const;
+
     /// Append to our own log on `channel` and announce it. The signer must outlive the Node.
     /// Empty when the payload exceeds the configured limit - a caller must not be able to create a
     /// log its own peers would refuse (bound-peer-requests).
@@ -188,11 +248,25 @@ private:
         std::unique_ptr<LogWriter> log;
         std::uint64_t last_head_ms = 0;
     };
+    /// What a peer has cost us so far. Kept inside PeerLink rather than in a second map: one
+    /// lifetime rule, one expiry sweep, and nothing to prune when a peer leaves (SEC-2).
+    struct PeerScore {
+        std::uint32_t strikes = 0;
+        /// When strikes were last reduced. Elapsed time accumulates against this mark, so a caller
+        /// whose every step is too short to decay one strike still decays eventually.
+        std::uint64_t decay_mark_ms = 0;
+        std::uint32_t ban_count = 0;
+        std::uint64_t banned_until_ms = 0;  // 0 means not banned
+        /// A banned peer that completed a handshake is allowed one record to prove itself. That
+        /// is the whole of "lifted early" - see docs/design/07-security.md.
+        bool probation = false;
+    };
     struct PeerLink {
         std::uint64_t last_hello_ms = 0;
         bool hello_sent = false;
         bool version_known = false;
         std::uint8_t version = 0;
+        PeerScore score;
     };
     struct FetchState {
         std::uint64_t sent_ms = 0;
@@ -202,6 +276,21 @@ private:
     };
 
     void handle(const NodeId& from, const Message& message, std::uint64_t now_ms);
+    /// The single inbound choke point (SEC-2). False means "drop this message": the sender is
+    /// banned and the message is not part of the exchange that can end the ban. Every inbound path
+    /// goes through here, so a ban cannot be bypassed by inventing a message kind.
+    bool admit(const NodeId& from, const Message& message, std::uint64_t now_ms);
+    /// Record a fault against a peer, decay first, and ban it if that crosses the threshold. Always
+    /// counted; it never changes what the data layer accepts (see the rule in 07-security.md).
+    void penalize(const NodeId& peer, PeerFault fault, std::uint64_t now_ms);
+    /// A verified record from a peer on probation: the ban is over.
+    void confirmed(const NodeId& peer, std::uint64_t now_ms);
+    void start_ban(const NodeId& peer, PeerLink& link, std::uint64_t now_ms);
+    void lift_ban(const NodeId& peer, PeerLink& link, BanEdge edge, std::uint64_t now_ms);
+    /// Clear every ban whose deadline has passed. Called from tick() so the lapse is reported even
+    /// for a peer that has gone quiet.
+    void expire_bans(std::uint64_t now_ms);
+    void notify_ban(const BanEvent& event) const;
     void handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms);
     void handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms);
     void handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t now_ms);
@@ -223,7 +312,7 @@ private:
     void advance_retention(const LogKey& key);
     /// How many sequences behind the highest head we know of for this log.
     Seq behind_by(const LogKey& key) const;
-    void handle_hello(const NodeId& from, const HelloMsg& hello);
+    void handle_hello(const NodeId& from, const HelloMsg& hello, std::uint64_t now_ms);
     /// Send our version to any peer we have not confirmed a version for yet. Called from tick().
     void greet_peers(std::uint64_t now_ms);
     /// Is payload from this peer allowed? False (and counted) when it announced a version we cannot
@@ -232,7 +321,8 @@ private:
     void request_fetch(const LogKey& key, const NodeId& peer, std::uint64_t now_ms);
     /// Return one credit for a repair record that answers a live request. A record belonging to a
     /// request that already ended (late response) is consumed and must not create credit (FLOW-2).
-    void consume_credit(const NodeId& peer, const LogKey& key, Seq seq);
+    /// Returns whether a live request accounted for this record at all.
+    bool consume_credit(const NodeId& peer, const LogKey& key, Seq seq);
     void return_credit(const NodeId& peer, std::uint32_t amount);
     Seq next_seq(const LogKey& key) const;
     CreditWindow& credits_for(const NodeId& peer);
@@ -247,6 +337,10 @@ private:
     std::map<LogKey, WriterSlot> writers_;
     std::map<LogKey, Seq> remote_head_;  // highest seq we have heard of for each log
     std::map<std::pair<LogKey, NodeId>, FetchState> fetches_;
+    /// Highest sequence we ever asked this peer for, per log. It is what separates an unsolicited
+    /// repair record (an objective fault) from a late or duplicated answer to a request we did
+    /// make - and loss and duplication must never earn a strike.
+    std::map<std::pair<LogKey, NodeId>, Seq> requested_through_;
     std::map<NodeId, CreditWindow> peer_credits_;
     std::map<NodeId, PeerLink> peer_links_;
     std::map<std::pair<LogKey, NodeId>, Seq>
@@ -275,6 +369,7 @@ private:
     NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;
+    std::function<void(const BanEvent&)> on_ban_;
 };
 
 }  // namespace mosaic

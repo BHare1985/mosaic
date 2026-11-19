@@ -24,6 +24,7 @@ using std::move;
 using std::ostringstream;
 using std::size_t;
 using std::string;
+using std::uint32_t;
 using std::uint64_t;
 using std::unique_ptr;
 
@@ -141,11 +142,18 @@ unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
     node_config.max_record_bytes = config.max_record_bytes;
     node_config.max_head_patterns = config.max_head_patterns;
     node_config.max_requests_per_interval = config.max_requests_per_interval;
+    node_config.strike_threshold = config.strike_threshold;
+    node_config.strike_decay_ms = config.strike_decay_ms;
+    node_config.ban_base_ms = config.ban_base_ms;
+    node_config.ban_max_ms = config.ban_max_ms;
 
     self.node =
         make_unique<Node>(node_config, *self.transport, *self.store, *self.hasher, *self.verifier);
     if (self.rules)
         self.node->set_rules(self.rules.get());
+    // Both edges of every ban go to the operator. Printed at every level: a ban is the one thing
+    // that makes a peer's traffic disappear, so silence must never be the only evidence (SEC-2).
+    self.node->on_ban([](const BanEvent& event) { cout << ban_line(event) << endl; });
     for (const auto& pattern : config.follows)
         if (!self.node->follow(pattern)) {
             error = "invalid follow pattern: " + pattern;
@@ -212,19 +220,41 @@ RunResult Daemon::run(const function<bool()>& stop, const function<void()>& on_i
     return RunResult::Stopped;
 }
 
-string Daemon::status_line() const {
-    const auto& counters = impl_->node->counters();
+string counters_line(const NodeCounters& counters, uint32_t retained, size_t discovered) {
     ostringstream out;
     out << "status accepted=" << counters.accepted << " duplicates=" << counters.duplicate
         << " gaps=" << counters.gap << " forks=" << counters.fork
-        << " repair_sent=" << counters.fetches_sent
-        << " retained=" << impl_->node->retained_records()
+        << " repair_sent=" << counters.fetches_sent << " retained=" << retained
         << " shortfall=" << counters.retention_shortfall
         << " throttled=" << counters.requests_throttled
         << " handshake_rejects=" << counters.version_rejects
-        << " unauthorized=" << counters.unauthorized_records
-        << " discovered=" << impl_->discovered.size();
+        << " unauthorized=" << counters.unauthorized_records << " bans=" << counters.bans_started
+        << " banned=" << counters.peer_bans << " banned_drops=" << counters.banned_drops
+        << " discovered=" << discovered;
     return out.str();
+}
+
+string ban_line(const BanEvent& event) {
+    ostringstream out;
+    out << "ban peer=" << event.peer;
+    switch (event.edge) {
+        case BanEdge::Started:
+            out << " edge=start duration_ms=" << event.duration_ms << " strikes=" << event.strikes;
+            break;
+        case BanEdge::Expired:
+            out << " edge=expired";
+            break;
+        case BanEdge::Lifted:
+            out << " edge=lifted";
+            break;
+    }
+    out << " bans=" << event.ban_count;
+    return out.str();
+}
+
+string Daemon::status_line() const {
+    const auto& counters = impl_->node->counters();
+    return counters_line(counters, impl_->node->retained_records(), impl_->discovered.size());
 }
 
 size_t Daemon::discovered_peers() const {

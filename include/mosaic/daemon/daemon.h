@@ -15,6 +15,8 @@ namespace mosaic {
 class Node;
 class LogStore;
 class Transport;
+struct BanEvent;
+struct NodeCounters;
 
 namespace daemon {
 
@@ -68,6 +70,16 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+/// The periodic counters line, as a pure function of what the node reports. Free rather than a
+/// member so the text can be pinned by a test without a socket, a keystore or a store: what the
+/// daemon reports is part of what it promises (spec: daemon/mosaicd).
+std::string counters_line(const NodeCounters& counters, std::uint32_t retained,
+                          std::size_t discovered);
+
+/// One line per ban edge (SEC-2). A ban is loud on purpose: a peer going quiet must never be the
+/// only evidence that it was banned.
+std::string ban_line(const BanEvent& event);
 
 }  // namespace daemon
 }  // namespace mosaic

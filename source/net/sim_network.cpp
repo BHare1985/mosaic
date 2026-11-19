@@ -73,6 +73,15 @@ bool SimNetwork::partitioned(const NodeId& a, const NodeId& b) const {
     return blocked_.count({a, b}) != 0;
 }
 
+void SimNetwork::inject_undecodable(const NodeId& from, const NodeId& to) {
+    if (from == to)
+        return;  // the contract forbids self-delivery, faults included
+    const auto peer = peers_.find(to);
+    if (peer == peers_.end())
+        return;  // unknown peer: the frame would never have been addressed to it
+    peer->second.decode_faults.push_back(from);
+}
+
 void SimNetwork::advance(uint64_t now_ms) {
     if (now_ms > now_ms_)
         now_ms_ = now_ms;
@@ -168,6 +177,12 @@ vector<NodeId> SimTransport::peers() const {
     for (const auto& [peer_id, peer] : net_.peers_)
         if (peer_id != id_)
             out.push_back(peer_id);
+    return out;
+}
+
+vector<NodeId> SimTransport::take_decode_faults() {
+    vector<NodeId> out;
+    out.swap(net_.peers_[id_].decode_faults);
     return out;
 }
 

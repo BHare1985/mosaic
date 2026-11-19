@@ -38,6 +38,25 @@ public:
     /// Peers currently addressable (never includes self). Used for the version handshake and,
     /// later, for credit accounting per link.
     virtual std::vector<NodeId> peers() const = 0;
+
+    /// Frames this transport could not decode since the previous call, each with the sender's
+    /// identity when it was known. A decode failure never becomes a Message, so a transport that
+    /// swallowed it silently would leave the node unable to tell a broken peer from a quiet one
+    /// (SEC-2).
+    ///
+    /// Optional: a transport that cannot attribute a bad frame to a sender reports nothing, and
+    /// the node simply scores the faults it can see.
+    virtual std::vector<NodeId> take_decode_faults() {
+        return {};
+    }
+
+    /// Ask this transport to stop (or resume) delivering a peer's traffic, so a ban on a real link
+    /// costs a lookup rather than a decode. "Ignored" means dropped, not disconnected: the peer
+    /// keeps its addresses and resumes the moment the node says so again.
+    ///
+    /// Optional: a transport that ignores this call is still correct, because Node drops a banned
+    /// peer's messages itself - only after the work has been done rather than before it.
+    virtual void set_peer_ignored(const NodeId& /*peer*/, bool /*ignored*/) {}
 };
 
 }  // namespace mosaic

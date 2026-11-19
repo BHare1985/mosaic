@@ -78,6 +78,16 @@ public:
     std::optional<Envelope> poll() override;
     std::vector<NodeId> peers() const override;
 
+    /// Senders of frames that did not decode since the previous call (SEC-2). Attributing a bad
+    /// frame to a peer is what lets the node score it instead of treating every wire error as
+    /// silence.
+    std::vector<NodeId> take_decode_faults() override;
+
+    /// Drop (or resume) a peer's traffic before it is decoded. Used by the node to make a ban cost
+    /// a lookup rather than a hash and a parse, and never a disconnect: the peer keeps its sockets
+    /// and its place in peers().
+    void set_peer_ignored(const NodeId& peer, bool ignored) override;
+
     /// Serve pending CURVE handshake decisions (ZAP). poll() calls this first; it is exposed
     /// because a caller that is not polling yet (a test, a CLI waiting for its first message) must
     /// not stall a peer that is mid-handshake.

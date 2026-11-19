@@ -8,11 +8,17 @@ One class, three roles (writer, replica, responder). Configuration (`NodeConfig`
 ```cpp
 for (;;) { now = clock_ms(); node.pump(now); node.tick(now); wait_for_socket_or_timer(); }
 ```
-Everything is single-threaded and clock-injected. State: `writers_`, `remote_head_`, `fetches_`, `peer_credits_`, `following_`.
-Planned: metrics (NODE-1), unfollow & batching (NODE-2), store-node preset (NODE-3), ACK/HEADS/HELLO handling.
+Everything is single-threaded and clock-injected. State: `writers_`, `remote_head_`, `fetches_`, `peer_credits_`, `following_`,
+and one `peer_links_` table holding each peer's version *and* its score (SEC-2), so there is one lifetime rule and one expiry
+sweep. Planned: ACK/HEADS/HELLO pattern advertisement.
+Peer scoring - strikes, decay, escalating bans, and the rule that a ban never changes what is accepted - is in
+[07](07-security.md).
 
 ## Transport contract (✅ `net/transport.h`)
-`self()`, `subscribe(pattern)`, `publish(channel, msg)`, `send(to, msg)`, `poll()`, `peers()`.
+`self()`, `subscribe(pattern)`, `publish(channel, msg)`, `send(to, msg)`, `poll()`, `peers()`, plus two optional capabilities with
+no-op defaults: `take_decode_faults()` (frames that did not decode, so `Node` can score the sender - SEC-2) and
+`set_peer_ignored(peer, bool)` (drop a banned peer's frames *before* decoding, which is the cheap half of a ban; a transport that
+ignores the hint is still correct, because `Node::admit()` drops them anyway).
 Best effort, non-blocking, no self-delivery, publish filtered by subscription, unicast to unknown peers is silently dropped.
 `peers()` is a best-effort snapshot of addressable peers (never self): it is what the version handshake iterates over, and it is
 also where per-link credit and CURVE identities will hang in ZMQ-1.

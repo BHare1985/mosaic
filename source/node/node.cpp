@@ -25,7 +25,56 @@ template <class... Fs> struct Overloaded : Fs... {
     using Fs::operator()...;
 };
 template <class... Fs> Overloaded(Fs...) -> Overloaded<Fs...>;
+
+/// Strikes are reduced proportionally to the time that has passed, with no history per peer: a
+/// window of counters would need memory that grows with the network, and memory an attacker can
+/// grow (D2 in the design). Integer arithmetic only, so it is identical on every platform.
+///
+/// The result of a step that earns no decay is *not* recorded, so a fast caller whose every step
+/// is too short to decay a single strike still decays eventually instead of never: elapsed time
+/// accumulates against the mark.
+uint32_t decayed(uint32_t strikes, uint64_t mark_ms, uint64_t now_ms, uint32_t window_ms) {
+    if (strikes == 0 || window_ms == 0 || now_ms <= mark_ms)
+        return strikes;
+    const auto elapsed = now_ms - mark_ms;
+    const auto reduce = static_cast<uint64_t>(strikes) * elapsed / window_ms;
+    if (reduce >= strikes)
+        return 0;
+    return strikes - static_cast<uint32_t>(reduce);
+}
 }  // namespace
+
+const char* to_string(PeerFault fault) {
+    switch (fault) {
+        case PeerFault::Undecodable:
+            return "undecodable";
+        case PeerFault::Unverified:
+            return "unverified";
+        case PeerFault::Oversized:
+            return "oversized";
+        case PeerFault::Unrequested:
+            return "unrequested";
+        case PeerFault::VersionMismatch:
+            return "version";
+    }
+    return "unknown";
+}
+
+uint32_t strike_weight(PeerFault fault) {
+    switch (fault) {
+        case PeerFault::Undecodable:
+            return 1;  // usually a bug or a version skew, and cheap to check
+        case PeerFault::Unverified:
+            return 3;  // a broken writer or an attacker: either way it must stop quickly
+        case PeerFault::Oversized:
+            return 2;
+        case PeerFault::Unrequested:
+            return 2;  // volunteering repair records is never legitimate traffic
+        case PeerFault::VersionMismatch:
+            return 1;  // usually a deployment mistake, not an attack
+    }
+    return 1;
+}
 
 Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher,
            const Verifier& verifier)
@@ -73,10 +122,18 @@ optional<Record> Node::publish(const Signer& signer, const Channel& channel, str
 void Node::pump(uint64_t now_ms) {
     while (auto envelope = transport_.poll())
         handle(envelope->from, envelope->message, now_ms);
+    // A frame that did not decode never becomes a Message, so it is the one fault the choke point
+    // cannot see. The transport reports it by sender instead of failing silently (SEC-2).
+    for (const auto& peer : transport_.take_decode_faults())
+        penalize(peer, PeerFault::Undecodable, now_ms);
 }
 
 void Node::tick(uint64_t now_ms) {
-    // 0. Version handshake: every peer we can address hears our version until it answers with its
+    // 0. Bans that have lapsed stop being bans on their own: nothing here needs an operator, and
+    // the lapse is reported so a silence is never mystifying (SEC-2).
+    expire_bans(now_ms);
+
+    // 0a. Version handshake: every peer we can address hears our version until it answers with its
     // own.
     greet_peers(now_ms);
 
@@ -118,12 +175,14 @@ void Node::tick(uint64_t now_ms) {
 }
 
 void Node::handle(const NodeId& from, const Message& message, uint64_t now_ms) {
+    if (!admit(from, message, now_ms))
+        return;  // banned: dropped here, before any decoding, verification or store access
     visit(Overloaded{
               [&](const RecordMsg& m) { handle_record(from, m.record, false, now_ms); },
               [&](const DirectRecordMsg& m) { handle_record(from, m.record, true, now_ms); },
               [&](const HeadMsg& m) { handle_head(from, m, now_ms); },
               [&](const FetchMsg& m) { handle_fetch(from, m, now_ms); },
-              [&](const HelloMsg& m) { handle_hello(from, m); },
+              [&](const HelloMsg& m) { handle_hello(from, m, now_ms); },
               [&](const AckMsg& m) { handle_ack(from, m); },
               [&](const GetHeadsMsg& m) { handle_get_heads(from, m, now_ms); },
               [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
@@ -149,15 +208,28 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
 
     if (record.payload.size() > config_.max_record_bytes) {
         ++counters_.oversized_records;
+        penalize(from, PeerFault::Oversized, now_ms);
         return;  // refused before the store, the callback or the chain
     }
     if (!authorized(record.key()))
         return;  // a channel rule does not permit this writer: never stored, never delivered
 
     const LogKey key = record.key();
-    if (direct)
-        consume_credit(from, key, record.seq);
-    else if (record.seq > next_seq(key) + config_.slow_follower_threshold) {
+    bool requested = false;
+    if (direct) {
+        requested = consume_credit(from, key, record.seq);
+        // "Nobody asked for this" has to be judged against everything we ever asked this peer for,
+        // not against what is still outstanding: a response that arrives after its request timed
+        // out, or twice because the link duplicated it, is late, not abusive (spec:
+        // security/peer-scoring).
+        const auto through = requested_through_.find({key, from});
+        const bool ever_requested =
+            through != requested_through_.end() && record.seq <= through->second;
+        // Ingest still runs below even when the strike lands: a record is judged on its signature,
+        // never on who sent it or how that peer has behaved (D6 in the design).
+        if (!requested && !ever_requested)
+            penalize(from, PeerFault::Unrequested, now_ms);
+    } else if (record.seq > next_seq(key) + config_.slow_follower_threshold) {
         // Too far behind to keep up with a firehose: stop trusting live delivery for this log and
         // let the repair path do the work, which bounds our backlog by our own request size
         // (FLOW-4). The comparison is against this record's own sequence: the head we know is
@@ -172,7 +244,8 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
     if (source_peer_.find(key) == source_peer_.end())
         source_peer_[key] = from;
 
-    switch (replica_.ingest(record)) {
+    const auto result = replica_.ingest(record);
+    switch (result) {
         case IngestResult::Accepted:
             ++counters_.accepted;
             ingested_logs_.insert(key);
@@ -194,12 +267,19 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
             ++counters_.duplicate;
             break;
         case IngestResult::BadChain:
-            ++counters_.bad_chain;
-            break;  // TODO(SEC-2): rate-limit peers that keep sending bad data
         case IngestResult::BadSignature:
-            ++counters_.bad_signature;
-            break;
+            // The two are one fault kind on purpose: to a node that has to decide how much
+            // attention a peer deserves, "cannot verify" is the whole of the information.
+            if (result == IngestResult::BadChain)
+                ++counters_.bad_chain;
+            else
+                ++counters_.bad_signature;
+            penalize(from, PeerFault::Unverified, now_ms);
+            return;
     }
+    // Every outcome but the two above proves the peer can sign: that is the "verifiable record"
+    // half of an early lift.
+    confirmed(from, now_ms);
 }
 
 void Node::handle_head(const NodeId& from, const HeadMsg& head, uint64_t now_ms) {
@@ -256,16 +336,19 @@ void Node::request_fetch(const LogKey& key, const NodeId& peer, uint64_t now_ms)
     counters_.credit_spent += granted;
     fetches_[{key, peer}] = FetchState{now_ms, from, from + granted - 1, granted};
     ++counters_.fetches_sent;
+    auto& through = requested_through_[{key, peer}];
+    through = max(through, from + granted - 1);
 }
 
-void Node::consume_credit(const NodeId& peer, const LogKey& key, Seq seq) {
+bool Node::consume_credit(const NodeId& peer, const LogKey& key, Seq seq) {
     const auto it = fetches_.find({key, peer});
     if (it == fetches_.end() || seq < it->second.from || seq > it->second.end_seq ||
         it->second.credit_left == 0)
-        return;  // late or unsolicited: its credit was already returned, so it must not create any
+        return false;  // late or unsolicited: credit already returned, so it must not create any
     --it->second.credit_left;
     credits_for(peer).grant(1);
     ++counters_.credit_returned;
+    return true;
 }
 
 void Node::return_credit(const NodeId& peer, uint32_t amount) {
@@ -399,6 +482,8 @@ void Node::handle_credit(const NodeId& from, const CreditMsg& credit) {
 
 void Node::request_heads(uint64_t now_ms) {
     for (const auto& peer : transport_.peers()) {
+        if (peer_banned(peer, now_ms))
+            continue;  // no point asking a peer whose answer we would refuse (SEC-2)
         auto& last = last_heads_request_ms_[peer];
         if (last != 0 && now_ms - last < config_.control_interval_ms)
             continue;
@@ -492,15 +577,127 @@ void Node::greet_peers(uint64_t now_ms) {
     }
 }
 
-void Node::handle_hello(const NodeId& from, const HelloMsg& hello) {
+void Node::handle_hello(const NodeId& from, const HelloMsg& hello, uint64_t now_ms) {
     auto& link = peer_links_[from];
     link.version_known = true;
     link.version = hello.version;
     // A peer speaking a version we cannot decode cannot be asked to speak ours; its payload is
     // refused from here on and counted, which is what makes the mismatch visible instead of
     // mysterious.
-    if (hello.version != kProtocolVersion)
+    if (hello.version != kProtocolVersion) {
         ++counters_.version_rejects;
+        penalize(from, PeerFault::VersionMismatch, now_ms);
+    }
+}
+
+bool Node::admit(const NodeId& from, const Message& message, uint64_t now_ms) {
+    const auto it = peer_links_.find(from);
+    if (it == peer_links_.end() || it->second.score.banned_until_ms == 0)
+        return true;
+    auto& link = it->second;
+    if (now_ms >= link.score.banned_until_ms) {
+        lift_ban(from, link, BanEdge::Expired, now_ms);
+        return true;  // the message that reveals the lapse is served: nothing is lost to timing
+    }
+    // While the ban holds, the only traffic let through is the exchange that can end it early: a
+    // hello speaking our version arms one record's worth of probation, and that record decides.
+    // Anything else costs a map lookup and a counter, not a hash and a parse (D4 in the design).
+    if (std::holds_alternative<HelloMsg>(message)) {
+        if (std::get<HelloMsg>(message).version == kProtocolVersion)
+            link.score.probation = true;
+        return true;
+    }
+    if (link.score.probation && (std::holds_alternative<RecordMsg>(message) ||
+                                 std::holds_alternative<DirectRecordMsg>(message)))
+        return true;
+    ++counters_.banned_drops;
+    return false;
+}
+
+void Node::penalize(const NodeId& peer, PeerFault fault, uint64_t now_ms) {
+    auto& link = peer_links_[peer];
+    auto& score = link.score;
+    score.strikes = decayed(score.strikes, score.decay_mark_ms, now_ms, config_.strike_decay_ms);
+    score.decay_mark_ms = now_ms;
+    score.strikes += strike_weight(fault);
+    score.probation = false;  // a fault during probation ends the benefit of the doubt
+    ++counters_.strikes_by_kind[fault];
+    if (config_.strike_threshold != 0 && score.strikes >= config_.strike_threshold)
+        start_ban(peer, link, now_ms);
+}
+
+void Node::confirmed(const NodeId& peer, uint64_t now_ms) {
+    const auto it = peer_links_.find(peer);
+    if (it == peer_links_.end() || !it->second.score.probation)
+        return;
+    lift_ban(peer, it->second, BanEdge::Lifted, now_ms);
+}
+
+void Node::start_ban(const NodeId& peer, PeerLink& link, uint64_t now_ms) {
+    auto& score = link.score;
+    const auto strikes = score.strikes;
+    // A peer that faults again *while* banned (during probation) re-bans at a longer duration. It
+    // must not be counted as a second currently-banned peer: the gauge counts peers, not edges.
+    const bool was_banned = score.banned_until_ms != 0;
+    ++score.ban_count;
+    // Doubling keeps a persistent attacker cheap to hold off and a flapping peer recoverable
+    // (D3). The shift is clamped so a long-running node cannot overflow its way to a short ban.
+    const auto shift = std::min<std::uint32_t>(score.ban_count - 1, 30);
+    auto duration = static_cast<uint64_t>(config_.ban_base_ms) << shift;
+    duration = std::min<uint64_t>(duration, config_.ban_max_ms);
+    score.banned_until_ms = now_ms + duration;
+    // The ban is the escalation from here on: the peer starts clean inside it, so a ban is served
+    // once rather than re-triggered by the strikes that caused it.
+    score.strikes = 0;
+    score.decay_mark_ms = now_ms;
+    score.probation = false;
+    ++counters_.bans_started;
+    if (!was_banned)
+        ++counters_.peer_bans;
+    // Tell the transport, so a real link can drop the frames without decoding them. Optional: a
+    // transport that ignores this is still correct, only less cheap.
+    transport_.set_peer_ignored(peer, true);
+    notify_ban(BanEvent{peer, BanEdge::Started, score.ban_count, strikes, duration});
+}
+
+void Node::lift_ban(const NodeId& peer, PeerLink& link, BanEdge edge, uint64_t now_ms) {
+    auto& score = link.score;
+    const bool was_banned = score.banned_until_ms != 0;
+    score.banned_until_ms = 0;
+    score.probation = false;
+    score.strikes = 0;
+    score.decay_mark_ms = now_ms;
+    if (!was_banned)
+        return;
+    if (counters_.peer_bans != 0)
+        --counters_.peer_bans;
+    transport_.set_peer_ignored(peer, false);
+    // `ban_count` is deliberately kept: escalation is a property of the peer, not of this one ban.
+    notify_ban(BanEvent{peer, edge, score.ban_count, 0, 0});
+}
+
+void Node::expire_bans(uint64_t now_ms) {
+    for (auto& [peer, link] : peer_links_)
+        if (link.score.banned_until_ms != 0 && now_ms >= link.score.banned_until_ms)
+            lift_ban(peer, link, BanEdge::Expired, now_ms);
+}
+
+void Node::notify_ban(const BanEvent& event) const {
+    if (on_ban_)
+        on_ban_(event);
+}
+
+uint32_t Node::peer_strikes(const NodeId& peer, uint64_t now_ms) const {
+    const auto it = peer_links_.find(peer);
+    if (it == peer_links_.end())
+        return 0;
+    return decayed(it->second.score.strikes, it->second.score.decay_mark_ms, now_ms,
+                   config_.strike_decay_ms);
+}
+
+bool Node::peer_banned(const NodeId& peer, uint64_t now_ms) const {
+    const auto it = peer_links_.find(peer);
+    return it != peer_links_.end() && it->second.score.banned_until_ms > now_ms;
 }
 
 bool Node::accept_payload(const NodeId& peer) {

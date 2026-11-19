@@ -53,6 +53,12 @@ public:
     void heal(const NodeId& a, const NodeId& b);
     bool partitioned(const NodeId& a, const NodeId& b) const;
 
+    /// Simulate a frame from `from` that does not decode: `to`'s transport reports a decode fault
+    /// from that peer the next time it is asked, and nothing is delivered. The simulator carries
+    /// decoded values, so a bad frame cannot be expressed any other way - which is precisely why
+    /// the transport has to report decode faults separately from messages (SEC-2).
+    void inject_undecodable(const NodeId& from, const NodeId& to);
+
     /// Set the simulated clock and release every message whose arrival time has come. Sends issued
     /// from now on are scheduled relative to this time.
     void advance(std::uint64_t now_ms);
@@ -80,6 +86,7 @@ private:
 
     struct Peer {
         std::deque<Envelope> inbox;
+        std::vector<NodeId> decode_faults;  // senders of frames that did not decode
         Matcher subs;
     };
     struct LinkState {
@@ -130,6 +137,9 @@ public:
     void send(const NodeId& to, Message message) override;
     std::optional<Envelope> poll() override;
     std::vector<NodeId> peers() const override;
+    std::vector<NodeId> take_decode_faults() override;
+    // No set_peer_ignored(): the simulator delivers decoded messages, so there is nothing to skip.
+    // Node's own choke point is what the sims exercise, and their counters are the node's.
 
 private:
     SimNetwork& net_;

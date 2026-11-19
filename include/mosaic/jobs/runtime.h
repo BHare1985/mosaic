@@ -55,7 +55,9 @@ private:
     struct Due {
         JobRequest request;
         std::uint32_t delay_ms = 0;  // rank x slot: how long after seeing it this node may run
-        std::uint64_t at_ms = 0;     // absolute deadline, fixed on the first tick after it was seen
+        std::uint64_t at_ms = 0;     // absolute deadline, counted from the first tick after arrival
+        /// Ranked on the first tick rather than on arrival: ranking needs the clock (to know which
+        /// peers are banned) and this class never reads one itself.
         bool scheduled = false;
     };
 
@@ -63,6 +65,9 @@ private:
     bool finished(const std::string& job_id) const {
         return finished_.count(job_id) != 0;
     }
+    /// The ranking this node will act on: `workers_` minus the peers it currently bans. A ban the
+    /// node enforces on traffic but not on work would be a ban in name only (SEC-2).
+    std::vector<NodeId> ranking_for(const std::string& job_id, std::uint64_t now_ms) const;
 
     Node& node_;
     const Signer& signer_;

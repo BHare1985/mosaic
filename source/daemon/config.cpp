@@ -45,6 +45,11 @@ constexpr Setting kSettings[] = {
     {"node", "max_head_patterns", "64", "Most patterns a single head request may carry"},
     {"node", "max_requests_per_interval", "32",
      "Requests of one kind served per peer per interval"},
+    {"node", "strike_threshold", "8",
+     "Strikes a peer may collect before it is banned; 0 disables banning"},
+    {"node", "strike_decay_ms", "60000", "How long a strike takes to decay to nothing"},
+    {"node", "ban_base_ms", "5000", "First ban duration; each further ban doubles it"},
+    {"node", "ban_max_ms", "600000", "Longest a ban can last"},
     {"node", "curve", "on", "on or off: encrypt links (turn off only for diagnostics)"},
     {"log", "level", "info", "debug, info or error"},
     {"log", "status_interval_ms", "10000", "How often to print the counter summary"},
@@ -167,6 +172,14 @@ struct Walker {
                 number(config.max_head_patterns);
             else if (key == "max_requests_per_interval")
                 number(config.max_requests_per_interval);
+            else if (key == "strike_threshold")
+                number(config.strike_threshold);
+            else if (key == "strike_decay_ms")
+                number(config.strike_decay_ms);
+            else if (key == "ban_base_ms")
+                number(config.ban_base_ms);
+            else if (key == "ban_max_ms")
+                number(config.ban_max_ms);
             else if (key == "curve") {
                 if (value == "on")
                     config.curve = true;

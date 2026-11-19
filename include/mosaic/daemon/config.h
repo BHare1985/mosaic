@@ -51,6 +51,10 @@ struct Config {
     std::uint32_t max_record_bytes = 262144;
     std::uint32_t max_head_patterns = 64;
     std::uint32_t max_requests_per_interval = 32;
+    std::uint32_t strike_threshold = 8;
+    std::uint32_t strike_decay_ms = 60000;
+    std::uint32_t ban_base_ms = 5000;
+    std::uint32_t ban_max_ms = 600000;
     // log
     /// Encrypt links. On by default; the only reason to turn it off is a diagnostic or a loopback
     /// test, so it is stated in the config rather than implied by whether a keystore happens to

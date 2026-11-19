@@ -25,6 +25,10 @@ behaviour. SIM-2 turns this into a seed sweep so failures print a reproducible s
 4. No new dependency in `core`..`node`; no ZeroMQ headers outside the ZeroMQ transport.
 5. Every `TODO(ID)` you leave behind exists in [TODO.md](TODO.md).
 
+`scripts/ci.sh` is the gate and runs the same steps locally: four build configurations, sanitizers, the documentation
+build, the front page's links and identity block (`scripts/check_readme.sh`), lint and format. A task is not done because the
+tests pass; it is done when the whole check does.
+
 ## Commands
 ```bash
 cmake -S test -B build/test -DMOSAIC_WITH_ZMQ=OFF -DMOSAIC_BUILD_ZMQ_FROM_SOURCE=OFF && cmake --build build/test -j && ./build/test/MosaicTests   # fast loop

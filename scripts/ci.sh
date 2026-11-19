@@ -70,6 +70,13 @@ else
     grep -E '^docs:' /tmp/ci-docs.log | tail -1
 fi
 
+step "front page"
+# The README is the front door and the reference site's mainpage, so a moved directory or an unbalanced code fence breaks
+# it silently. The check reads the page itself; prose is a review question (spec: docs/front-page).
+if ! ./scripts/check_readme.sh; then
+    fail "front page"
+fi
+
 step "lint"
 # Correctness is gated; style suggestions are reported. clang-tidy is optional, like doxygen: absent, the step says
 # so instead of passing silently. See docs/design/conventions.md for the manual commands.

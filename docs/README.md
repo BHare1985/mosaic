@@ -2,6 +2,7 @@
 
 | Folder / file | What belongs there | Rendered into the site? |
 |---|---|---|
+| `../README.md` | The front door: what it is, why you would use it, who it is for, what it costs, where to read next. Checked by `scripts/check_readme.sh` (spec: `docs/front-page`) | yes - it is the site's mainpage |
 | `design/` | Rationale: the overview, the data model, the protocol, matching, flow control, node and transport, jobs, security, testing, operations, the decisions log, and the TODO board | no |
 | `site/` | The documentation generator: `Doxyfile`, the m.css config, the hand-written pages, the CMake target | that *is* the generator |
 | `references/` | Fetched upstream copies (Dafka, Malamute, Zyre, the ZeroMQ Guide), git-ignored | no |

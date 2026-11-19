@@ -15,7 +15,7 @@
   Running it: `docs/design/09-operations.md`. Why it is shaped this way: `docs/direction.md`.
 */
 
-/** @page modules The modules
+/** @page modulemap The modules
 
   Dependencies only ever point leftward: a module may include the ones before it and no others. `match` and
   `flow` have no dependencies at all.

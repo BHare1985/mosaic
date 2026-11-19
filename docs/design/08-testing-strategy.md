@@ -26,7 +26,8 @@ behaviour. SIM-2 turns this into a seed sweep so failures print a reproducible s
 5. Every `TODO(ID)` you leave behind exists in [TODO.md](TODO.md).
 
 `scripts/ci.sh` is the gate and runs the same steps locally: four build configurations, sanitizers, the documentation
-build, the front page's links and identity block (`scripts/check_readme.sh`), lint and format. A task is not done because the
+build, the front page's links and identity block (`scripts/check_readme.sh`), the site's indexes and navbar
+(`scripts/check_site.sh`), lint and format. A task is not done because the
 tests pass; it is done when the whole check does.
 
 ## Commands

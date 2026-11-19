@@ -43,3 +43,22 @@
   - match: channel pattern matching
   - jobs: calling a service by name over logs
 */
+
+/* These two blocks are not decoration: m.css only indexes a compound that has a brief or a description, and it nests members
+   under their parent. An undocumented `mosaic` namespace therefore fails that test and is dropped - taking every class and
+   struct inside it out of the Classes and Namespaces indexes with it. Documenting the namespace is what makes the site
+   navigable. See the change `repair-and-brand-the-reference-site` and scripts/check_site.sh, which fails if the indexes come
+   back empty. */
+
+/** @namespace mosaic
+  @brief The library's public interface.
+
+  Records and their hashing and signing seams, the store and log layers, channel matching, credit control, the transports, and
+  the node that wires them together. A caller that includes `<mosaic/...>` headers is talking to this namespace.
+*/
+
+/** @namespace mosaic::daemon
+  @brief Configuration and the long-running process built from it.
+
+  ZPL parsing with whole-file validation, the printable defaults, and the `mosaicd` run loop that owns time and the store.
+*/

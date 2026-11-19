@@ -70,6 +70,13 @@ else
     grep -E '^docs:' /tmp/ci-docs.log | tail -1
 fi
 
+step "site"
+# A site that builds is not a site that works: the index pages are checked for content, and every navbar entry must open a
+# page rather than a shell (spec: docs/reference-site).
+if ! ./scripts/check_site.sh; then
+    fail "site"
+fi
+
 step "front page"
 # The README is the front door and the reference site's mainpage, so a moved directory or an unbalanced code fence breaks
 # it silently. The check reads the page itself; prose is a review question (spec: docs/front-page).

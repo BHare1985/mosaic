@@ -5,6 +5,13 @@
 # Get Project name and version from CMake
 PROJECT_NAME = @DOXYGEN_PROJECT_NAME@
 PROJECT_NUMBER = @DOXYGEN_PROJECT_VERSION@
+# Identity in the site's header: the one-line description beside the name, and the project's original logo. The logo is
+# referenced by its historical URL rather than copied into the repository - m.css emits an absolute URL unchanged and skips
+# copying it, so the build needs no asset and no network. M_THEME_COLOR must be quoted: an unquoted '#' starts a Doxyfile
+# comment and the value silently becomes empty.
+PROJECT_BRIEF = "Brokerless, verifiable, replicated logs for C++20"
+PROJECT_LOGO = https://github.com/BHare1985/mosaic/assets/2180284/73ac71af-2309-4efd-a24a-bf8d8b021eb1
+M_THEME_COLOR = "#4A0380"
 
 # Add sources
 INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/docs/site/pages

@@ -1,8 +1,13 @@
 // The transport contract, run against the real ZeroMQ transport over loopback TCP (ZMQ-1). The
 // suite is reused unchanged: adding a transport costs exactly this factory and nothing else.
+#include <mosaic/core/insecure_test_signer.h>
 #include <mosaic/core/keystore.h>
 #include <mosaic/net/peer_pins.h>
+#include <mosaic/net/sim_network.h>
 #include <mosaic/net/zmq_transport.h>
+#include <mosaic/node/node.h>
+#include <mosaic/proto/codec.h>
+#include <mosaic/store/memory_log_store.h>
 
 #include <chrono>
 #include <cstring>
@@ -330,6 +335,68 @@ TEST_CASE("a peer presenting an unlisted key is refused at handshake") {
             delivered = true;
     }
     CHECK(delivered);
+    remove(pins_path.c_str());
+}
+
+// Gossip only supplies an address; the pin policy decides whether the peer behind it is allowed in.
+// This is the promise of DISC-3: learning a name grants nothing (SEC-1b).
+TEST_CASE("an address learned through gossip still passes the pin policy") {
+    REQUIRE(ZmqTransport::curve_available());
+    const auto a_node = make_node();
+    const auto imposter_node = make_node();
+
+    const string pins_path = "test-zmq-gossip-pins.txt";
+    remove(pins_path.c_str());
+    {
+        PeerPins pins(PeerPins::Mode::Closed);
+        pins.pin("friend", "nobody-holds-this-key");  // the gossiped address is not authorised
+        REQUIRE(pins.save(pins_path));
+    }
+
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    a_cfg.link_policy = ZmqLinkPolicy::Closed;
+    a_cfg.curve = ZmqCurveConfig{true, a_node.curve.public_z85, a_node.curve.secret_z85, pins_path};
+    ZmqTransport a(a_cfg);
+
+    // A stranger stands where gossip says "friend" lives, and speaks CURVE correctly.
+    ZmqConfig imposter_cfg;
+    imposter_cfg.id = "friend";
+    imposter_cfg.curve =
+        ZmqCurveConfig{true, imposter_node.curve.public_z85, imposter_node.curve.secret_z85, ""};
+    ZmqTransport imposter(imposter_cfg);
+
+    // A node learns that address through gossip and hands it to the dialler, as the daemon does.
+    SimNetwork net(401);
+    SimTransport transport(net, "a");
+    SimTransport source(net, "gossip-source");  // the peer that tells us about "friend"
+    MemoryLogStore store;
+    Sha256Hasher hasher;
+    InsecureTestSigner anyone("anyone");  // gossip never touches records; any verifier will do
+    NodeConfig config;
+    config.id = "a";
+    config.gossip_interval_ms = 0;
+    Node node(config, transport, store, hasher, anyone);
+    source.send("a", PeersMsg{{PeerEntry{"friend", imposter.pub_endpoint(),
+                                         imposter.router_endpoint(), 1, 0}}});
+    net.advance(0);  // the simulator schedules delivery; release what is due
+    node.pump(0);
+    const auto candidates = node.take_new_gossip_peers();
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates.front().id == "friend");
+
+    a.add_peer(ZmqPeerEndpoint{candidates.front().id, candidates.front().pub_endpoint,
+                               candidates.front().router_endpoint, imposter_node.curve.public_z85});
+    imposter.add_peer(
+        ZmqPeerEndpoint{"a", a.pub_endpoint(), a.router_endpoint(), a_node.curve.public_z85});
+
+    const auto settle_both = settle_with({&a, &imposter});
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        imposter.send("a", HeadMsg{LogKey{"w", "c"}, static_cast<uint64_t>(attempt), Hash{}});
+        settle_both();
+        CHECK_FALSE(a.poll().has_value());  // refused at the handshake, whatever gossip said
+    }
+    CHECK(a.curve_rejects() > 0);
     remove(pins_path.c_str());
 }
 

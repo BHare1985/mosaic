@@ -50,6 +50,12 @@ constexpr Setting kSettings[] = {
     {"node", "strike_decay_ms", "60000", "How long a strike takes to decay to nothing"},
     {"node", "ban_base_ms", "5000", "First ban duration; each further ban doubles it"},
     {"node", "ban_max_ms", "600000", "Longest a ban can last"},
+    {"node", "gossip_interval_ms", "5000",
+     "How often to offer peers' addresses to neighbours; 0 disables gossip"},
+    {"node", "gossip_fanout", "2", "Neighbours offered the peer list each round"},
+    {"node", "gossip_max_hops", "6", "How far a learned address may travel from its origin"},
+    {"node", "gossip_entry_ttl_ms", "30000", "How long a gossiped address survives unrefreshed"},
+    {"node", "gossip_table_limit", "256", "Most gossiped peers remembered at once"},
     {"node", "curve", "on", "on or off: encrypt links (turn off only for diagnostics)"},
     {"log", "level", "info", "debug, info or error"},
     {"log", "status_interval_ms", "10000", "How often to print the counter summary"},
@@ -180,6 +186,16 @@ struct Walker {
                 number(config.ban_base_ms);
             else if (key == "ban_max_ms")
                 number(config.ban_max_ms);
+            else if (key == "gossip_interval_ms")
+                number(config.gossip_interval_ms);
+            else if (key == "gossip_fanout")
+                number(config.gossip_fanout);
+            else if (key == "gossip_max_hops")
+                number(config.gossip_max_hops);
+            else if (key == "gossip_entry_ttl_ms")
+                number(config.gossip_entry_ttl_ms);
+            else if (key == "gossip_table_limit")
+                number(config.gossip_table_limit);
             else if (key == "curve") {
                 if (value == "on")
                     config.curve = true;

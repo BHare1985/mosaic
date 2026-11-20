@@ -363,7 +363,12 @@ TEST_CASE("a node with no callback is a pure replica and still serves repairs") 
         MemoryLogStore store;
         Node node;
         StoreNode(SimNetwork& net, const NodeId& id, const Hasher& hasher, const Verifier& verifier)
-            : transport(net, id), node(NodeConfig{.id = id}, transport, store, hasher, verifier) {}
+            : transport(net, id), node(config_for(id), transport, store, hasher, verifier) {}
+        static NodeConfig config_for(const NodeId& id) {
+            NodeConfig config;
+            config.id = id;
+            return config;
+        }
     };
 
     Peer writer(net, "writer", hasher, alice);

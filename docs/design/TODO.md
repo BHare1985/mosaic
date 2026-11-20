@@ -21,7 +21,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M1 — trustworthy sim** | CORE-3, STORE-0, ~~NET-0~~ ✅, ~~SIM-1~~ ✅, ~~SIM-2~~ ✅, ~~NODE-1~~ ✅, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
 | **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, ~~SEC-1~~ ✅, ~~SEC-1b~~ ✅, ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
-| **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, DISC-2 | writer can go offline; slow followers handled; LAN auto-discovery still open |
+| **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, ~~DISC-2~~ ✅ | writer can go offline; slow followers handled; LAN auto-discovery works |
 | **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, JOBS-4 🟡 | call a service by name over the same network; capacity-aware ranking still open |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
 
@@ -81,7 +81,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | ZMQ-1 | ZeroMQ transport, layout B (PUB/SUB live + ROUTER/DEALER unicast), per [05](05-node-and-transport.md) | L | ZMQ-0, ENC-1, NET-0 | Passes NET-0 over loopback TCP; two processes converge; prefix-subscription rule from [03](03-matching-and-channels.md) tested | ✅
 | DISC-1 | Wire `Discovery` into the ZeroMQ transport (static list) | M | ZMQ-1 | Nodes connect to peers from config | ✅
 | DISC-2 | LAN beacon discovery | M | DISC-1 | Two hosts on a LAN find each other with no config | ✅
-| DISC-3 | Gossip peer lists over the protocol | L | DISC-1, HELLO-1 | Removing any single node does not stop discovery | ⬜ blocked: zgossip's event stream is private to czmq (see upstream-notes); needs gossip over our own protocol
+| DISC-3 | Gossip peer lists over the protocol | L | DISC-1, HELLO-1 | Removing any single node does not stop discovery | ✅ |
 
 ## node
 | ID | Task | Size | Depends | Acceptance criteria |

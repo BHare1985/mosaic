@@ -30,8 +30,16 @@ inline constexpr std::uint8_t kMsgAck = 6;
 inline constexpr std::uint8_t kMsgCredit = 7;
 inline constexpr std::uint8_t kMsgGetHeads = 8;
 inline constexpr std::uint8_t kMsgDirectHead = 9;
+inline constexpr std::uint8_t kMsgPeers = 10;
 /// Everything at or above this is reserved for experiments; a receiver ignores it.
 inline constexpr std::uint8_t kMsgExperimental = 128;
+
+/// Most peer entries one PeersMsg may carry. A peer list is a hint, so a message that claims more
+/// than this is refused whole rather than partly believed (DISC-3).
+inline constexpr std::uint32_t kMaxPeersEntries = 64;
+/// Oldest age a peer entry may claim. A frame-level sanity bound, not the entry's lifetime: the
+/// node expires entries on its own configured clock.
+inline constexpr std::uint64_t kMaxPeerEntryAgeMs = 4ull * 60 * 60 * 1000;
 
 /// Hard limits, checked before any allocation happens (hostile input is expected).
 inline constexpr std::uint32_t kMaxFrameBytes = 1u << 20;   // 1 MiB
@@ -44,6 +52,7 @@ enum class DecodeStatus {
     UnknownId,  // an id this build does not implement: ignore and count, do not fail the link
     Malformed,  // decoded fields do not re-encode identically, or trailing bytes remain
     UnsupportedVersion,  // a hello announcing a protocol version we cannot speak
+    TooManyEntries,      // a peer list above kMaxPeersEntries
 };
 
 const char* to_string(DecodeStatus status);
@@ -56,6 +65,11 @@ struct DecodeResult {
         return status == DecodeStatus::Ok && message.has_value();
     }
 };
+
+/// Is this a peer endpoint this protocol accepts: "tcp://host:port" with a port in range? Exposed
+/// so a peer list that arrives as a value (a simulator, a test) is held to the same rule the
+/// decoder applies to bytes.
+bool valid_peer_endpoint(const std::string& endpoint);
 
 /// A message's permanent id.
 std::uint8_t message_id(const Message& message);

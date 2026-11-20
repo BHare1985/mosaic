@@ -97,6 +97,11 @@ struct Socket {
         size_t size = sizeof(buffer) - 1;
         if (zmq_getsockopt(handle, ZMQ_LAST_ENDPOINT, buffer, &size) != 0)
             return {};
+        // libzmq counts the terminating NUL in the size it reports, so a raw copy carries it into
+        // every endpoint string this transport hands out - which then fails any comparison, any
+        // length check and any address validation that expects a bare "tcp://host:port".
+        while (size > 0 && buffer[size - 1] == '\0')
+            --size;
         return string(buffer, size);
     }
 };

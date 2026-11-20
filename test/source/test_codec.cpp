@@ -44,6 +44,8 @@ vector<Message> every_message() {
         Message{DirectHeadMsg{record.key(), 7, record.prev}},
         Message{CreditMsg{42}},
         Message{HelloMsg{kProtocolVersion, {"events.>", "svc.x"}}},
+        Message{PeersMsg{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1, 250},
+                          PeerEntry{"c", "tcp://10.0.0.3:5555", "tcp://10.0.0.3:5556", 2, 0}}}},
     };
 }
 }  // namespace
@@ -51,15 +53,16 @@ vector<Message> every_message() {
 // Ids are permanent: this test exists so a renumbering fails loudly rather than breaking peers.
 TEST_CASE("message ids are pinned") {
     const auto messages = every_message();
-    CHECK(message_id(messages[0]) == 1);  // RecordMsg
-    CHECK(message_id(messages[1]) == 4);  // DirectRecordMsg
-    CHECK(message_id(messages[2]) == 2);  // HeadMsg
-    CHECK(message_id(messages[3]) == 3);  // FetchMsg
-    CHECK(message_id(messages[4]) == 6);  // AckMsg
-    CHECK(message_id(messages[5]) == 8);  // GetHeadsMsg
-    CHECK(message_id(messages[6]) == 9);  // DirectHeadMsg
-    CHECK(message_id(messages[7]) == 7);  // CreditMsg
-    CHECK(message_id(messages[8]) == 5);  // HelloMsg
+    CHECK(message_id(messages[0]) == 1);   // RecordMsg
+    CHECK(message_id(messages[1]) == 4);   // DirectRecordMsg
+    CHECK(message_id(messages[2]) == 2);   // HeadMsg
+    CHECK(message_id(messages[3]) == 3);   // FetchMsg
+    CHECK(message_id(messages[4]) == 6);   // AckMsg
+    CHECK(message_id(messages[5]) == 8);   // GetHeadsMsg
+    CHECK(message_id(messages[6]) == 9);   // DirectHeadMsg
+    CHECK(message_id(messages[7]) == 7);   // CreditMsg
+    CHECK(message_id(messages[8]) == 5);   // HelloMsg
+    CHECK(message_id(messages[9]) == 10);  // PeersMsg
 }
 
 TEST_CASE("every message round-trips byte for byte") {
@@ -91,6 +94,57 @@ TEST_CASE("the wire format matches its golden vectors") {
     CHECK(to_hex(encode_message(Message{HelloMsg{1, {"events.>", "svc.x"}}})) ==
           "0000001b050100000002000000086576656e74732e3e000000057376632e78");
     CHECK(to_hex(encode_message(Message{CreditMsg{42}})) == "00000005070000002a");
+    // A peer list: u32 count, then per entry the id, both endpoints, hops and age, each
+    // length-prefixed.
+    CHECK(
+        to_hex(
+            encode_message(Message{PeersMsg{{PeerEntry{"b", "tcp://h:1", "tcp://h:2", 1, 5}}}})) ==
+        "000000300a000000010000000162000000097463703a2f2f683a31000000097463703a2f2f683a320000000100"
+        "00000000000005");
+}
+
+TEST_CASE("a peer list is believed whole or not at all") {
+    const auto one = [] {
+        return PeersMsg{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1, 250}}};
+    };
+
+    SUBCASE("a truncated list is refused") {
+        Bytes frame = encode_message(Message{one()});
+        frame.resize(frame.size() - 1);
+        CHECK(decode_message(frame).status == DecodeStatus::Truncated);
+        CHECK_FALSE(decode_message(frame).message.has_value());
+    }
+
+    SUBCASE("a list above the per-message cap is refused whole") {
+        PeersMsg flood;
+        for (uint32_t i = 0; i < kMaxPeersEntries + 1; ++i)
+            flood.entries.push_back(
+                PeerEntry{"p" + std::to_string(i), "tcp://h:1", "tcp://h:2", 1, 0});
+        CHECK(decode_message(encode_message(Message{flood})).status ==
+              DecodeStatus::TooManyEntries);
+        CHECK_FALSE(decode_message(encode_message(Message{flood})).message.has_value());
+    }
+
+    SUBCASE("an endpoint that is not a tcp address is malformed") {
+        PeersMsg bad{{PeerEntry{"b", "udp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1, 0}}};
+        CHECK(decode_message(encode_message(Message{bad})).status == DecodeStatus::Malformed);
+        PeersMsg no_port{{PeerEntry{"b", "tcp://10.0.0.2", "tcp://10.0.0.2:5556", 1, 0}}};
+        CHECK(decode_message(encode_message(Message{no_port})).status == DecodeStatus::Malformed);
+        PeersMsg port_zero{{PeerEntry{"b", "tcp://10.0.0.2:0", "tcp://10.0.0.2:5556", 1, 0}}};
+        CHECK(decode_message(encode_message(Message{port_zero})).status == DecodeStatus::Malformed);
+    }
+
+    SUBCASE("an age from the future is refused") {
+        PeersMsg stale{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1,
+                                  kMaxPeerEntryAgeMs + 1}}};
+        CHECK(decode_message(encode_message(Message{stale})).status == DecodeStatus::Malformed);
+    }
+
+    SUBCASE("an empty list is a valid message") {
+        const auto decoded = decode_message(encode_message(Message{PeersMsg{}}));
+        REQUIRE(decoded.ok());
+        CHECK(std::get<PeersMsg>(*decoded.message).entries.empty());
+    }
 }
 
 TEST_CASE("a truncated frame is rejected") {

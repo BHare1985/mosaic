@@ -214,6 +214,43 @@ peer
 #endif
 
 #ifdef MOSAIC_HAS_CZMQ
+TEST_CASE("gossip is configurable, and its defaults are the documented ones") {
+    const auto path = write_temp("test-config-gossip.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+    gossip_interval_ms = 1000
+    gossip_fanout = 3
+    gossip_max_hops = 4
+    gossip_entry_ttl_ms = 5000
+    gossip_table_limit = 32
+)");
+    const auto result = load_config(path);
+    for (const auto& error : result.errors)
+        MESSAGE(error.where << ": " << error.message);
+    REQUIRE(result.ok());
+    CHECK(result.config.gossip_interval_ms == 1000);
+    CHECK(result.config.gossip_fanout == 3);
+    CHECK(result.config.gossip_max_hops == 4);
+    CHECK(result.config.gossip_entry_ttl_ms == 5000);
+    CHECK(result.config.gossip_table_limit == 32);
+    remove(path.c_str());
+
+    const auto bare = write_temp("test-config-gossip-bare.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+)");
+    const auto defaults = load_config(bare);
+    REQUIRE(defaults.ok());
+    CHECK(defaults.config.gossip_interval_ms == 5000);
+    CHECK(defaults.config.gossip_fanout == 2);
+    CHECK(defaults.config.gossip_max_hops == 6);
+    CHECK(defaults.config.gossip_entry_ttl_ms == 30000);
+    CHECK(defaults.config.gossip_table_limit == 256);
+    remove(bare.c_str());
+}
+
 TEST_CASE("the daemon reports bans, and every ban edge is one readable line") {
     // What an operator sees: the status line must name the ban counters, and each edge must be a
     // single line that says what happened without making them read a log. Both are pure functions

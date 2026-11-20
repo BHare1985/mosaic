@@ -56,7 +56,38 @@ Whichever layout: bind a PUB (and ROUTER) per node; connect SUBs/DEALERs to disc
 prefix-subscription rule from [03](03-matching-and-channels.md); one I/O thread, poll loop owning all sockets
 (`zmq_poll`), feeding `poll()`.
 
-## Discovery (⬜ DISC-1..3)
-`Discovery::peers()` today only has `StaticDiscovery`. Order of work: static list wired into the ZeroMQ transport →
-gossip of peer lists (as ordinary messages) → LAN UDP beacon → optional rendezvous server. No single point of failure
-should be required for operation (unlike Dafka's tower).
+## Peer-list gossip (✅ DISC-3, implemented in `Node`)
+
+Three ways to learn an address, in the order they were built: a static list, a LAN beacon, and gossip. The beacon only reaches
+one link layer, so a deployment without a shared segment needed every node listed everywhere - and removing one node from such
+a list disconnected whoever learned of each other through it.
+
+Gossip is a protocol message rather than a socket concern: `PeersMsg` (id 10) carries bounded entries of
+`(id, pub endpoint, router endpoint, hops, age)`, is encoded by `proto`, carried by `Transport` and handled by `Node`. That is
+why it needs no new thread, no new socket type and no czmq - which was the blocker for `zgossip`
+([upstream-notes](../upstream-notes.md#finding-zgossip-can-be-commanded-but-not-listened-to-from-outside-czmq)).
+
+- **Push, with ages.** Every `gossip_interval_ms` (default 5 s) a node offers its freshest entries to `gossip_fanout`
+  neighbours (default 2). Epidemic spread with fanout 2 covers a network in O(log N) rounds, and one small message per interval
+  costs less than the head announcements already flowing.
+- **A node advertises itself** (`hops = 0`), so its address does not depend on a third party staying alive. Without that, every
+  entry would die with its only introducer.
+- **`hops` is a distance, not a countdown** (capped at `gossip_max_hops`, default 6): a nearer entry describes a peer better
+  than one six hops away that may be quoting a stale address, so a closer sighting wins.
+- **`age` is staleness, not longevity**: the sender reports how long since anything confirmed the entry, so a node that has known
+  a peer for an hour still emits a fresh entry. Entries that nothing refreshes expire after `gossip_entry_ttl_ms` (default 30 s).
+- **The table is bounded** (`gossip_table_limit`, default 256) by recency, and an entry that is stale, too far, malformed,
+  oversized or about ourselves is refused and counted. A peer list over the per-message cap is refused **whole** with one strike
+  - the same fault the wire decoder reports for the same bytes.
+- **A hint, never authority.** `Node` never dials: `take_new_gossip_peers()` hands candidates to the caller (the daemon), which
+  goes through `ZmqTransport::add_peer` - so CURVE and `PeerPins` decide as they do for any other peer. A peer the config file
+  placed is never re-dialled at a gossiped address (`set_configured_peers`).
+
+Counter to watch: `mosaicd`'s `discovered` counts peers learned this way. Verified end to end by three daemons where the
+third knows only the first and still reaches the second.
+
+## Discovery (✅ DISC-1..3)
+Four ways to find a peer, none of them a single point of failure (unlike Dafka's tower): the static list in the config, the LAN
+beacon (`ZmqBeaconDiscovery`, czmq's `zbeacon` on its own thread, its findings crossing into the node loop as values), peer-list
+gossip above, and a rendezvous server if an operator ever wants one - it would be the same `PeerDiscovery` shape as the others.
+`PeerBook` is the shared bookkeeping: dial a peer once, remember it, notice one that goes quiet before forgetting it.

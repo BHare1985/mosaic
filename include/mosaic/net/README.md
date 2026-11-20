@@ -17,5 +17,6 @@ injectable in simulated time. `Discovery` answers "who are my peers?".
   and `set_peer_ignored()` (drop a banned peer's frames before decoding). `SimTransport` deliberately implements only the first:
   it carries decoded values, so a sim exercises `Node`'s own choke point and its counters.
 
-**Open work:** ZMQ-1, DISC-1..3. The simulator (SIM-1), the seed-sweep runner (SIM-2) and the conformance suite (NET-0)
-are done: `test/source/scenario.h` and `test/source/transport_conformance.h`.
+**Open work:** none from this module's own list. ZMQ-1, DISC-1, DISC-2, DISC-3 and NET-0 are done; gossip lives in `node`
+(it is a protocol message, not a socket concern - see `docs/design/05-node-and-transport.md`). The simulator (SIM-1) and the
+seed-sweep runner (SIM-2) are done: `test/source/scenario.h` and `test/source/transport_conformance.h`.

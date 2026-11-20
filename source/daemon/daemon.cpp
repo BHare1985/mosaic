@@ -27,6 +27,7 @@ using std::string;
 using std::uint32_t;
 using std::uint64_t;
 using std::unique_ptr;
+using std::vector;
 
 namespace mosaic::daemon {
 
@@ -146,11 +147,28 @@ unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
     node_config.strike_decay_ms = config.strike_decay_ms;
     node_config.ban_base_ms = config.ban_base_ms;
     node_config.ban_max_ms = config.ban_max_ms;
+    node_config.gossip_interval_ms = config.gossip_interval_ms;
+    node_config.gossip_fanout = config.gossip_fanout;
+    node_config.gossip_max_hops = config.gossip_max_hops;
+    node_config.gossip_entry_ttl_ms = config.gossip_entry_ttl_ms;
+    node_config.gossip_table_limit = config.gossip_table_limit;
+    // A node introduces itself by gossip, so it needs to know where it is reachable. The transport
+    // has already resolved any ephemeral port by now.
+    node_config.pub_endpoint = self.transport->pub_endpoint();
+    node_config.router_endpoint = self.transport->router_endpoint();
 
     self.node =
         make_unique<Node>(node_config, *self.transport, *self.store, *self.hasher, *self.verifier);
     if (self.rules)
         self.node->set_rules(self.rules.get());
+    // Peers from the config file are placed by an operator: gossip may confirm them, never move
+    // them.
+    {
+        vector<NodeId> configured;
+        for (const auto& peer : config.peers)
+            configured.push_back(peer.id);
+        self.node->set_configured_peers(move(configured));
+    }
     // Both edges of every ban go to the operator. Printed at every level: a ban is the one thing
     // that makes a peer's traffic disappear, so silence must never be the only evidence (SEC-2).
     self.node->on_ban([](const BanEvent& event) { cout << ban_line(event) << endl; });
@@ -175,6 +193,19 @@ RunResult Daemon::run(const function<bool()>& stop, const function<void()>& on_i
 
         self.node->pump(self.now_ms);
         self.node->tick(self.now_ms);
+
+        // Peers learned by gossip are dialled through the same path a beacon candidate uses, so the
+        // key policy decides - and a peer the config file placed is never re-dialled elsewhere.
+        for (const auto& candidate : self.node->take_new_gossip_peers()) {
+            DiscoveredPeer found{candidate.id, candidate.pub_endpoint, {}};
+            if (!self.discovered.observe(found, self.now_ms))
+                continue;  // already known, or the book is full
+            ZmqPeerEndpoint endpoint;
+            endpoint.id = candidate.id;
+            endpoint.pub_endpoint = candidate.pub_endpoint;
+            endpoint.router_endpoint = candidate.router_endpoint;
+            self.transport->add_peer(endpoint);
+        }
 
         if (self.discovery) {
             for (const auto& candidate : self.discovery->poll_discovered()) {

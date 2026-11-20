@@ -73,7 +73,24 @@ struct HelloMsg {
     std::vector<std::string> patterns;
 };
 
+/// One peer a sender knows about (DISC-3). `hops` is how far the entry has travelled from its
+/// origin; `age_ms` is how long the sender has known it. Durations, never timestamps: clocks are
+/// not comparable across nodes and nobody should pretend they are.
+struct PeerEntry {
+    NodeId id;
+    std::string pub_endpoint;     // where that node's PUB listens, e.g. "tcp://10.0.0.2:5555"
+    std::string router_endpoint;  // where that node's ROUTER listens
+    std::uint32_t hops = 0;
+    std::uint64_t age_ms = 0;
+};
+
+/// Peer-list gossip: "here is who I know" (DISC-3). A hint, never authority: an entry grants
+/// nothing until the usual handshake and pin policy accept the link.
+struct PeersMsg {
+    std::vector<PeerEntry> entries;
+};
+
 using Message = std::variant<RecordMsg, DirectRecordMsg, HeadMsg, FetchMsg, AckMsg, GetHeadsMsg,
-                             DirectHeadMsg, CreditMsg, HelloMsg>;
+                             DirectHeadMsg, CreditMsg, HelloMsg, PeersMsg>;
 
 }  // namespace mosaic

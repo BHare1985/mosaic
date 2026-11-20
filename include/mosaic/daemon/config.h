@@ -55,6 +55,11 @@ struct Config {
     std::uint32_t strike_decay_ms = 60000;
     std::uint32_t ban_base_ms = 5000;
     std::uint32_t ban_max_ms = 600000;
+    std::uint32_t gossip_interval_ms = 5000;
+    std::uint32_t gossip_fanout = 2;
+    std::uint32_t gossip_max_hops = 6;
+    std::uint32_t gossip_entry_ttl_ms = 30000;
+    std::uint32_t gossip_table_limit = 256;
     // log
     /// Encrypt links. On by default; the only reason to turn it off is a diagnostic or a loopback
     /// test, so it is stated in the config rather than implied by whether a keystore happens to

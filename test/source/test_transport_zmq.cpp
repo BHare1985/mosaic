@@ -13,7 +13,9 @@
 #include <cstring>
 #include <doctest/doctest.h>
 #include <memory>
+#include <set>
 #include <thread>
+#include <zmq.h>  // a test that deliberately misbehaves has to speak the wire itself
 
 #include "transport_conformance.h"
 
@@ -22,12 +24,14 @@ namespace this_thread = std::this_thread;
 using std::function;
 using std::get_if;
 using std::make_shared;
+using std::make_unique;
 using std::move;
 using std::remove;
 using std::shared_ptr;
 using std::string;
 using std::strlen;
 using std::uint64_t;
+using std::unique_ptr;
 using std::vector;
 
 using namespace mosaic;
@@ -202,6 +206,232 @@ TEST_CASE("an ignored peer's traffic is dropped before decoding, and resumes on 
         resumed = collect(b, pair, 1);
     }
     REQUIRE_FALSE(resumed.empty());  // the peer kept its place in the set, so service resumed
+}
+
+// The poll set used to be `zmq_pollitem_t items[2 + 1]`, filled with one entry per wired peer:
+// three peers wrote past the end of a stack array. Peers arrive at runtime through configuration
+// and gossip, so the set has to be sized from the sockets it watches.
+TEST_CASE("polling watches every peer, not a fixed number of them") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+
+    // Five peers: two more than the old array could hold.
+    vector<unique_ptr<ZmqTransport>> peers;
+    vector<string> ids;
+    for (int i = 0; i < 5; ++i) {
+        const auto id = "p" + std::to_string(i);
+        ZmqConfig cfg;
+        cfg.id = id;
+        peers.push_back(make_unique<ZmqTransport>(cfg));
+        ids.push_back(id);
+        a.add_peer(
+            ZmqPeerEndpoint{id, peers.back()->pub_endpoint(), peers.back()->router_endpoint(), ""});
+        peers.back()->add_peer(ZmqPeerEndpoint{"a", a.pub_endpoint(), a.router_endpoint(), ""});
+    }
+
+    TransportPair pair;
+    pair.settle = settle;
+    std::set<string> heard;
+    for (int attempt = 0; attempt < 40 && heard.size() < ids.size(); ++attempt) {
+        for (size_t i = 0; i < peers.size(); ++i)
+            peers[i]->send("a", HeadMsg{LogKey{"w", "c"}, i + 1, Hash{}});
+        pair.settle();
+        while (auto envelope = a.poll())
+            heard.insert(envelope->from);
+    }
+    CHECK(heard.size() == ids.size());  // every peer is watched and delivered from
+    CHECK(a.malformed() == 0);          // and well-formed traffic is never called malformed
+}
+
+// A multipart message is atomic, so a peer that sends one frame too many must not leave the surplus
+// queued to be decoded as the *next* message.
+TEST_CASE("a message with a surplus frame is refused, and the next one still arrives") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+    TransportPair pair;
+    pair.settle = settle;
+
+    void* ctx = zmq_ctx_new();
+    void* rude = zmq_socket(ctx, ZMQ_DEALER);
+    zmq_setsockopt(rude, ZMQ_IDENTITY, "rude", 4);
+    zmq_connect(rude, a.router_endpoint().c_str());
+
+    // Identity + two frames: one frame more than a unicast message is allowed.
+    zmq_send(rude, "one", 3, ZMQ_SNDMORE);
+    zmq_send(rude, "two", 3, 0);
+    pair.settle();
+    CHECK_FALSE(a.poll().has_value());
+    CHECK(a.malformed() >= 1);
+
+    // The surplus was drained, so a well-formed message from the same peer is decoded normally.
+    const Bytes frame = encode_message(Message{HeadMsg{LogKey{"w", "c"}, 9, Hash{}}});
+    zmq_send(rude, frame.data(), frame.size(), 0);
+    bool arrived = false;
+    for (int attempt = 0; attempt < 20 && !arrived; ++attempt) {
+        pair.settle();
+        while (auto envelope = a.poll())
+            arrived = get_if<HeadMsg>(&envelope->message) != nullptr;
+    }
+    CHECK(arrived);
+
+    zmq_close(rude);
+    zmq_ctx_term(ctx);
+}
+
+// The frame limit is a socket option, so an oversized frame is refused before the decoder ever sees
+// it - no 1 MiB allocation per hostile message.
+TEST_CASE("a frame above the wire limit never reaches the decoder") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+    TransportPair pair;
+    pair.settle = settle;
+
+    void* ctx = zmq_ctx_new();
+    void* rude = zmq_socket(ctx, ZMQ_DEALER);
+    zmq_setsockopt(rude, ZMQ_IDENTITY, "big", 3);
+    zmq_connect(rude, a.router_endpoint().c_str());
+
+    const string oversized(kMaxFrameBytes + 4096, 'x');
+    const int sent = zmq_send(rude, oversized.data(), oversized.size(), ZMQ_DONTWAIT);
+    (void)sent;  // the local socket may accept it; the far end must not
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        pair.settle();
+        CHECK_FALSE(a.poll().has_value());
+    }
+
+    zmq_close(rude);
+    zmq_ctx_term(ctx);
+}
+
+// The live path has the same frame contract as the unicast one, and the same consequence if it is
+// broken: the surplus would be decoded as the next message.
+TEST_CASE("a live message with a surplus frame is refused, and the next one still arrives") {
+    // A raw publisher stands in for a peer's PUB socket, so the transport's SUB is the one under
+    // test.
+    void* ctx = zmq_ctx_new();
+    void* raw_pub = zmq_socket(ctx, ZMQ_PUB);
+    REQUIRE(zmq_bind(raw_pub, "tcp://127.0.0.1:*") == 0);
+    char endpoint[256] = {};
+    size_t endpoint_size = sizeof(endpoint) - 1;
+    REQUIRE(zmq_getsockopt(raw_pub, ZMQ_LAST_ENDPOINT, endpoint, &endpoint_size) == 0);
+
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+    a.subscribe("events.>");
+    a.add_peer(ZmqPeerEndpoint{"raw", endpoint, "tcp://127.0.0.1:1", ""});
+    TransportPair pair;
+    pair.settle = settle;
+    pair.settle();  // let the SUB connect and its subscription reach the publisher
+
+    const Bytes frame = encode_message(Message{HeadMsg{LogKey{"w", "c"}, 4, Hash{}}});
+    const auto send = [&](const char* channel, const char* sender) {
+        zmq_send(raw_pub, channel, strlen(channel), ZMQ_SNDMORE);
+        zmq_send(raw_pub, sender, strlen(sender), ZMQ_SNDMORE);
+        zmq_send(raw_pub, frame.data(), frame.size(), ZMQ_SNDMORE);
+        zmq_send(raw_pub, "surplus", 7, 0);  // one frame more than a live message carries
+    };
+    for (int attempt = 0; attempt < 20 && a.malformed() == 0; ++attempt) {
+        send("events.a", "raw");
+        pair.settle();
+        CHECK_FALSE(a.poll().has_value());
+    }
+    CHECK(a.malformed() >= 1);
+
+    // And a well-formed live message from the same peer is still decoded, not the surplus frame.
+    bool arrived = false;
+    for (int attempt = 0; attempt < 30 && !arrived; ++attempt) {
+        zmq_send(raw_pub, "events.a", 8, ZMQ_SNDMORE);
+        zmq_send(raw_pub, "raw", 3, ZMQ_SNDMORE);
+        zmq_send(raw_pub, frame.data(), frame.size(), 0);
+        pair.settle();
+        while (auto envelope = a.poll())
+            arrived = get_if<HeadMsg>(&envelope->message) != nullptr;
+    }
+    CHECK(arrived);
+
+    zmq_close(raw_pub);
+    zmq_ctx_term(ctx);
+}
+
+// What was applied, read back from the socket itself: an option that silently failed is a promise
+// the transport is not keeping.
+TEST_CASE("the socket options that bound and supervise a link are actually set") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+
+    CHECK(a.socket_option(ZMQ_MAXMSGSIZE) == static_cast<int>(kMaxFrameBytes));
+    CHECK(a.socket_option(ZMQ_SNDHWM) == 256);  // the protocol's in-flight bound, not 1000
+    CHECK(a.socket_option(ZMQ_RCVHWM) == 256);
+    CHECK(a.socket_option(ZMQ_HEARTBEAT_IVL) == 5000);
+    CHECK(a.socket_option(ZMQ_HEARTBEAT_TIMEOUT) == 15000);
+    CHECK(a.socket_option(ZMQ_TCP_KEEPALIVE) == 1);
+    CHECK(a.option_rejects() == 0);  // this libzmq knows every option the transport relies on
+
+    ZmqConfig quiet;
+    quiet.id = "quiet";
+    quiet.heartbeat_ivl_ms = 0;
+    quiet.send_hwm = 7;
+    ZmqTransport no_heartbeats(quiet);
+    CHECK(no_heartbeats.socket_option(ZMQ_HEARTBEAT_IVL) == 0);
+    CHECK(no_heartbeats.socket_option(ZMQ_SNDHWM) == 7);
+}
+
+// A send to a peer that has not connected is a counted drop, not a queue that fills silently.
+TEST_CASE("a send to an unconnected peer is dropped and counted") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+    // Wired, but nothing listens there.
+    a.add_peer(ZmqPeerEndpoint{"ghost", "tcp://127.0.0.1:1", "tcp://127.0.0.1:2", ""});
+
+    const auto before = a.dropped();
+    for (int i = 0; i < 10; ++i)
+        a.send("ghost", HeadMsg{LogKey{"w", "c"}, static_cast<uint64_t>(i), Hash{}});
+    CHECK(a.dropped() > before);  // queued-forever would have left this at zero
+}
+
+// A node that restarts with its own identity must take over from its dying connection instead of
+// being refused until the old one expires.
+TEST_CASE("a peer that reconnects under its old identity takes over") {
+    ZmqConfig a_cfg;
+    a_cfg.id = "a";
+    ZmqTransport a(a_cfg);
+    TransportPair pair;
+    pair.settle = settle;
+
+    const auto make_b = [] {
+        ZmqConfig cfg;
+        cfg.id = "b";
+        return make_unique<ZmqTransport>(cfg);
+    };
+    auto first = make_b();
+    first->add_peer(ZmqPeerEndpoint{"a", a.pub_endpoint(), a.router_endpoint(), ""});
+    bool heard_first = false;
+    for (int attempt = 0; attempt < 20 && !heard_first; ++attempt) {
+        first->send("a", HeadMsg{LogKey{"w", "c"}, 1, Hash{}});
+        pair.settle();
+        while (auto envelope = a.poll())
+            heard_first = true;
+    }
+    REQUIRE(heard_first);
+
+    // The same identity, a new process, while the old connection is still open.
+    auto second = make_b();
+    second->add_peer(ZmqPeerEndpoint{"a", a.pub_endpoint(), a.router_endpoint(), ""});
+    bool heard_second = false;
+    for (int attempt = 0; attempt < 30 && !heard_second; ++attempt) {
+        second->send("a", HeadMsg{LogKey{"w", "c"}, 2, Hash{}});
+        pair.settle();
+        while (auto envelope = a.poll())
+            if (const auto* head = get_if<HeadMsg>(&envelope->message))
+                heard_second = head->seq == 2;
+    }
+    CHECK(heard_second);
 }
 
 // Queue limits are explicit, and overflow is a counted drop rather than a blocked caller

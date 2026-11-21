@@ -86,6 +86,40 @@ why it needs no new thread, no new socket type and no czmq - which was the block
 Counter to watch: `mosaicd`'s `discovered` counts peers learned this way. Verified end to end by three daemons where the
 third knows only the first and still reaches the second.
 
+## What the sockets are configured to do (✅ ZMQ-2)
+
+ZeroMQ's defaults are tuned for a broker in a data centre, not for a mesh of edge nodes, so every option that matters is set
+explicitly and the application is written against what the socket actually guarantees:
+
+| Option | Value | Why |
+|---|---|---|
+| `ZMQ_SNDHWM` / `ZMQ_RCVHWM` | 256 | The protocol's own in-flight bound (`fetch_window`). The worst case per peer is then 256 x 256 KiB = **64 MiB**, which is the number an operator needs |
+| `ZMQ_MAXMSGSIZE` | the wire limit (1 MiB) | So an oversized frame is refused *before* libzmq buffers it. It is a 64-bit option: setting it with an `int` fails with EINVAL and leaves the socket unbounded |
+| `ZMQ_LINGER` | 0 | Shutdown never blocks on undelivered traffic |
+| `ZMQ_ROUTER_HANDOVER` | 1 | A node that restarts with its own identity takes over from its dying connection instead of being refused until that one expires |
+| `ZMQ_IMMEDIATE` | 1 (sends) | A send to a peer that has not connected is a counted drop, not a queue that fills silently. **Not** on `SUB`: a subscriber's first "send" is its subscription, and immediate would discard that instead |
+| `ZMQ_HEARTBEAT_IVL` / `ZMQ_HEARTBEAT_TIMEOUT` | 5 s / 15 s | A link that dies silently is noticed on a schedule instead of at the kernel's default, which on a half-open TCP connection can be hours |
+| `ZMQ_TCP_KEEPALIVE` | 1 | The transport-level equivalent, for a peer that stops answering without closing |
+| `ZMQ_CURVE_*`, ZAP | see [07](07-security.md) | Encryption and the handshake decision |
+
+Each option is applied through a helper that *counts* a rejection (`option_rejects`), because an option this libzmq does not know
+must degrade visibly rather than leave a promise quietly unkept.
+
+Two more rules the code follows:
+
+- **The poll set is sized from the sockets it watches** (`1 + peers`), never from a constant. Peers arrive at runtime through
+  configuration and gossip; a fixed array is how a transport corrupts memory at three peers.
+- **A message is exactly the frames its kind declares.** A unicast message is identity + payload; a live one is channel + sender +
+  payload. A surplus frame is drained, counted (`malformed`) and reported as a decode fault against its sender, because otherwise
+  it is decoded as the *next* message.
+
+### Scale: what this is sized for, and what it is not
+
+One `SUB` + one `DEALER` per peer, one thread, one `zmq_poll` over all of them, and a 5 ms pace on a quiet loop. The design point
+is **dozens of peers per node** - edge sites, service meshes, a handful of sites replicating to each other. It is not sized for
+thousands of public clients per node: at that point the per-peer socket model, the linear poll set and the single thread are the
+constraints, and the answer would be a different transport (or a proxy in front), not a bigger constant.
+
 ## Discovery (✅ DISC-1..3)
 Four ways to find a peer, none of them a single point of failure (unlike Dafka's tower): the static list in the config, the LAN
 beacon (`ZmqBeaconDiscovery`, czmq's `zbeacon` on its own thread, its findings crossing into the node loop as values), peer-list

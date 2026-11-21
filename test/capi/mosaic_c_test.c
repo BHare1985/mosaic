@@ -81,10 +81,20 @@ int main(void) {
     expect(mosaic_store_open(store_a_path, 0, &store_a) == MOSAIC_OK, "open store a");
     expect(mosaic_store_open(store_b_path, 0, &store_b) == MOSAIC_OK, "open store b");
 
+    /* Plaintext is something a caller asks for. Missing keys are an error, not a quiet downgrade:
+     * this is the check that the secure path cannot be skipped by forgetting an argument. */
+    {
+        mosaic_transport* nowhere = NULL;
+        expect(mosaic_transport_new("a", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL, 0, NULL,
+                                    NULL, &nowhere) == MOSAIC_ERR_INVALID_ARGUMENT,
+               "transport without keys is refused");
+        expect(nowhere == NULL, "no transport was created");
+    }
+
     /* A core-only build has no transport. Say so and pass: the point of this suite is the ABI, and
      * it runs wherever the ABI can run. The two-node half needs a network. */
-    if (mosaic_transport_new("a", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL, 0, NULL, NULL,
-                             &transport_a) == MOSAIC_ERR_UNSUPPORTED) {
+    if (mosaic_transport_new_plaintext("a", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL, 0,
+                                       &transport_a) == MOSAIC_ERR_UNSUPPORTED) {
         printf(g_failures == 0
                    ? "C ABI: ok (no network transport in this build; two-node half skipped)\n"
                    : "C ABI: %d failure(s)\n",
@@ -97,9 +107,30 @@ int main(void) {
         remove(store_b_path);
         return g_failures == 0 ? 0 : 1;
     }
-    expect(mosaic_transport_new("b", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL, 0, NULL, NULL,
-                                &transport_b) == MOSAIC_OK,
+    expect(mosaic_transport_new_plaintext("b", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL, 0,
+                                          &transport_b) == MOSAIC_OK,
            "transport b");
+
+    /* And the encrypted path the ABI is meant to be used with: the curve pair comes out of a
+     * keystore, so a binding has no excuse to skip it. */
+    {
+        char* curve_public = NULL;
+        char* curve_secret = NULL;
+        const mosaic_status curve = mosaic_keys_curve(keys, &curve_public, &curve_secret);
+        if (curve == MOSAIC_OK) {
+            expect(curve_public != NULL && strlen(curve_public) == 40, "curve public is z85");
+            expect(curve_secret != NULL && strlen(curve_secret) == 40, "curve secret is z85");
+            mosaic_transport* encrypted = NULL;
+            expect(mosaic_transport_new("encrypted", "tcp://127.0.0.1:*", "tcp://127.0.0.1:*", NULL,
+                                        0, curve_public, curve_secret, &encrypted) == MOSAIC_OK,
+                   "transport with keystore curve keys");
+            mosaic_transport_free(&encrypted);
+        } else {
+            expect(curve == MOSAIC_ERR_UNSUPPORTED, "no crypto means no curve keys, not a crash");
+        }
+        mosaic_free_string(&curve_public);
+        mosaic_free_string(&curve_secret);
+    }
     expect(mosaic_transport_endpoints(transport_a, &a_pub, &a_router) == MOSAIC_OK, "endpoints a");
     expect(mosaic_transport_endpoints(transport_b, &b_pub, &b_router) == MOSAIC_OK, "endpoints b");
 

@@ -16,7 +16,7 @@ iterator that pumps for you, and context managers.
 import time
 
 from ._mosaic import Node as _Node
-from ._mosaic import generate_keys, version
+from ._mosaic import curve_public, generate_keys, version
 
 __all__ = ["Node", "generate_keys", "version"]
 

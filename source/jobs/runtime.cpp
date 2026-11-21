@@ -8,6 +8,7 @@ using std::move;
 using std::nullopt;
 using std::optional;
 using std::size_t;
+using std::stable_partition;
 using std::string;
 using std::uint32_t;
 using std::uint64_t;
@@ -15,12 +16,49 @@ using std::vector;
 
 namespace mosaic {
 
+JobWorker::JobWorker(Node& node, const Signer& signer, const Hasher& hasher, Channel service,
+                     Handler handler)
+    : node_(node), signer_(signer), hasher_(hasher), service_(move(service)),
+      service_channel_("svc." + service_), handler_(move(handler)) {
+    node_.follow(service_channel_);
+    node_.on_record([this](const Record& record) { on_record(record); });
+}
+
 JobWorker::JobWorker(Node& node, const Signer& signer, const Hasher& hasher, vector<NodeId> workers,
                      Channel service, Handler handler)
     : node_(node), signer_(signer), hasher_(hasher), workers_(move(workers)),
-      service_(move(service)), service_channel_("svc." + service_), handler_(move(handler)) {
+      explicit_workers_(true), service_(move(service)), service_channel_("svc." + service_),
+      handler_(move(handler)) {
     node_.follow(service_channel_);
     node_.on_record([this](const Record& record) { on_record(record); });
+}
+
+vector<NodeId> JobWorker::ranking(const string& job_id) const {
+    auto ranked = plain_ranking(job_id, node_.now_ms());
+    // The view an operator or a test wants: who is asked first, saturated peers moved behind. The
+    // *slot* a worker takes comes from the plain order plus a penalty (see tick), because that is
+    // the version of the rule two workers with slightly different views cannot disagree about.
+    stable_partition(ranked.begin(), ranked.end(),
+                     [this](const NodeId& id) { return has_spare_capacity(id); });
+    return ranked;
+}
+
+vector<NodeId> JobWorker::derived_workers() const {
+    // The constructor follows the service channel, so this node always belongs in its own ranking;
+    // peers never list themselves, so no duplicate arises from that side.
+    vector<NodeId> workers = node_.peers_following(service_channel_);
+    if (find(workers.begin(), workers.end(), node_.id()) == workers.end())
+        workers.push_back(node_.id());
+    return workers;
+}
+
+bool JobWorker::has_spare_capacity(const NodeId& peer) const {
+    if (peer == node_.id())
+        return node_.spare_capacity() > 0;
+    // peer_capacity counts a stale advertisement as unknown, and unknown is "maybe": a peer that
+    // advertises nothing is asked before one that says it is saturated.
+    const auto advertised = node_.peer_capacity(peer);
+    return !advertised || *advertised > 0;
 }
 
 void JobWorker::on_record(const Record& record) {
@@ -51,23 +89,29 @@ void JobWorker::on_record(const Record& record) {
             finished_[result->job_id] = true;
 }
 
-vector<NodeId> JobWorker::ranking_for(const string& job_id, uint64_t now_ms) const {
+vector<NodeId> JobWorker::plain_ranking(const string& job_id, uint64_t now_ms) const {
+    const vector<NodeId> pool = explicit_workers_ ? workers_ : derived_workers();
     vector<NodeId> candidates;
-    candidates.reserve(workers_.size());
-    for (const auto& worker : workers_)
+    candidates.reserve(pool.size());
+    for (const auto& worker : pool)
         if (!node_.peer_banned(worker, now_ms))
             candidates.push_back(worker);
     return rendezvous_rank(job_id, candidates, hasher_);
 }
 
 void JobWorker::tick(uint64_t now_ms) {
+    // What we tell peers about our backlog, recalculated here and advertised on the hello interval.
+    // One byte, and coarse on purpose: half the queue is the point where a peer should prefer
+    // someone else (D2).
+    node_.set_spare_capacity(pending_.size() * 2 >= max_pending ? 0 : 255);
+
     for (auto it = pending_.begin(); it != pending_.end();) {
         if (finished(it->first)) {
             it = pending_.erase(it);  // somebody else already published a result
             continue;
         }
         if (!it->second.scheduled) {
-            const auto ranking = ranking_for(it->second.request.job_id, now_ms);
+            const auto ranking = plain_ranking(it->second.request.job_id, now_ms);
             const auto self = find(ranking.begin(), ranking.end(), node_.id());
             if (self == ranking.end()) {
                 it = pending_.erase(it);  // not a worker for this service (any more)
@@ -77,7 +121,14 @@ void JobWorker::tick(uint64_t now_ms) {
             const auto slots = static_cast<uint32_t>(ranking.size());
             const auto slot_ms =
                 slots == 0 ? it->second.request.timeout_ms : it->second.request.timeout_ms / slots;
-            it->second.delay_ms = rank * slot_ms;  // rank 0 now, rank 1 after one slot, and so on
+            // The slot comes from the plain rendezvous rank, and a worker that advertises no spare
+            // capacity waits one extra cycle - a penalty, not a reshuffle. A penalty is what makes
+            // capacity safe: two workers that disagree about someone else's capacity can never
+            // disagree about their own rank, so exactly one of them can be due first (JOBS-4, D4).
+            auto delay = rank * slot_ms;
+            if (!has_spare_capacity(node_.id()))
+                delay += slots * slot_ms;
+            it->second.delay_ms = delay;
             it->second.at_ms = now_ms + it->second.delay_ms;
             it->second.scheduled = true;
         }

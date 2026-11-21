@@ -15,6 +15,10 @@
 
 namespace mosaic {
 
+/// How many hello intervals an advertisement stays usable. One lost hello must not make a peer
+/// vanish from ranking, and a peer that has been silent for minutes must.
+inline constexpr std::uint64_t kHelloStaleIntervals = 5;
+
 /// Why a peer earned a strike. Only faults that are wrong whatever the network is doing: wrong
 /// bytes. Lateness, loss, duplication and falling behind are network conditions and are never
 /// faults, because punishing them would turn a partition into a ban (spec: security/peer-scoring).
@@ -146,6 +150,9 @@ struct NodeCounters {
     std::uint64_t peers_expired = 0;    // entries removed because nothing refreshed them
     std::uint64_t gossip_refused = 0;   // entries (or messages) refused: stale, too far, malformed
     std::uint64_t gossip_overflow = 0;  // entries dropped because the table was full
+    std::uint64_t patterns_truncated = 0;      // advertised follow sets cut to the configured limit
+    std::uint64_t capacity_unknown = 0;        // capacity reads that found a stale advertisement
+    std::uint64_t hello_version_mismatch = 0;  // hellos announcing a version we cannot speak
 };
 
 /// A peer this node heard about by gossip and cannot reach yet. The caller dials it: Node never
@@ -198,6 +205,31 @@ public:
     /// Patterns this node follows, for an operator or a test to read.
     std::vector<std::string> following() const {
         return following_.patterns();
+    }
+
+    /// What `peer` last advertised that it follows. Empty when it advertised nothing or the
+    /// advertisement went stale - the two are deliberately indistinguishable to a caller, because
+    /// neither may be trusted as authority (spec: proto/peer-advertisement).
+    std::vector<std::string> peer_patterns(const NodeId& peer) const;
+
+    /// Peers whose advertised follow set matches `channel`, for choosing whom to ask. A hint, never
+    /// a delivery decision.
+    std::vector<NodeId> peers_following(const Channel& channel) const;
+
+    /// What `peer` advertised as spare capacity, or nothing when it advertises none or its
+    /// advertisement is stale. Counts `capacity_unknown` when it has to guess, so the query is not
+    /// const - the same shape as `authorized()`, which also counts what it decides.
+    std::optional<std::uint8_t> peer_capacity(const NodeId& peer);
+
+    /// Announce this much spare capacity in our next hello. One byte, coarse on purpose; zero means
+    /// "prefer someone else", never "unavailable". The caller that knows its own backlog (the job
+    /// worker) sets it; zero is the default so an unset node is never preferred over a measuring
+    /// one.
+    void set_spare_capacity(std::uint8_t spare) {
+        spare_capacity_ = spare;
+    }
+    std::uint8_t spare_capacity() const {
+        return spare_capacity_;
     }
 
     /// Publish several payloads to one channel. Same sequencing and signing as individual
@@ -281,6 +313,13 @@ public:
         return counters_;
     }
 
+    /// The last time the caller told us what time it is (from `pump`/`tick`). The node never reads
+    /// a clock, so this is how a query about time-sensitive state - a stale advertisement, a ban
+    /// that has lapsed - is answered without inventing one.
+    std::uint64_t now_ms() const {
+        return last_now_ms_;
+    }
+
     /// Credit still spendable on `peer`. Together with the cumulative
     /// `credit_spent`/`credit_returned` counters this must satisfy `available == fetch_window -
     /// (spent - returned)` on every step: credit is either spendable or committed, never both
@@ -310,6 +349,15 @@ private:
         bool hello_sent = false;
         bool version_known = false;
         std::uint8_t version = 0;
+        /// What the peer last advertised. Replaced wholesale, never merged: a peer that unfollows
+        /// must be able to say so. Stale adverts are treated as unknown, so a worker that died last
+        /// week stops being ranked.
+        std::vector<std::string> patterns;
+        std::uint8_t spare_capacity = 0;
+        std::uint64_t advertised_ms = 0;
+        /// Separate from the timestamp because a hello can legitimately arrive at time zero:
+        /// without this, "advertised at 0" and "never advertised" would be the same state.
+        bool advertised = false;
         PeerScore score;
     };
     /// What gossip knows about one peer. `hops` is distance from the origin (D4), never a
@@ -374,6 +422,10 @@ private:
     /// How many sequences behind the highest head we know of for this log.
     Seq behind_by(const LogKey& key) const;
     void handle_hello(const NodeId& from, const HelloMsg& hello, std::uint64_t now_ms);
+    /// True when this peer's advertisement is too old to use (and counted when it is read).
+    bool advert_stale(const PeerLink& link, std::uint64_t now_ms) const;
+    /// Rebuild the hello this node sends: its follow set, deduplicated and bounded, plus capacity.
+    void refresh_advert(std::uint64_t now_ms);
     /// Send our version to any peer we have not confirmed a version for yet. Called from tick().
     void greet_peers(std::uint64_t now_ms);
     /// Is payload from this peer allowed? False (and counted) when it announced a version we cannot
@@ -431,7 +483,14 @@ private:
     std::set<NodeId> configured_peers_;     // addresses that are not gossip's to change
     std::size_t gossip_cursor_ = 0;         // rotates the neighbours a round is offered to
     std::uint64_t last_gossip_ms_ = 0;
-    std::uint64_t gossip_seq_ = 0;  // increments per accepted entry, so recency never ties
+    std::uint64_t gossip_seq_ = 0;      // increments per accepted entry, so recency never ties
+    std::uint64_t last_advert_ms_ = 0;  // when the outgoing hello was last rebuilt
+    bool advert_refreshed_ = false;     // so "never built" is not confused with "built at 0"
+    std::vector<std::string> advert_patterns_;  // what we tell peers we follow
+    std::uint8_t spare_capacity_ = 0;           // what we tell peers about our backlog
+    /// The last time the caller told us what time it is: staleness is computed against this,
+    /// because the node never reads a clock.
+    std::uint64_t last_now_ms_ = 0;
     NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;

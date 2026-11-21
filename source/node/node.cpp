@@ -121,6 +121,7 @@ optional<Record> Node::publish(const Signer& signer, const Channel& channel, str
 }
 
 void Node::pump(uint64_t now_ms) {
+    last_now_ms_ = now_ms;
     while (auto envelope = transport_.poll())
         handle(envelope->from, envelope->message, now_ms);
     // A frame that did not decode never becomes a Message, so it is the one fault the choke point
@@ -130,9 +131,15 @@ void Node::pump(uint64_t now_ms) {
 }
 
 void Node::tick(uint64_t now_ms) {
+    last_now_ms_ = now_ms;
     // 0. Bans that have lapsed stop being bans on their own: nothing here needs an operator, and
     // the lapse is reported so a silence is never mystifying (SEC-2).
     expire_bans(now_ms);
+
+    // 0. What we are about to advertise, then the greeting that carries it: rebuilt first, or the
+    // first hello of a link would go out empty and ranking would have nothing to work with until
+    // the next interval.
+    refresh_advert(now_ms);
 
     // 0a. Version handshake: every peer we can address hears our version until it answers with its
     // own.
@@ -736,16 +743,34 @@ bool Node::admit_request(const NodeId& peer, uint64_t now_ms) {
     return true;
 }
 
+void Node::refresh_advert(uint64_t now_ms) {
+    // Rebuilt on the hello interval rather than per tick: a capacity figure that moves every tick
+    // would reorder ranking constantly for no gain (D3).
+    if (advert_refreshed_ && now_ms - last_advert_ms_ < config_.head_interval_ms)
+        return;
+    advert_refreshed_ = true;
+    last_advert_ms_ = now_ms;
+    advert_patterns_.clear();
+    for (const auto& pattern : following_.patterns()) {
+        if (advert_patterns_.size() >= config_.max_head_patterns)
+            break;  // bounded by the same limit a head request uses
+        if (find(advert_patterns_.begin(), advert_patterns_.end(), pattern) ==
+            advert_patterns_.end())
+            advert_patterns_.push_back(pattern);
+    }
+}
+
 void Node::greet_peers(uint64_t now_ms) {
     for (const auto& peer : transport_.peers()) {
         auto& link = peer_links_[peer];
-        if (link.version_known)
-            continue;
-        // Retry on the head interval: a hello can be lost like anything else, and a link that never
-        // negotiates must not look like a peer that simply has nothing to say.
+        // Sent on the head interval for the life of the link, not only until the version is known:
+        // the hello also carries what we follow and how much spare work we have, and a figure that
+        // is sent once and never refreshed would be worse than no figure at all (HELLO-1). It is
+        // also how a lost hello recovers, and how a peer that never negotiated stops looking like a
+        // peer with nothing to say.
         if (link.hello_sent && now_ms - link.last_hello_ms < config_.head_interval_ms)
             continue;
-        transport_.send(peer, HelloMsg{kProtocolVersion, {}});
+        transport_.send(peer, HelloMsg{kProtocolVersion, advert_patterns_, spare_capacity_});
         link.hello_sent = true;
         link.last_hello_ms = now_ms;
     }
@@ -760,8 +785,64 @@ void Node::handle_hello(const NodeId& from, const HelloMsg& hello, uint64_t now_
     // mysterious.
     if (hello.version != kProtocolVersion) {
         ++counters_.version_rejects;
+        ++counters_.hello_version_mismatch;
         penalize(from, PeerFault::VersionMismatch, now_ms);
     }
+
+    // Assigned, never merged: a peer that unfollows has to be able to say so. Over the limit is
+    // truncated and counted rather than refused, because a hostile or buggy follow set should not
+    // hide the rest of a perfectly good hello (D3).
+    link.patterns.clear();
+    for (const auto& pattern : hello.patterns) {
+        if (link.patterns.size() >= config_.max_head_patterns) {
+            ++counters_.patterns_truncated;
+            break;
+        }
+        if (find(link.patterns.begin(), link.patterns.end(), pattern) == link.patterns.end())
+            link.patterns.push_back(pattern);
+    }
+    link.spare_capacity = hello.spare_capacity;
+    link.advertised_ms = now_ms;
+    link.advertised = true;
+}
+
+bool Node::advert_stale(const PeerLink& link, uint64_t now_ms) const {
+    if (!link.advertised)
+        return true;
+    // Several hello intervals, so one lost hello is not a disappearance.
+    const auto limit = static_cast<uint64_t>(config_.head_interval_ms) * kHelloStaleIntervals;
+    return now_ms > link.advertised_ms && now_ms - link.advertised_ms > limit;
+}
+
+vector<string> Node::peer_patterns(const NodeId& peer) const {
+    const auto it = peer_links_.find(peer);
+    if (it == peer_links_.end() || advert_stale(it->second, last_now_ms_))
+        return {};
+    return it->second.patterns;
+}
+
+vector<NodeId> Node::peers_following(const Channel& channel) const {
+    vector<NodeId> out;
+    for (const auto& [id, link] : peer_links_) {
+        if (advert_stale(link, last_now_ms_))
+            continue;
+        Matcher advertised;
+        bool usable = false;
+        for (const auto& pattern : link.patterns)
+            usable = advertised.add(pattern) || usable;
+        if (usable && advertised.matches_any(channel))
+            out.push_back(id);
+    }
+    return out;
+}
+
+optional<uint8_t> Node::peer_capacity(const NodeId& peer) {
+    const auto it = peer_links_.find(peer);
+    if (it == peer_links_.end() || advert_stale(it->second, last_now_ms_)) {
+        ++counters_.capacity_unknown;  // an operator can see how often ranking had to guess
+        return nullopt;
+    }
+    return it->second.spare_capacity;
 }
 
 bool Node::admit(const NodeId& from, const Message& message, uint64_t now_ms) {

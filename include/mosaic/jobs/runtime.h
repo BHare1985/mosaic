@@ -27,14 +27,26 @@ public:
     /// not need to know about records, channels or signing.
     using Handler = std::function<JobResult(const JobRequest&)>;
 
-    /// `workers` is the set this node ranks against (JOBS-4 would derive it from hello patterns).
+    /// Workers are the peers that advertise following this service's channel, plus this node when
+    /// it follows it too - no list to keep in step with reality, and nothing to configure on a node
+    /// that joins later (JOBS-4).
     /// Installs the node's record callback, so a node runs either a worker or a requester, not
     /// both.
+    JobWorker(Node& node, const Signer& signer, const Hasher& hasher, Channel service,
+              Handler handler);
+
+    /// The same, with an explicit worker set that overrides what peers advertise. For a single-node
+    /// deployment, or a test, where nobody's hello can say anything.
     JobWorker(Node& node, const Signer& signer, const Hasher& hasher, std::vector<NodeId> workers,
               Channel service, Handler handler);
 
     /// Run whatever is due. Call from the same loop as `node.tick()`.
     void tick(std::uint64_t now_ms);
+
+    /// The order this node would ask workers in for a job, right now: explicit list or advertised
+    /// followers, bans removed, saturated workers moved behind unsaturated ones. Exposed because
+    /// "who would we ask, in what order" is the question a test and an operator both have.
+    std::vector<NodeId> ranking(const std::string& job_id) const;
 
     /// Jobs waiting for their turn, and how many this worker has actually run.
     std::size_t pending() const {
@@ -65,14 +77,22 @@ private:
     bool finished(const std::string& job_id) const {
         return finished_.count(job_id) != 0;
     }
-    /// The ranking this node will act on: `workers_` minus the peers it currently bans. A ban the
-    /// node enforces on traffic but not on work would be a ban in name only (SEC-2).
-    std::vector<NodeId> ranking_for(const std::string& job_id, std::uint64_t now_ms) const;
+    /// The ranking this node will act on: the explicit list if one was given, else the peers that
+    /// advertise following this service plus ourselves - minus the peers the node currently bans (a
+    /// ban it enforces on traffic but not on work would be a ban in name only, SEC-2), with
+    /// saturated peers moved behind unsaturated ones.
+    std::vector<NodeId> plain_ranking(const std::string& job_id, std::uint64_t now_ms) const;
+    /// Peers that advertise following the service channel, plus this node when it follows it.
+    std::vector<NodeId> derived_workers() const;
+    /// Is this worker worth asking first? Unknown capacity counts as room: a peer that says nothing
+    /// must not be punished for it.
+    bool has_spare_capacity(const NodeId& peer) const;
 
     Node& node_;
     const Signer& signer_;
     const Hasher& hasher_;
     std::vector<NodeId> workers_;
+    bool explicit_workers_ = false;  // the caller's list wins over what peers advertise
     Channel service_;
     Channel service_channel_;
     Handler handler_;

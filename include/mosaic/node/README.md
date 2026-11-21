@@ -19,4 +19,6 @@ A "store" is just a node that follows `>`.
 - **A ban is local policy, never belief.** No acceptance decision may look at a peer's score: a record is judged on its
   signature, whoever sent it and however badly they have behaved (see `docs/design/07-security.md`).
 
-**Open work:** ACK-1, HEADS-1, HELLO-1, FLOW-3, FLOW-4, NODE-2, NODE-3.
+**Open work:** none from this module's own list. ACK-1, HEADS-1, HELLO-1, FLOW-3, FLOW-4, NODE-2 and NODE-3 are done; the hello
+now carries what a peer follows and how much spare work it has (`peer_patterns`, `peers_following`, `peer_capacity`), and the
+rules for using those hints are in `docs/design/02-protocol.md`.

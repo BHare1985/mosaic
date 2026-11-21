@@ -13,7 +13,10 @@
 
 namespace mosaic {
 
-inline constexpr std::uint8_t kProtocolVersion = 1;
+/// Version 2 added `HelloMsg::spare_capacity`, so a hello from a version 1 peer cannot be told from
+/// one that advertised no patterns - the version number is how the decoder refuses to guess
+/// (HELLO-1, JOBS-4).
+inline constexpr std::uint8_t kProtocolVersion = 2;
 
 /// Live delivery of a new record (writer -> everyone following the channel). Best effort.
 struct RecordMsg {
@@ -66,11 +69,15 @@ struct CreditMsg {
     std::uint32_t credits = 0;
 };
 
-/// First message on a new link: protocol version and what the sender follows. (HELLO-1, not yet
-/// handled.)
+/// First message on a new link: protocol version, what the sender follows, and how much spare work
+/// it could take on. Both advertisements are hints: nothing in the delivery or acceptance path may
+/// read them (spec: proto/peer-advertisement).
 struct HelloMsg {
     std::uint8_t version = kProtocolVersion;
-    std::vector<std::string> patterns;
+    std::vector<std::string> patterns;  // what the sender follows, bounded by max_head_patterns
+    /// Coarse spare capacity, 0..255. Zero means "prefer someone else", never "unreachable" - one
+    /// byte on purpose, so nobody can argue about the precision of a hint.
+    std::uint8_t spare_capacity = 0;
 };
 
 /// One peer a sender knows about (DISC-3). `hops` is how far the entry has travelled from its

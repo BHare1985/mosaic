@@ -190,6 +190,7 @@ Bytes payload_bytes(const Message& message) {
             } else if constexpr (is_same_v<T, HelloMsg>) {
                 writer.put_u8(value.version);
                 put_patterns(writer, value.patterns);
+                writer.put_u8(value.spare_capacity);
             } else if constexpr (is_same_v<T, PeersMsg>) {
                 put_peers(writer, value.entries);
             }
@@ -364,6 +365,7 @@ DecodeResult decode_message(const Bytes& frame) {
             HelloMsg message;
             message.version = reader.get_u8();
             message.patterns = get_patterns(reader);
+            message.spare_capacity = reader.get_u8();
             if (!reader.ok())
                 return {DecodeStatus::Truncated, nullopt};
             if (message.version != kProtocolVersion)

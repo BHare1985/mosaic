@@ -96,6 +96,12 @@ struct NodeConfig {
     std::uint32_t gossip_max_hops = 6;
     /// How long an entry stays in the table without being refreshed.
     std::uint32_t gossip_entry_ttl_ms = 30000;
+    /// Retention policy for logs this node writes. Both limits are off by default: retention is the
+    /// only operation that destroys data, so it is opt-in and evaluated as a policy rather than run
+    /// on a timer (STORE-3).
+    std::uint64_t retention_max_age_ms = 0;   // drop records older than this; 0 disables
+    std::uint64_t retention_keep_min = 0;     // always keep this many records; 0 keeps none extra
+    std::uint32_t retention_interval_ms = 0;  // how often the caller may evaluate; 0 disables
     /// Most peers the gossip table will hold. A beacon or a peer list is a hint, so the bound is
     /// what a flood costs.
     std::uint32_t gossip_table_limit = 256;
@@ -153,6 +159,9 @@ struct NodeCounters {
     std::uint64_t patterns_truncated = 0;      // advertised follow sets cut to the configured limit
     std::uint64_t capacity_unknown = 0;        // capacity reads that found a stale advertisement
     std::uint64_t hello_version_mismatch = 0;  // hellos announcing a version we cannot speak
+    std::uint64_t retention_runs = 0;          // times the retention policy was evaluated
+    std::uint64_t retention_dropped = 0;       // records dropped by retention
+    std::uint64_t retention_refused = 0;       // logs kept because a condition was unknown or unmet
 };
 
 /// A peer this node heard about by gossip and cannot reach yet. The caller dials it: Node never
@@ -285,6 +294,17 @@ public:
     /// exists, but must never record or use an address for it: a peer list is a hint, and a hint
     /// cannot move something an operator placed (spec: discovery/peer-discovery).
     void set_configured_peers(std::vector<NodeId> peers);
+    /// Evaluate the retention policy for the logs this node writes: drop a prefix that is old and
+    /// large enough, once replication has caught up, and leave a signed checkpoint at the new
+    /// origin. Needs the writer's signer, because nobody else may say what the history at a
+    /// sequence was.
+    struct RetentionOutcome {
+        std::size_t logs = 0;     // logs that lost records
+        std::size_t dropped = 0;  // records gone
+        std::size_t refused = 0;  // logs kept: a condition was unknown or unmet
+    };
+    RetentionOutcome retain(const Signer& signer, std::uint64_t now_ms);
+
     /// Peers learned by gossip that the transport does not address yet, least-recently offered
     /// first. A peer the transport already knows is never offered: a gossiped address must not be
     /// able to move a peer that configuration already placed.
@@ -404,6 +424,9 @@ private:
     /// Merge a peer list from `from`. Refused whole when it is malformed or over the per-message
     /// cap; individual entries are refused for being stale, too far, or about ourselves (DISC-3).
     void handle_peers(const NodeId& from, const PeersMsg& message, std::uint64_t now_ms);
+    /// The hash a checkpoint says the record at `seq` has, when a checkpoint covers it. This is how
+    /// a truncated log keeps verifying.
+    std::optional<Hash> checkpoint_hash(const LogKey& key, Seq seq) const;
     /// Offer this node's freshest entries to a rotating subset of neighbours, and expire what
     /// nothing refreshed. Called from tick().
     void gossip_tick(std::uint64_t now_ms);
@@ -486,6 +509,7 @@ private:
     std::uint64_t gossip_seq_ = 0;      // increments per accepted entry, so recency never ties
     std::uint64_t last_advert_ms_ = 0;  // when the outgoing hello was last rebuilt
     bool advert_refreshed_ = false;     // so "never built" is not confused with "built at 0"
+    std::uint64_t last_retention_ms_ = 0;
     std::vector<std::string> advert_patterns_;  // what we tell peers we follow
     std::uint8_t spare_capacity_ = 0;           // what we tell peers about our backlog
     /// The last time the caller told us what time it is: staleness is computed against this,

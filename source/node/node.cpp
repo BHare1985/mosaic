@@ -1,3 +1,4 @@
+#include <mosaic/log/checkpoint.h>
 #include <mosaic/node/node.h>
 #include <mosaic/proto/codec.h>
 
@@ -80,7 +81,100 @@ uint32_t strike_weight(PeerFault fault) {
 Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher,
            const Verifier& verifier)
     : config_(move(config)), transport_(transport), store_(store), hasher_(hasher),
-      replica_(store, hasher, verifier) {}
+      replica_(store, hasher, verifier) {
+    // The chain origin is a checkpoint when retention has dropped the predecessor: see retain().
+    replica_.set_origin([this](const LogKey& key, Seq seq) { return checkpoint_hash(key, seq); });
+}
+
+optional<Hash> Node::checkpoint_hash(const LogKey& key, Seq seq) const {
+    const auto blob = store_.checkpoint(key);
+    if (!blob)
+        return nullopt;
+    const auto checkpoint = decode_checkpoint(*blob);
+    if (!checkpoint || checkpoint->key != key || checkpoint->seq != seq)
+        return nullopt;
+    return checkpoint->hash;
+}
+
+Node::RetentionOutcome Node::retain(const Signer& signer, uint64_t now_ms) {
+    RetentionOutcome outcome;
+    if (config_.retention_max_age_ms == 0 && config_.retention_keep_min == 0)
+        return outcome;  // nothing asked for: retention never destroys anything by default
+    if (config_.retention_interval_ms != 0 && last_retention_ms_ != 0 &&
+        now_ms - last_retention_ms_ < config_.retention_interval_ms)
+        return outcome;
+    last_retention_ms_ = now_ms;
+    ++counters_.retention_runs;
+
+    for (auto& [key, slot] : writers_) {
+        const auto head = store_.head_seq(key);
+        if (!head || *head == 0)
+            continue;
+        // The first record kept: `keep_min` records survive, everything before this may go. (The
+        // +1 is what makes it exactly the floor rather than one more than asked for.)
+        Seq candidate = 0;
+        if (static_cast<uint64_t>(*head) + 1 > config_.retention_keep_min)
+            candidate = *head + 1 - static_cast<Seq>(config_.retention_keep_min);
+        if (config_.retention_max_age_ms != 0) {
+            // Walk back while the records are still too young, with a bound so one call cannot turn
+            // into a scan of the whole log.
+            int budget = 1024;
+            while (candidate > 0 && budget-- > 0) {
+                const auto at = store_.get(key, candidate - 1);
+                if (!at)
+                    break;
+                const auto age = now_ms > at->timestamp_ms ? now_ms - at->timestamp_ms : 0;
+                if (age <= config_.retention_max_age_ms)
+                    break;
+                --candidate;
+            }
+        }
+        if (candidate == 0)
+            continue;  // nothing old enough, or nothing beyond the floor
+
+        // Replication comes first when a floor is configured: dropping on a guess is exactly the
+        // guarantee ACK-1 exists to provide.
+        if (config_.min_replicas != 0) {
+            const auto released = released_through_.find(key);
+            if (released == released_through_.end() || released->second < candidate) {
+                ++outcome.refused;
+                ++counters_.retention_refused;
+                continue;
+            }
+        }
+
+        // The checkpoint names the last record being dropped, signed by the only party allowed to
+        // say what that history was.
+        const auto anchor = store_.get(key, candidate - 1);
+        const auto anchor_hash = anchor ? record_hash_tagged(*anchor) : nullopt;
+        if (!anchor || !anchor_hash) {
+            ++outcome.refused;
+            ++counters_.retention_refused;
+            continue;
+        }
+        Checkpoint checkpoint;
+        checkpoint.key = key;
+        checkpoint.seq = anchor->seq;
+        checkpoint.hash = *anchor_hash;
+        checkpoint.hash_algo = anchor->hash_algo;
+        checkpoint = sign_checkpoint(move(checkpoint), signer);
+        if (!store_.put_checkpoint(key, encode_checkpoint(checkpoint))) {
+            ++outcome.refused;  // the backend cannot keep a checkpoint, so it cannot truncate
+            ++counters_.retention_refused;
+            continue;
+        }
+        const auto dropped = store_.truncate_before(key, candidate);
+        if (!dropped) {
+            ++outcome.refused;
+            ++counters_.retention_refused;
+            continue;
+        }
+        outcome.logs += 1;
+        outcome.dropped += *dropped;
+        counters_.retention_dropped += *dropped;
+    }
+    return outcome;
+}
 
 bool Node::follow(const string& pattern) {
     if (!following_.add(pattern))

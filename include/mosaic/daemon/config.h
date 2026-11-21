@@ -60,6 +60,11 @@ struct Config {
     std::uint32_t gossip_max_hops = 6;
     std::uint32_t gossip_entry_ttl_ms = 30000;
     std::uint32_t gossip_table_limit = 256;
+    /// Retention for logs this daemon writes: both limits off by default, because retention is the
+    /// only operation that destroys data.
+    std::uint32_t retention_max_age_ms = 0;
+    std::uint32_t retention_keep_min = 0;
+    std::uint32_t retention_interval_ms = 0;
     // log
     /// Encrypt links. On by default; the only reason to turn it off is a diagnostic or a loopback
     /// test, so it is stated in the config rather than implied by whether a keystore happens to

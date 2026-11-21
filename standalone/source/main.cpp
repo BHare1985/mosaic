@@ -13,6 +13,7 @@
 
 #include <mosaic/core/keystore.h>
 #include <mosaic/daemon/config.h>
+#include <mosaic/log/checkpoint.h>
 #include <mosaic/log/log.h>
 #include <mosaic/log/verify.h>
 #include <mosaic/match/matcher.h>
@@ -76,6 +77,7 @@ int usage() {
            "  Mosaic pub <channel> [options]\n"
            "  Mosaic tail <pattern[,pattern...]> [options]\n"
            "  Mosaic verify <store>\n"
+           "  Mosaic checkpoint <channel> [options]   sign a checkpoint at this log's head\n"
            "  Mosaic sim [--seeds N] [--records N]\n"
            "\n"
            "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
@@ -572,6 +574,60 @@ int run_sim(int argc, char** argv) {
     return converged == seeds ? 0 : 1;
 }
 
+/// `Mosaic checkpoint <channel> [options]`: sign a checkpoint at the head of our own log and keep
+/// it in the store, which is what lets retention drop a prefix without losing verifiability. The
+/// bytes are printed so an operator can publish the same statement as a record for replicas to
+/// keep.
+int run_checkpoint(int argc, char** argv) {
+    if (argc < 3)
+        return usage();
+    const string channel = argv[2];
+    Options options;
+    string error;
+    if (!parse_options(argc, argv, 3, options, error)) {
+        cerr << error << '\n';
+        return usage();
+    }
+    auto store = SqliteLogStore::open(options.store);
+    if (!store) {
+        cerr << "cannot open store: " << options.store << '\n';
+        return 1;
+    }
+    const auto keystore = load_keystore(options.keys);
+    if (!keystore) {
+        cerr << "cannot load keys: " << options.keys << '\n';
+        return 1;
+    }
+    const Ed25519Signer signer(keystore->public_key, keystore->secret_key);
+    const LogKey key{signer.id(), channel};
+    const auto head = (*store)->head_seq(key);
+    if (!head) {
+        cerr << "no log for " << key.writer << ' ' << channel << '\n';
+        return 1;
+    }
+    const auto record = (*store)->get(key, *head);
+    const auto hash = record ? record_hash_tagged(*record) : std::nullopt;
+    if (!hash) {
+        cerr << "cannot read the head of " << channel << '\n';
+        return 1;
+    }
+    Checkpoint checkpoint;
+    checkpoint.key = key;
+    checkpoint.seq = *head;
+    checkpoint.hash = *hash;
+    checkpoint.hash_algo = record->hash_algo;
+    checkpoint = sign_checkpoint(move(checkpoint), signer);
+    const Bytes encoded = encode_checkpoint(checkpoint);
+    if (!(*store)->put_checkpoint(key, encoded)) {
+        cerr << "this store cannot keep a checkpoint\n";
+        return 1;
+    }
+    cout << "checkpoint " << key.writer << ' ' << channel << " seq " << checkpoint.seq << " hash "
+         << to_hex(checkpoint.hash) << '\n';
+    cout << "bytes " << to_hex(encoded) << '\n';
+    return 0;
+}
+
 /// `Mosaic verify <store>`: re-check every chain and signature in a store, and say where it stops
 /// being true.
 int run_verify(int argc, char** argv) {
@@ -644,6 +700,8 @@ int main(int argc, char** argv) {
         return run_tail(argc, argv);
     if (command == "verify")
         return run_verify(argc, argv);
+    if (command == "checkpoint")
+        return run_checkpoint(argc, argv);
     if (command == "sim")
         return run_sim(argc, argv);
     return usage();

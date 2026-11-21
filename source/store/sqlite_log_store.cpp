@@ -147,13 +147,56 @@ optional<unique_ptr<SqliteLogStore>> SqliteLogStore::open(const string& path,
         || !impl->exec("CREATE TABLE IF NOT EXISTS forks ("
                        " writer TEXT NOT NULL, channel TEXT NOT NULL, seq INTEGER NOT NULL,"
                        " accepted BLOB NOT NULL, conflicting BLOB NOT NULL,"
-                       " PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")) {
+                       " PRIMARY KEY (writer, channel, seq)) WITHOUT ROWID")
+        // A checkpoint outlives the rows it covers, so it cannot live in `records`.
+        || !impl->exec("CREATE TABLE IF NOT EXISTS checkpoints ("
+                       " writer TEXT NOT NULL, channel TEXT NOT NULL, blob BLOB NOT NULL,"
+                       " PRIMARY KEY (writer, channel)) WITHOUT ROWID")) {
         return nullopt;
     }
     return unique_ptr<SqliteLogStore>(new SqliteLogStore(move(impl), durability));
 }
 
 SqliteLogStore::~SqliteLogStore() = default;
+
+bool SqliteLogStore::put_checkpoint(const LogKey& key, const Bytes& blob) {
+    Statement statement(impl_->db, "INSERT OR REPLACE INTO checkpoints (writer, channel, blob)"
+                                   " VALUES (?, ?, ?)");
+    if (!statement.ok())
+        return false;
+    statement.bind_text(1, key.writer);
+    statement.bind_text(2, key.channel);
+    statement.bind_blob(3, blob);
+    return statement.step_done();
+}
+
+std::optional<Bytes> SqliteLogStore::checkpoint(const LogKey& key) const {
+    Statement statement(impl_->db, "SELECT blob FROM checkpoints WHERE writer = ? AND channel = ?");
+    if (!statement.ok())
+        return std::nullopt;
+    statement.bind_text(1, key.writer);
+    statement.bind_text(2, key.channel);
+    if (sqlite3_step(statement.handle) != SQLITE_ROW)
+        return std::nullopt;
+    const auto* data = static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 0));
+    const auto size = sqlite3_column_bytes(statement.handle, 0);
+    if (data == nullptr || size <= 0)
+        return std::nullopt;
+    return Bytes(data, data + size);
+}
+
+std::optional<std::size_t> SqliteLogStore::truncate_before(const LogKey& key, Seq first_kept) {
+    Statement statement(impl_->db,
+                        "DELETE FROM records WHERE writer = ? AND channel = ? AND seq < ?");
+    if (!statement.ok())
+        return std::nullopt;
+    statement.bind_text(1, key.writer);
+    statement.bind_text(2, key.channel);
+    statement.bind_int64(3, static_cast<int64_t>(first_kept));
+    if (!statement.step_done())
+        return std::nullopt;
+    return static_cast<std::size_t>(sqlite3_changes(impl_->db));
+}
 
 AppendResult SqliteLogStore::append_batch(const vector<Record>& records) {
     if (records.empty())

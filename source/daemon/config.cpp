@@ -56,6 +56,10 @@ constexpr Setting kSettings[] = {
     {"node", "gossip_max_hops", "6", "How far a learned address may travel from its origin"},
     {"node", "gossip_entry_ttl_ms", "30000", "How long a gossiped address survives unrefreshed"},
     {"node", "gossip_table_limit", "256", "Most gossiped peers remembered at once"},
+    {"node", "retention_max_age_ms", "0",
+     "Drop written records older than this, once a checkpoint can replace them; 0 disables"},
+    {"node", "retention_keep_min", "0", "Always keep this many records beyond the retention floor"},
+    {"node", "retention_interval_ms", "0", "How often retention may run; 0 disables it"},
     {"node", "curve", "on", "on or off: encrypt links (turn off only for diagnostics)"},
     {"log", "level", "info", "debug, info or error"},
     {"log", "status_interval_ms", "10000", "How often to print the counter summary"},
@@ -196,6 +200,12 @@ struct Walker {
                 number(config.gossip_entry_ttl_ms);
             else if (key == "gossip_table_limit")
                 number(config.gossip_table_limit);
+            else if (key == "retention_max_age_ms")
+                number(config.retention_max_age_ms);
+            else if (key == "retention_keep_min")
+                number(config.retention_keep_min);
+            else if (key == "retention_interval_ms")
+                number(config.retention_interval_ms);
             else if (key == "curve") {
                 if (value == "on")
                     config.curve = true;

@@ -2,7 +2,9 @@
 
 #include <mosaic/store/log_store.h>
 
+#include <cstddef>
 #include <map>
+#include <optional>
 
 namespace mosaic {
 
@@ -16,6 +18,10 @@ public:
     std::vector<Record> read(const LogKey& key, Seq from, std::size_t count) const override;
     std::vector<LogKey> keys() const override;
 
+    bool put_checkpoint(const LogKey& key, const Bytes& blob) override;
+    std::optional<Bytes> checkpoint(const LogKey& key) const override;
+    std::optional<std::size_t> truncate_before(const LogKey& key, Seq first_kept) override;
+
     ForkEvidenceStore* evidence() override {
         return this;
     }
@@ -27,6 +33,7 @@ public:
 
 private:
     std::map<LogKey, std::vector<Record>> logs_;
+    std::map<LogKey, Bytes> checkpoints_;
     std::map<LogKey, std::map<Seq, ForkEvidence>> forks_;
 };
 

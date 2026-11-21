@@ -23,7 +23,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, ~~SEC-1~~ ✅, ~~SEC-1b~~ ✅, ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, ~~DISC-2~~ ✅ | writer can go offline; slow followers handled; LAN auto-discovery works |
 | **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, ~~JOBS-4~~ ✅ | call a service by name over the same network, capacity-aware |
-| **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
+| **M6 — reach** | ~~BIND-1~~ ✅, ~~BIND-2~~ ✅, ~~STORE-2~~ ✅, ~~STORE-3~~ ✅, ~~SEC-2~~ ✅, SEC-3 | C ABI + Python, retention, hardening |
 
 ## core
 | ID | Task | Size | Depends | Acceptance criteria |
@@ -37,8 +37,8 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|---|---|
 | STORE-0 | Turn `MemoryLogStore contract` into a reusable conformance suite (template/macro that takes a factory) | S | – | `MemoryLogStore` runs through it; adding a store = one line; covers NotNext, read bounds, keys(), multiple logs | ✅
 | STORE-1 | SQLite `LogStore` (WAL, one table keyed `(writer, channel, seq)`) | M | STORE-0 | Passes conformance; survives reopen; 100k appends benchmark recorded in README | ✅
-| STORE-2 | Append-only segment-file store with index | L | STORE-0, design note | Passes conformance; crash-safe (torn tail write recovers); documented format |
-| STORE-3 | Retention + signed checkpoints | M | STORE-1, decision in [01](01-data-model.md) | Truncated replica can still verify new records from checkpoint; fork detection unaffected |
+| STORE-2 | Append-only segment-file store with index | L | STORE-0, design note | Passes conformance; crash-safe (torn tail write recovers); documented format | ✅
+| STORE-3 | Retention + signed checkpoints | M | STORE-1, decision in [01](01-data-model.md) | Truncated replica can still verify new records from checkpoint; fork detection unaffected | ✅
 
 ## log
 | ID | Task | Size | Depends | Acceptance criteria |

@@ -5,6 +5,7 @@
 #include <mosaic/store/fork_evidence.h>
 #include <mosaic/store/log_store.h>
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -53,6 +54,14 @@ public:
 
     IngestResult ingest(const Record& record);
 
+    /// Where the chain starts when the predecessor is no longer stored (a truncated log). Asked
+    /// with the sequence whose hash is needed; returning nothing means "unknown", and the record is
+    /// refused as before. A checkpoint is the only honest answer, which is why this is a hook and
+    /// not a store query (STORE-3).
+    void set_origin(std::function<std::optional<Hash>(const LogKey&, Seq)> origin) {
+        origin_ = std::move(origin);
+    }
+
     /// Evidence of writer equivocation: both records for a sequence, bounded by `max_evidence`.
     /// Keeping it is what turns "a fork was detected" into something that can be shown later
     /// (LOG-1).
@@ -72,6 +81,7 @@ private:
     const Hasher& hasher_;
     const Verifier& verifier_;
     std::map<LogKey, std::map<Seq, ForkEvidence>> evidence_;
+    std::function<std::optional<Hash>(const LogKey&, Seq)> origin_;
 };
 
 }  // namespace mosaic

@@ -103,7 +103,12 @@ IngestResult ReplicaLog::ingest(const Record& record) {
             return IngestResult::BadChain;
     } else {
         const auto previous = store_.get(key, record.seq - 1);
-        const auto previous_hash = previous ? record_hash_tagged(*previous) : nullopt;
+        auto previous_hash = previous ? record_hash_tagged(*previous) : nullopt;
+        // The predecessor may have been dropped by retention. If a checkpoint says what it hashed
+        // to, the record can still be shown to descend from it; if nobody can say, the record is
+        // refused exactly as before (STORE-3, D6).
+        if (!previous_hash && origin_)
+            previous_hash = origin_(key, record.seq - 1);
         if (!previous_hash || record.prev != *previous_hash) {
             // The writer signed a chain that disagrees with the one we hold: the evidence is the
             // incoming record plus the predecessor it contradicts.

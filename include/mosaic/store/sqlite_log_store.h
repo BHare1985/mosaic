@@ -18,14 +18,6 @@
 
 namespace mosaic {
 
-/// What an append promises before it reports success. Named rather than a boolean: "fast" is not a
-/// specification, and a deployment has to know what a crash can lose.
-enum class Durability {
-    PerRecord,  // synchronous=FULL: success means on disk (the default)
-    Batched,    // synchronous=NORMAL: durable against process death, not immediately against power
-                // loss
-};
-
 class SqliteLogStore final : public LogStore, public ForkEvidenceStore {
 public:
     /// Open or create the database at `path` ("":memory:" for a scratch store). Empty on failure.
@@ -50,6 +42,12 @@ public:
     std::optional<Record> get(const LogKey& key, Seq seq) const override;
     std::vector<Record> read(const LogKey& key, Seq from, std::size_t count) const override;
     std::vector<LogKey> keys() const override;
+
+    /// A checkpoint is one small blob per log, kept in its own table so it survives the rows it
+    /// describes being deleted (STORE-3).
+    bool put_checkpoint(const LogKey& key, const Bytes& blob) override;
+    std::optional<Bytes> checkpoint(const LogKey& key) const override;
+    std::optional<std::size_t> truncate_before(const LogKey& key, Seq first_kept) override;
 
     ForkEvidenceStore* evidence() override {
         return this;

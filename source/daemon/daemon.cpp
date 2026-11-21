@@ -37,6 +37,9 @@ struct Daemon::Impl {
     unique_ptr<ZmqTransport> transport;
     unique_ptr<Sha256Hasher> hasher;
     unique_ptr<Ed25519Verifier> verifier;
+    /// Retention signs a checkpoint with the node's own key: nobody else may say what the history
+    /// at a sequence was, which is why the signer lives here rather than in the store.
+    unique_ptr<Ed25519Signer> signer;
     unique_ptr<ChannelRules> rules;
     unique_ptr<CzmqDiscovery> discovery;
     PeerBook discovered;  // dial each peer once, bound the set, forget silent ones
@@ -128,6 +131,7 @@ unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
 
     self.hasher = make_unique<Sha256Hasher>();
     self.verifier = make_unique<Ed25519Verifier>();
+    self.signer = make_unique<Ed25519Signer>(keystore->public_key, keystore->secret_key);
 
     NodeConfig node_config;
     node_config.id = config.id;
@@ -152,6 +156,9 @@ unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
     node_config.gossip_max_hops = config.gossip_max_hops;
     node_config.gossip_entry_ttl_ms = config.gossip_entry_ttl_ms;
     node_config.gossip_table_limit = config.gossip_table_limit;
+    node_config.retention_max_age_ms = config.retention_max_age_ms;
+    node_config.retention_keep_min = config.retention_keep_min;
+    node_config.retention_interval_ms = config.retention_interval_ms;
     // A node introduces itself by gossip, so it needs to know where it is reachable. The transport
     // has already resolved any ephemeral port by now.
     node_config.pub_endpoint = self.transport->pub_endpoint();
@@ -193,6 +200,8 @@ RunResult Daemon::run(const function<bool()>& stop, const function<void()>& on_i
 
         self.node->pump(self.now_ms);
         self.node->tick(self.now_ms);
+        if (self.config.retention_interval_ms != 0)
+            self.node->retain(*self.signer, self.now_ms);  // a policy evaluation, not a timer
 
         // Peers learned by gossip are dialled through the same path a beacon candidate uses, so the
         // key policy decides - and a peer the config file placed is never re-dialled elsewhere.

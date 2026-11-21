@@ -58,6 +58,38 @@ TEST_CASE("store conformance: SqliteLogStore") {
     remove((path + "-shm").c_str());
 }
 
+TEST_CASE("a checkpoint outlives the rows it covers, and truncation keeps the head") {
+    const string path = temp_path("test-store-checkpoint.db");
+    {
+        auto store = SqliteLogStore::open(path);
+        REQUIRE(store.has_value());
+        for (Seq seq = 0; seq < 5; ++seq)
+            REQUIRE((*store)->append(record_at(seq)) == AppendResult::Ok);
+        const LogKey key{"w", "c"};
+        REQUIRE((*store)->head_seq(key) == 4);
+
+        // The checkpoint is opaque to the store: the log layer owns the bytes.
+        const Bytes blob{'c', 'h', 'k'};
+        REQUIRE((*store)->put_checkpoint(key, blob));
+        const auto dropped = (*store)->truncate_before(key, 3);
+        REQUIRE(dropped.has_value());
+        CHECK(*dropped == 3);
+        CHECK((*store)->head_seq(key) == 4);  // retention never moves the head
+    }
+    // Reopen: the checkpoint is still there, and so is the surviving tail.
+    auto reopened = SqliteLogStore::open(path);
+    REQUIRE(reopened.has_value());
+    const LogKey key{"w", "c"};
+    const auto blob = (*reopened)->checkpoint(key);
+    REQUIRE(blob.has_value());
+    CHECK(*blob == Bytes{'c', 'h', 'k'});
+    CHECK_FALSE((*reopened)->get(key, 0).has_value());
+    REQUIRE((*reopened)->get(key, 3).has_value());
+    remove(path.c_str());
+    remove((path + "-wal").c_str());
+    remove((path + "-shm").c_str());
+}
+
 TEST_CASE("a successful append is on disk before the caller sees it") {
     const string path = temp_path("test-store-durable.db");
     {

@@ -157,6 +157,7 @@ struct NodeCounters {
     std::uint64_t peers_expired = 0;    // entries removed because nothing refreshed them
     std::uint64_t gossip_refused = 0;   // entries (or messages) refused: stale, too far, malformed
     std::uint64_t gossip_overflow = 0;  // entries dropped because the table was full
+    std::uint64_t gossip_stale = 0;     // entries refused for being older than what we already hold
     std::uint64_t patterns_truncated = 0;      // advertised follow sets cut to the configured limit
     std::uint64_t capacity_unknown = 0;        // capacity reads that found a stale advertisement
     std::uint64_t hello_version_mismatch = 0;  // hellos announcing a version we cannot speak
@@ -390,7 +391,10 @@ private:
         std::uint32_t hops = 0;
         std::uint64_t refreshed_ms = 0;
         std::uint64_t refreshed_seq = 0;  // tie-free recency, for eviction and "freshest first"
-        bool offered = false;             // already handed to the caller to dial
+        /// Separate from the timestamp because an entry can legitimately be learned at time zero;
+        /// otherwise "held at 0" and "never held" would be the same state.
+        bool refreshed = false;
+        bool offered = false;  // already handed to the caller to dial
     };
     struct FetchState {
         std::uint64_t sent_ms = 0;
@@ -511,6 +515,7 @@ private:
     std::size_t gossip_cursor_ = 0;         // rotates the neighbours a round is offered to
     std::uint64_t last_gossip_ms_ = 0;
     std::uint64_t gossip_seq_ = 0;      // increments per accepted entry, so recency never ties
+    std::size_t gossip_rotate_ = 0;     // rotates the window of entries one message can carry
     std::uint64_t last_advert_ms_ = 0;  // when the outgoing hello was last rebuilt
     bool advert_refreshed_ = false;     // so "never built" is not confused with "built at 0"
     std::uint64_t last_retention_ms_ = 0;

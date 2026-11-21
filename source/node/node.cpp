@@ -626,15 +626,27 @@ void Node::handle_peers(const NodeId& from, const PeersMsg& message, uint64_t no
         }
 
         auto& slot = gossip_[entry.id];
-        slot.peer = GossipPeer{entry.id, entry.pub_endpoint, entry.router_endpoint};
-        // Nearer wins: an entry one hop from its origin describes a peer better than one six hops
-        // away that may be quoting a stale address, and hops is a distance for exactly this (D4).
-        slot.hops = std::min(slot.hops == 0 ? hops : slot.hops, hops);
-        if (slot.refreshed_ms == 0) {
-            ++counters_.peers_learned;
-        } else {
-            ++counters_.peers_refreshed;
+        // An entry older than what we already believe must never refresh it. Without this a peer
+        // can replay a stale entry forever and keep a dead node in the table: freshness is judged
+        // against what we hold now (its age plus the time since we heard it), never against our own
+        // clock - clocks are not comparable across nodes.
+        if (slot.refreshed) {
+            const auto held_age = now_ms > slot.refreshed_ms ? now_ms - slot.refreshed_ms : 0;
+            if (entry.age_ms > held_age) {
+                ++counters_.gossip_stale;
+                continue;
+            }
         }
+        // The accepted entry is the freshest we have seen, so its address wins; `hops` keeps the
+        // nearest distance anyone has claimed, which is what makes "nearer" meaningful (D4).
+        slot.peer = GossipPeer{entry.id, entry.pub_endpoint, entry.router_endpoint};
+        slot.hops = std::min(slot.hops == 0 ? hops : slot.hops, hops);
+        if (slot.refreshed) {
+            ++counters_.peers_refreshed;
+        } else {
+            ++counters_.peers_learned;
+        }
+        slot.refreshed = true;
         slot.refreshed_ms = now_ms;
         slot.refreshed_seq = ++gossip_seq_;
         slot.offered = false;  // a fresh sighting is worth handing to the dialler again
@@ -642,12 +654,22 @@ void Node::handle_peers(const NodeId& from, const PeersMsg& message, uint64_t no
         // Bound the table the way a full buffer must be bounded: a peer list is a hint, and memory
         // is not a place to be generous with hints (D5).
         while (gossip_.size() > config_.gossip_table_limit) {
-            auto oldest = gossip_.begin();
-            for (auto it = gossip_.begin(); it != gossip_.end(); ++it)
-                if (it->second.refreshed_seq < oldest->second.refreshed_seq)
+            // Evict the oldest entry whose peer we are not actually talking to. A flood of legal-
+            // looking entries must not be able to push a connected peer out of the table, which is
+            // the difference between churn and an eclipse.
+            const auto connected = transport_.peers();
+            auto oldest = gossip_.end();
+            for (auto it = gossip_.begin(); it != gossip_.end(); ++it) {
+                if (it->first == entry.id)
+                    continue;  // the newest entry never evicts itself
+                if (find(connected.begin(), connected.end(), it->first) != connected.end())
+                    continue;  // a live link is not evictable
+                if (oldest == gossip_.end() ||
+                    it->second.refreshed_seq < oldest->second.refreshed_seq)
                     oldest = it;
-            if (oldest->first == entry.id)
-                break;  // the newest entry never evicts itself
+            }
+            if (oldest == gossip_.end())
+                break;  // nothing evictable: keep the bound rather than the flood
             gossip_.erase(oldest);
             ++counters_.gossip_overflow;
         }
@@ -710,9 +732,12 @@ void Node::gossip_tick(uint64_t now_ms) {
         outgoing.router_endpoint = entry.peer.router_endpoint;
         outgoing.hops = entry.hops;
         // Staleness, not longevity: a fresh entry has age ~0 however long we have known the peer.
+        // Dwell time is included: how long we have held it since we last heard anything, so an
+        // entry cannot sit at the same age while it circulates.
         outgoing.age_ms = now_ms > entry.refreshed_ms ? now_ms - entry.refreshed_ms : 0;
         entries.push_back(move(outgoing));
     }
+    gossip_rotate_ += static_cast<std::size_t>(fresh.size() > 0 ? 1 : 0);
     if (entries.empty())
         return;
 

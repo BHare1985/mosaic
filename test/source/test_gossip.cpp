@@ -270,3 +270,102 @@ TEST_CASE("a gossip storm is throttled by the per-peer budget") {
     CHECK(node.node.counters().requests_throttled > 0);
     CHECK(node.node.counters().peers_learned == config.max_requests_per_interval);
 }
+
+TEST_CASE("an entry older than the one we hold never refreshes it") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(321);
+    NodeConfig config = gossip_config();
+    config.gossip_interval_ms = 0;  // receive only: the age arithmetic is what is under test
+
+    Peer node(net, "node", hasher, alice, config);
+    Peer sender(net, "sender", hasher, alice, config);
+
+    sender.transport.send("node", PeersMsg{{entry_for("far", "10.0.0.9", 1, 100)}});
+    step(net, 0, {&node});
+    REQUIRE(node.knows("far"));
+
+    // At t=200 the held entry is 300ms old. A copy claiming 400ms is older than what we believe:
+    // accepting it would let a peer replay a stale entry forever and keep a dead node in the table.
+    sender.transport.send("node", PeersMsg{{entry_for("far", "10.0.0.9", 1, 400)}});
+    step(net, 200, {&node});
+    CHECK(node.node.counters().gossip_stale == 1);
+    CHECK(node.knows("far"));  // refused the refresh, not the entry
+
+    // A copy younger than what we hold does refresh it.
+    sender.transport.send("node", PeersMsg{{entry_for("far", "10.0.0.10", 1, 0)}});
+    step(net, 300, {&node});
+    CHECK(node.node.counters().gossip_stale == 1);
+    CHECK(node.node.counters().peers_refreshed >= 1);
+    bool moved = false;
+    for (const auto& peer : node.node.gossip_peers())
+        if (peer.id == "far")
+            moved = peer.pub_endpoint == "tcp://10.0.0.10:6200";
+    CHECK(moved);  // the fresher entry's address wins
+}
+
+TEST_CASE("a flood of legal-looking entries cannot evict a connected peer") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(323);
+    NodeConfig config = gossip_config();
+    config.gossip_interval_ms = 0;
+    config.gossip_table_limit = 4;
+
+    Peer node(net, "node", hasher, alice, config);
+    Peer live(net, "live", hasher, alice, config);  // a peer the transport already talks to
+    Peer flooder(net, "flooder", hasher, alice, config);
+
+    // Give "live" an entry, then flood the table with perfectly valid addresses.
+    flooder.transport.send("node", PeersMsg{{entry_for("live", "10.0.0.2")}});
+    step(net, 0, {&node});
+    REQUIRE(node.knows("live"));
+
+    for (int round = 0; round < 4; ++round) {
+        PeersMsg flood;
+        for (int i = 0; i < 8; ++i)
+            flood.entries.push_back(
+                entry_for("fake" + std::to_string(round) + "-" + std::to_string(i), "192.0.2.1"));
+        flooder.transport.send("node", flood);
+        step(net, static_cast<uint64_t>(10 * (round + 1)), {&node});
+    }
+
+    CHECK(node.node.gossip_peers().size() <= config.gossip_table_limit);
+    CHECK(node.knows("live"));  // a live link is not evictable by churn
+    CHECK(node.node.counters().gossip_overflow > 0);
+}
+
+TEST_CASE("the advertised window rotates, so no entry starves behind the freshest") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(327);
+    NodeConfig config = gossip_config();
+    config.gossip_interval_ms = 100;
+    config.gossip_table_limit = 256;  // bigger than one message can carry
+    config.max_requests_per_interval = 512;
+    config.control_interval_ms = 10;
+
+    Peer sender(net, "sender", hasher, alice, config);
+    Peer watcher(net, "watcher", hasher, alice, config);
+
+    // Two lists of 64 distinct entries: more than one PeersMsg can carry, which is where a
+    // freshest-only rule would starve the rest forever.
+    for (int batch = 0; batch < 2; ++batch) {
+        PeersMsg message;
+        for (int i = 0; i < static_cast<int>(kMaxPeersEntries); ++i)
+            message.entries.push_back(entry_for("p" + std::to_string(batch * 64 + i), "10.0.0.1"));
+        sender.transport.send("watcher", message);
+        step(net, static_cast<uint64_t>(batch * 10), {&watcher});
+    }
+    REQUIRE(watcher.node.gossip_peers().size() > kMaxPeersEntries);
+
+    // The sender gossips to the watcher over several rounds; the union it receives has to exceed
+    // one message's capacity, which only happens if the window moves.
+    uint64_t now = 20;
+    for (int round = 0; round < 6; ++round) {
+        now += 100;
+        step(net, now, {&sender, &watcher});
+    }
+    CHECK(watcher.node.counters().peers_refreshed > 0);
+    CHECK(watcher.node.gossip_peers().size() > kMaxPeersEntries);
+}

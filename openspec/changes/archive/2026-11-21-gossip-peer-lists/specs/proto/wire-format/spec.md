@@ -8,9 +8,10 @@ Defines the bytes on the wire: permanent message ids, a total decoder, golden ve
 
 ### Requirement: Peer lists are a framed, length-bounded message
 
-`PeersMsg` MUST be part of the versioned message set with a permanent id, MUST encode a bounded number of entries, each carrying a
-node id, a public endpoint, a router endpoint and an age, and MUST be decoded totally: a truncated, oversized or malformed message
-MUST produce a decode status and no message, never a partial one.
+`PeersMsg` MUST have a permanent message id, MUST encode a bounded number of entries - each with a node id, a public endpoint, a
+router endpoint, a hop count and an age - and MUST be decoded totally: a truncated, oversized or malformed message yields a decode
+status and no message. An entry that survives decoding is one a node may dial, so the decoder MUST refuse an endpoint that is not a
+reachable `tcp://host:port`.
 
 #### Scenario: Round-trip
 
@@ -23,6 +24,12 @@ MUST produce a decode status and no message, never a partial one.
 - **GIVEN** an encoded peer list cut in half
 - **WHEN** it is decoded
 - **THEN** the decoder reports a truncation and returns nothing
+
+#### Scenario: An endpoint that is a bind address is refused
+
+- **GIVEN** a peer list entry whose endpoint is `tcp://0.0.0.0:5555` or `tcp://*:5555`
+- **WHEN** it is decoded
+- **THEN** the message is malformed, because a wildcard says where a node listens, not where it can be found
 
 #### Scenario: A golden vector pins the layout
 

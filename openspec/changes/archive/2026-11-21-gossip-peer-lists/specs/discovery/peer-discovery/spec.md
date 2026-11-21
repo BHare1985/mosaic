@@ -7,6 +7,19 @@ rule that already governs discovery: learning an address grants nothing.
 
 ## ADDED Requirements
 
+### Requirement: A gossiped identity is bound to an address, not to a key
+
+An entry MUST be treated as a claim about where an identity can be reached, never as proof of which key that identity holds. A
+node MUST NOT accept a record, or grant a write right, because of a gossiped binding; and a peer that misdirects a dial MUST cost
+only the dial, because the pin policy still decides whether the key behind an address is the one expected.
+
+#### Scenario: A misdirected dial cannot forge history
+
+- **GIVEN** a hostile peer that gossips an address for a victim identity where no such peer lives
+- **WHEN** a node dials that address
+- **THEN** the link either does not establish or establishes with a different key, and no record is believed on the strength of
+  the identity the entry claimed
+
 ### Requirement: Peers may be learned from other peers
 
 A node MUST be able to accept peer-list entries from peers, and MUST treat them exactly as beacon discoveries: as candidate
@@ -31,6 +44,24 @@ configured peer's endpoints for the same identity, and MUST NOT lower the trust 
 - **WHEN** A is stopped
 - **THEN** C keeps its link to B and continues to replicate, and B's address survives A's departure
 
+### Requirement: Freshness only improves, and live links are not evictable
+
+An entry MUST NOT be refreshed by a copy describing an older state than the one already held, so a peer cannot keep a dead node
+in the table by replaying a stale entry forever. A node MAY only evict an entry whose peer it is not currently connected to, so a
+flood of legal-looking entries cannot push a live link out of the table.
+
+#### Scenario: A stale copy does not refresh
+
+- **GIVEN** an entry held for 200 ms
+- **WHEN** a peer sends the same entry describing it as 400 ms old
+- **THEN** the entry is not refreshed, the refusal is counted, and the node keeps what it had
+
+#### Scenario: A connected peer survives a flood
+
+- **GIVEN** a table at its bound with one entry for a peer the transport is talking to
+- **WHEN** a flooding peer adds more valid entries than the bound allows
+- **THEN** the connected peer's entry survives, the excess is counted, and the table stays within its bound
+
 ### Requirement: Gossip is bounded in size, hops and lifetime
 
 A peer list MUST be bounded per message and per table, MUST carry an age per entry, MUST apply a hop limit, and MUST expire entries
@@ -48,6 +79,12 @@ oversized or malformed.
 - **GIVEN** a gossiped entry that is never refreshed
 - **WHEN** its age limit passes
 - **THEN** it is removed from the table, and the node does not dial it again until it is re-learned
+
+#### Scenario: A window that rotates rather than always the freshest
+
+- **GIVEN** more entries in the table than one message may carry
+- **WHEN** a node gossips over several rounds
+- **THEN** the window of entries it sends moves, so slower-refreshing entries eventually reach a third hop instead of starving
 
 #### Scenario: A message from the future is refused
 

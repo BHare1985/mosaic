@@ -84,17 +84,33 @@ Two other things cost time and are worth writing down:
 Not an upstream bug, and nothing to file. Recorded because the failure mode ("sleeps forever, no traffic, no error") gives no
 hint about the cause.
 
-## Finding: zgossip can be commanded but not listened to from outside czmq
+## Finding: zgossip's actor API is public; its design is still wrong for this project
 
-`zgossip` accepts its command set publicly (`BIND`, `CONNECT`, `PUBLISH key value`, `SET path value`), and the header
-documents those. What it *emits* to its caller is a `zgossip_msg` zproto frame whose header, `zgossip_msg.h`, lives in czmq's
-`src/` and is not installed — so an application outside czmq cannot parse the tuples it receives. Zyre can, because it sits
-inside the same family of projects.
+**Corrected 2026-11-21.** An earlier version of this note claimed `zgossip` emits private `zgossip_msg` frames to its caller, so
+an application outside czmq could not parse what it receives. That was wrong, and the correction matters because the wrong claim
+is a bad reason:
 
-Consequence for Mosaic: LAN discovery uses `zbeacon` (whose datagrams are plain frames on the actor pipe and therefore fully
-public), and gossip is deferred rather than half-implemented. Anything that needs second-hop discovery either implements it over
-Mosaic's own protocol or accepts czmq's private API as a dependency - a decision for whoever needs it, not a shortcut to take
-now.
+- `zgossip_msg.h` *is* private to czmq (`<class name="zgossip_msg" private="1" />` in `project.xml`, in `src/`, not installed),
+  and some packagers strip even the copy a CMake build leaks into `include/`.
+- But that frame format is only what `zgossip` speaks *on the wire between gossip nodes* (`ROUTER`/`DEALER`). To its own caller it
+  sends plain strings on the `zactor` pipe: `zstr_sendx(self->pipe, "DELIVER", key, value, NULL)`, readable with `zstr_recvx`.
+  Its own selftest consumes them that way. So commanding **and** listening are both public `czmq` API, exactly like `zbeacon`.
 
-Not filed upstream (D4). Recorded because the public half of an API makes the private half easy to miss.
+**Why Mosaic still does not use it** (the real reasons, which are stronger than the one above):
+
+1. `zgossip` opens its own TCP sockets, outside `Transport` - so it bypasses CURVE `PeerPins`, the ZAP handshake policy, the
+   per-peer request budgets and peer scoring. Discovery would become the one unauthenticated, unthrottled, unpenalised path in
+   the system.
+2. It never expires tuples, and `UNPUBLISH` deletes only locally: there is no distributed delete and no tombstone, so a dead node
+   stays in every table forever unless the application layers its own TTL on top.
+3. On every `CONNECT` it dumps the whole tuple table (`HELLO` then one `PUBLISH` per tuple) and floods every new tuple to all
+   edges - czmq's own documentation limits it to slow-changing configuration.
+4. Its CURVE support is behind `CZMQ_BUILD_DRAFT_API`, which most distributions disable.
+
+Consequence for Mosaic: LAN discovery uses `zbeacon` (plain frames on the actor pipe), and second-hop discovery is Mosaic's own
+`PeersMsg` over the existing `Transport` - which is what buys it the pin policy, the budgets and the scoring. See
+[DISC-3](../openspec/specs/discovery/peer-discovery/spec.md) and [05](design/05-node-and-transport.md).
+
+Not filed upstream (D4). Recorded because "we cannot read its output" was a satisfying-sounding reason and a false one: the
+conclusion was right and the argument was not.
 

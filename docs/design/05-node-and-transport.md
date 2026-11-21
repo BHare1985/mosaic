@@ -83,6 +83,15 @@ why it needs no new thread, no new socket type and no czmq - which was the block
   goes through `ZmqTransport::add_peer` - so CURVE and `PeerPins` decide as they do for any other peer. A peer the config file
   placed is never re-dialled at a gossiped address (`set_configured_peers`).
 
+Two rules keep the table honest under a hostile peer, and both were missing before a review pointed at them:
+**freshness only improves** (an entry describing an older state than the one held never refreshes it, so a peer cannot replay a
+stale entry to keep a dead node alive), and **live links are not evictable** (a flood of legal-looking entries may evict only
+entries the transport is not talking to). A third keeps convergence fair: when the table holds more entries than one message can
+carry, the window rotates rather than always taking the freshest, so slower-refreshing entries still reach a third hop.
+
+An entry is a claim about *where* an identity can be reached, never about which key it holds: `PeerPins` still decides whether the
+key behind an address is the one expected, so a misdirected dial costs a dial and cannot forge history.
+
 Counter to watch: `mosaicd`'s `discovered` counts peers learned this way. Verified end to end by three daemons where the
 third knows only the first and still reaches the second.
 

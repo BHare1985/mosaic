@@ -52,13 +52,21 @@ vector<string> get_patterns(ByteReader& reader) {
 bool valid_peer_endpoint(const std::string& endpoint) {
     constexpr const char* kScheme = "tcp://";
     const auto scheme = sizeof("tcp://") - 1;
-    if (endpoint.size() <= scheme || endpoint.compare(0, scheme, kScheme) != 0)
+    // Bounded before anything is compared: sixty-four entries of four-kilobyte hostnames is a
+    // quarter-megabyte frame that is all endpoint and no peer.
+    if (endpoint.size() <= scheme || endpoint.size() > 128 ||
+        endpoint.compare(0, scheme, kScheme) != 0)
         return false;
     const auto colon = endpoint.rfind(':');
     if (colon == string::npos || colon <= scheme || colon + 1 >= endpoint.size())
         return false;
     if (endpoint.find(':', scheme) != colon)
         return false;  // an unbracketed IPv6 literal is not something we can dial
+    // A wildcard is a *bind* address, never a reachable one: a node that advertises one is telling
+    // us where it listens, not where it can be found.
+    const auto host = endpoint.substr(scheme, colon - scheme);
+    if (host == "*" || host == "0.0.0.0" || host == "[::]" || host == "::" || host == "[::0]")
+        return false;
     uint32_t port = 0;
     for (size_t i = colon + 1; i < endpoint.size(); ++i) {
         const char c = endpoint[i];

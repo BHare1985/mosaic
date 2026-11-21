@@ -152,6 +152,20 @@ TEST_CASE("a peer list is believed wholly or not at all") {
         CHECK(decode_message(encode_message(Message{port_zero})).status == DecodeStatus::Malformed);
     }
 
+    SUBCASE("an endpoint that is a bind address or absurdly long is refused") {
+        for (const char* host : {"*", "0.0.0.0", "[::]"}) {
+            PeersMsg wildcard{
+                {PeerEntry{"b", string("tcp://") + host + ":5555", "tcp://10.0.0.2:5556", 1, 0}}};
+            CHECK(decode_message(encode_message(Message{wildcard})).status ==
+                  DecodeStatus::Malformed);
+        }
+        // A wildcard is where a node listens, never where it can be found; sixty-four entries of
+        // four-kilobyte hostnames would be a quarter-megabyte frame that is all endpoint.
+        PeersMsg long_host{
+            {PeerEntry{"b", "tcp://" + string(200, 'h') + ":5555", "tcp://10.0.0.2:5556", 1, 0}}};
+        CHECK(decode_message(encode_message(Message{long_host})).status == DecodeStatus::Malformed);
+    }
+
     SUBCASE("an age from the future is refused") {
         PeersMsg stale{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1,
                                   kMaxPeerEntryAgeMs + 1}}};

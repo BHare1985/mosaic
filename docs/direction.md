@@ -1,7 +1,12 @@
 # Direction
 
-> **Status 2026-11-09:** direction **A** accepted and decisions D1–D6 settled; see [design/decisions.md](design/decisions.md).
-> The text below is the original analysis. The "Decisions needed" list at the end is now answered there.
+> **Status 2026-11-21:** direction **A** was carried out. Everything in the recommended direction is implemented and specified in
+> [`openspec/specs/`](../openspec/specs); the decisions are in [design/decisions.md](design/decisions.md). The only part of this
+> document that is still a plan is the optional future layer at the end (parity symbols, tokens, proof of geolocation), which was
+> always explicitly optional.
+>
+> The text below is kept as it was written (2026-11-09) - it is the original analysis, not a description of the current code. Where
+> it and the specifications differ, the specifications win.
 
 ## Where we are
 

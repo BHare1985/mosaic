@@ -1,6 +1,6 @@
 # TODO board
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 Rules for picking up a task:
 1. Read [00-overview](00-overview.md), [conventions](conventions.md), the module README and the design doc named in the task.

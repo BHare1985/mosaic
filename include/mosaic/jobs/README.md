@@ -11,6 +11,8 @@ Design: 06-jobs (`docs/design/06-jobs.md`), contract: `openspec/specs/jobs/servi
 - A node runs either a `JobWorker` or a `JobRequester`, not both: both own the node's single record
   callback. Composing them is application work, and the constraint is deliberate - it keeps `Node`
   from growing a subscription registry for a layer that sits above it.
-- The worker set is static here (JOBS-4 would derive it from hello patterns).
+- The worker set is derived from the peers whose hellos advertise following `svc.<service>`, plus this
+  node when it follows it. The explicit-list constructor still wins, for a single node or a test
+  (JOBS-4).
 
-**Open work:** JOBS-4 (capacity-aware ranking, blocked on hello pattern advertisement).
+**Open work:** none.

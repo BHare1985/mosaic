@@ -1,5 +1,9 @@
 # Building a useful decentralized broker in 2026
 
+> **Historical.** This is the design guide the implementation followed, written before the code. The system it describes exists
+> now; where this guide and [`openspec/specs/`](../openspec/specs) differ, the specifications are normative and the guide is
+> history. Kept because the reasoning is still the reasoning.
+
 A design guide for Mosaic, distilled from the ZeroMQ Guide, Dafka and
 Malamute (see [references](references/README.md)) and adjusted for today.
 The implementation-level design that followed from this guide lives in [design/](design/README.md). Section 1 states what we borrow; sections 2-9 are the design; section 10 is the plan.

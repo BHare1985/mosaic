@@ -14,11 +14,12 @@ namespace mosaic {
 /// docs/design/03-matching-and-channels.md.
 ///
 /// Pattern language (segments separated by '.'):
-///   literal   "eu"        matches exactly that segment
-///   '*'       "*"         matches exactly one segment
-///   '>'       ">"         last segment only; matches one or more remaining segments
-/// Examples: "storage.*.shard7" matches "storage.eu.shard7"; "storage.>" matches
-/// "storage.eu.shard7". Channels (the thing being matched) must not contain '*' or '>' segments.
+///   literal   \c eu        matches exactly that segment
+///   star      \c *         matches exactly one segment
+///   tail      \c >         last segment only; matches one or more remaining segments
+/// Examples: \c storage.*.shard7 matches \c storage.eu.shard7; \c storage.> matches
+/// \c storage.eu.shard7. Channels (the thing being matched) must not contain a star or tail
+/// segment - the wildcards are a pattern's vocabulary, never a channel's.
 ///
 /// Cost of match() is O(segments x words) where words = subscribers/64, independent of how many
 /// subscribers do NOT match. Not thread-safe.

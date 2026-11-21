@@ -12,4 +12,7 @@ equivocating writer), `BadChain`, `BadSignature`. Add new outcomes here, never a
 - Depends on core and store only.
 - Verify before store. Never store an unverified record.
 
-**Open work:** LOG-1 (keep fork evidence), LOG-2 (batch ingest).
+`ReplicaLog::ingest_batch` takes a run of records, verifies each, appends contiguous stretches with one
+`append_batch` per log and reports an outcome per record (`NotAttempted` past the first refusal). A
+repair reply therefore costs one store call, and a record whose predecessor was dropped by retention is
+verified against a checkpoint instead (`set_origin`).

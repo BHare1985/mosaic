@@ -1,6 +1,6 @@
-# 04 — Flow control (🟡 repair path ✅, live path ⬜)
+# 04 — Flow control (✅ repair and live paths)
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 ## Principles
 1. **The receiver controls the rate.** It hands out credit; the sender spends it and never sends at zero.
@@ -17,9 +17,9 @@ _Describes 0.6.0._
 | Path | Mechanism | Status |
 |---|---|---|
 | Repair (`FETCH`/`DIRECT_RECORD`) | Requester keeps a `CreditWindow` per peer (`fetch_window`). `FetchMsg.count` ≤ available; each `DirectRecordMsg` returns 1; a request that is abandoned on timeout returns exactly what it still owed. Responder also caps at `max_serve`. | ✅ |
-| Live (`RecordMsg`) | Best effort; ZeroMQ HWM drops when a follower is slow. A follower that falls behind should *stop relying on live* and catch up by FETCH (slow-follower rule, FLOW-4). | ⬜ (FLOW-4) |
-| Explicit grants (`CreditMsg`) | For streaming consumers that want push with back-pressure. | ⬜ FLOW-3 |
-| Jobs | Workers advertise remaining capacity; ranking skips workers without credit. | ⬜ JOBS-4 |
+| Live (`RecordMsg`) | Best effort; ZeroMQ HWM drops when a follower is slow. A follower that falls behind *stops relying on live* and catches up by FETCH (slow-follower rule). | ✅ FLOW-4 |
+| Explicit grants (`CreditMsg`) | For streaming consumers that want push with back-pressure. | ✅ FLOW-3 |
+| Jobs | Workers advertise one byte of spare capacity in their hello; ranking gives a saturated worker a one-cycle penalty rather than dropping it, so views that differ by an interval cannot both think they are first. | ✅ JOBS-4 |
 
 ## Credit accounting is per request (✅ FLOW-2)
 Each outstanding FETCH carries the credit it spent (`FetchState::credit_left`). A request that completes or is abandoned on

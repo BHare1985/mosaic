@@ -44,27 +44,27 @@ struct FetchMsg {
     std::uint32_t count = 0;
 };
 
-/// Replica -> writer: "record `seq` and everything before it is durably stored here". (ACK-1, not
-/// yet handled.)
+/// Replica -> writer: "record `seq` and everything before it is durably stored here". The floor a
+/// writer's retention policy cannot go below (ACK-1).
 struct AckMsg {
     LogKey key;
     Seq seq = 0;
 };
 
-/// Newcomer -> peers: "tell me the heads of every log matching these patterns". (HEADS-1, not yet
-/// handled.)
+/// Newcomer -> peers: "tell me the heads of every log matching these patterns" - how a log is found
+/// when its writer is offline (HEADS-1).
 struct GetHeadsMsg {
     std::vector<std::string> patterns;
 };
 
-/// Reply to GetHeadsMsg, unicast. (HEADS-1, not yet handled.)
+/// Reply to GetHeadsMsg, unicast (HEADS-1).
 struct DirectHeadMsg {
     LogKey key;
     Seq seq = 0;
     Hash hash{};
 };
 
-/// Explicit credit grant for streaming paths. (FLOW-3, not yet handled.)
+/// Explicit credit grant for streaming paths: live delivery paced by the receiver (FLOW-3).
 struct CreditMsg {
     std::uint32_t credits = 0;
 };

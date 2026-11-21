@@ -1,6 +1,6 @@
 # Conventions
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 - **Versioning:** `0.<closed milestones>.0` - the minor number is the count of milestones closed on the [TODO board](TODO.md),
   and the patch component carries fixes only. `project(Mosaic VERSION ...)` in `CMakeLists.txt` is the single source of truth; the

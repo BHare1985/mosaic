@@ -1,6 +1,6 @@
-# 07 — Security (⬜ placeholders only; read before using in anger)
+# 07 — Security (✅ implemented: signed records, CURVE + ZAP pinning, channel rules, peer scoring, rotation)
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 > **Records are authenticated; links are not.** CORE-2 landed: records are signed with Ed25519 and the writer identity is the
 > hex public key, so a tampered or forged record is rejected. `InsecureTestSigner` still exists as a test double only (its own
@@ -22,7 +22,8 @@ _Describes 0.6.0._
    closing `svc.>` is one line, which is what makes the job layer safe to expose: without it, any key holder could publish a
    request and have a worker run it. Rejections are counted per rule, and a forbidden log is remembered so its head announcements
    do not make us fetch records we would refuse. Rules are configuration per node today; a replicated membership channel is the
-   follow-up, and it needs key rotation (SEC-3) before revocation means anything.
+   follow-up, and it needed key rotation before revocation meant anything - which now exists (SEC-3, below), so a rule can name a
+   rotation root and followers keep working across a rotation.
 
 ## One identity, two representations (decided)
 
@@ -135,4 +136,5 @@ material is refused rather than downgraded.
 - Never act on unverified data. Never log payloads. Treat every decoded field as hostile (bounds, sizes).
 - Never make acceptance depend on a peer's score ("bans are not belief"). Score where the fault is already counted, and drop
   at `Node::admit()` - the one inbound choke point - so no new message kind can bypass a ban.
-- Keys never in config files or logs; keystore API (CORE-2). Rotation = new log + link record (SEC-3).
+- Keys never in config files or logs; keystore API (CORE-2). Rotation = a link record in the old log (`Mosaic rotate`), followed
+  as a bounded chain from a root the verifier already trusts.

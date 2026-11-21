@@ -1,6 +1,6 @@
-# 03 — Matching & channels (✅ matcher implemented; ZeroMQ mapping ⬜)
+# 03 — Matching & channels (✅ implemented, including the transport mapping)
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 ## Channels
 A channel is a dotted name: `storage.eu.shard7`. Segments are non-empty; `*` and `>` are reserved for patterns.

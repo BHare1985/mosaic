@@ -1,6 +1,6 @@
-# 02 — Protocol (🟡 values implemented, wire encoding ⬜)
+# 02 — Protocol (✅ values, encoder/decoder and every handler implemented)
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 Derived from Dafka's RECORD / HEAD / FETCH / ACK / HELLO set (see
 [../malamute-and-dafka-system-design.md](../malamute-and-dafka-system-design.md)), with `FETCH.count` doubling as
@@ -14,10 +14,11 @@ the requester's credit.
 | `HeadMsg` | writer → followers | publish, every `head_interval_ms` | "my log ends at seq/hash" | ✅ |
 | `FetchMsg` | follower → peer | unicast | send records `[from, from+count)` | ✅ |
 | `DirectRecordMsg` | peer → follower | unicast | repair delivery; returns one credit each | ✅ |
-| `AckMsg` | replica → writer | unicast | "stored up to seq" (ACK-1) | ⬜ |
-| `GetHeadsMsg` / `DirectHeadMsg` | newcomer ↔ peers | unicast | learn heads while writer offline (HEADS-1) | ⬜ |
-| `CreditMsg` | receiver → sender | unicast | explicit credit on streaming paths (FLOW-3) | ⬜ |
-| `HelloMsg` | both | unicast, retried until answered | version now; followed patterns with JOBS-2 | 🟡 |
+| `AckMsg` | replica → writer | unicast | "stored up to seq": the retention floor (ACK-1) | ✅ |
+| `GetHeadsMsg` / `DirectHeadMsg` | newcomer ↔ peers | unicast | learn heads while the writer is offline (HEADS-1) | ✅ |
+| `CreditMsg` | receiver → sender | unicast | explicit credit on streaming paths (FLOW-3) | ✅ |
+| `HelloMsg` | both | unicast, every `head_interval_ms` | version, followed patterns, spare capacity (HELLO-1) | ✅ |
+| `PeersMsg` | both | unicast | peer-list gossip: id, endpoints, hops, age (DISC-3) | ✅ |
 
 ## Node behaviour (the state machines)
 

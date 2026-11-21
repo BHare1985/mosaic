@@ -1,7 +1,7 @@
 /** @page about Mosaic
   @section purpose What Mosaic is
 
-  A brokerless, verifiable, replicated-log library and daemon for C++20 on ZeroMQ. This documentation describes version 0.6.0. Every writer owns signed,
+  A brokerless, verifiable, replicated-log library and daemon for C++20 on ZeroMQ. This documentation describes version 0.7.0. Every writer owns signed,
   hash-chained, append-only logs per channel; nodes subscribe to channel patterns, replicate the logs they follow
   directly from each other, and repair anything they missed from any peer that holds it. There is no broker, no
   consensus and no coordinator in the data path.

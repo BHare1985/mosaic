@@ -129,8 +129,8 @@ public:
 
     /// Diagnostic: the value a live socket reports for one option (for example
     /// `ZMQ_HEARTBEAT_IVL`), so a test can assert what was actually applied instead of what the
-    /// code intended. -1 when the option is unknown or unset. Takes an int rather than a `ZMQ_*`
-    /// constant to keep libzmq out of the header.
+    /// code intended. -1 when the option is unknown or unset. It takes an int rather than a named
+    /// ZMQ constant to keep libzmq out of the header.
     int socket_option(int option) const;
 
     /// Messages refused because the peer's CURVE key did not match what was pinned for it (SEC-1).

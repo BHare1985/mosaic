@@ -3,8 +3,8 @@
 // Version of this library. CMake's project(VERSION ...) is the single source of truth: this file is
 // generated from it, and a test compares the two so they cannot drift.
 //
-// The minor number counts closed milestones (see docs/design/conventions.md): 0.6.0 means six milestones
-// are done. 0.x minors may break; the C ABI is not frozen yet.
+// The minor number counts closed milestones (see docs/design/conventions.md): 0.7.0 means seven
+// milestones are done. 0.x minors may break; the C ABI is not frozen yet.
 
 #include <array>
 #include <cstdint>

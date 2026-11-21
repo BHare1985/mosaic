@@ -1,6 +1,6 @@
 # 01 — Data model (✅ implemented, in-memory)
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 ## Record
 ```
@@ -129,9 +129,11 @@ checkpoint: if `record.prev` equals the checkpoint's hash and `record.seq == che
 checkpoint and is accepted. If no checkpoint covers it, the record is refused exactly as before. Fork detection is unaffected:
 equivocation is two records at one sequence, and truncation only ever removes a prefix.
 
-## Open design questions (resolve before the matching TODO)
-- **Retention/truncation (STORE-3):** replicas may drop old records only if they keep a signed checkpoint
-  `(seq, hash)`; replaying from a checkpoint must still verify. Define the checkpoint record type.
-- **Fork evidence (LOG-1):** store both conflicting records; define how it is gossiped.
-- **Writer key rotation:** start a new log and write a link record in the old one (SEC-3).
-- **Durable writer identity:** writer id is the public key (not a random UUID like Dafka), so a restart keeps its log.
+## Questions this document used to leave open (all settled)
+
+- **Retention and truncation:** a replica may drop a prefix only when a signed checkpoint names what it dropped; the format and
+  the origin rule are in "Checkpoints and retention" above.
+- **Fork evidence:** both conflicting records are stored, bounded by `max_evidence`, and a replica re-checks a whole store
+  offline with `Mosaic verify`.
+- **Writer key rotation:** a link record in the old log names the successor, followed as a bounded chain from a trusted root.
+- **Durable writer identity:** the writer id is the public key, so a restart continues the same log.

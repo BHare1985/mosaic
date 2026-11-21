@@ -35,4 +35,10 @@ from. The numbers come from `./build/test/MosaicTests -tc="*throughput*,*batch a
 recorded rather than asserted, because a wall-clock threshold on a shared machine is a flaky test until it is an order of
 magnitude.
 
-**Open work:** STORE-2 (segment files), STORE-3 (retention + signed checkpoints).
+Three backends behind one seam: `MemoryLogStore` (tests and the simulator), `SqliteLogStore` (the
+default: one file, WAL, `Durability::{PerRecord, Batched}`) and `SegmentLogStore` (a directory of
+append-only segment files, so the log is an artefact you can copy and retention can delete a whole
+file). All three pass the same conformance suite, and all three keep a checkpoint and truncate a
+prefix: memory and SQLite by deleting rows, segments by dropping whole segments.
+
+**Open work:** none.

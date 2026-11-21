@@ -3,9 +3,9 @@
 **Purpose:** the `Message` variant: `RecordMsg`, `DirectRecordMsg`, `HeadMsg`, `FetchMsg`, `AckMsg`, `GetHeadsMsg`,
 `DirectHeadMsg`, `CreditMsg`, `HelloMsg`. Semantics: 02-protocol (`docs/design/02-protocol.md`).
 
-**Status:** values only. The binary encoder/decoder is ENC-1 and must be written before any real network
-transport. `Node` currently handles Record, DirectRecord, Head, Fetch; the rest are TODO (ACK-1, HEADS-1,
-FLOW-3, HELLO-1).
+**Status:** every message is encoded and decoded (`codec.h`), with permanent ids, golden vectors and a total
+decoder, and `Node` handles all of them. `PeersMsg` (id 10) carries peer-list gossip: entries of id, both
+endpoints, hops and age.
 
 **Rules**
 - Adding a message = struct here + entry in the variant + design doc row + handler (or an explicit no-op TODO in

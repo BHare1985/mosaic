@@ -14,8 +14,8 @@ struct Envelope {
 };
 
 /// Everything Node needs from a network, and nothing more. Implementations: SimNetwork (tests, in
-/// this repo) and a ZeroMQ transport (ZMQ-*, to be written). Contract and the ZeroMQ socket
-/// mapping: docs/design/05-node-and-transport.md.
+/// this repo, deterministic) and ZmqTransport (real links, CURVE, one SUB and DEALER per peer).
+/// Contract and the ZeroMQ socket mapping: docs/design/05-node-and-transport.md.
 ///
 /// Semantics all implementations must honour:
 ///  - Non-blocking and single-threaded: the owner calls poll() from its own loop.

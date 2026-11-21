@@ -1,6 +1,6 @@
 # 00 — Overview
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 ## Goal
 A small, dependency-light library (C++20) for **brokerless, verifiable, replicated logs** with
@@ -17,19 +17,19 @@ layers that consume logs; none may be required to use a log.
 ```
                  app code
     ┌───────────────────────────────┐
-    │  jobs      (rendezvous ranking, request/result over logs)   ⬜/🟡
+    │  jobs      (rendezvous ranking, request/result over logs)   ✅
     ├───────────────────────────────┤
     │  node      Node: writer + replica + responder                ✅
     ├────────────┬─────────┬────────┤
-    │  net       │  flow   │ match  │  Transport / SimNetwork ✅, ZMQ ⬜ │ credits ✅ │ Matcher ✅
+    │  net       │  flow   │ match  │  Transport / SimNetwork / ZMQ ✅ │ credits ✅ │ Matcher ✅
     ├────────────┴─────────┴────────┤
-    │  proto     messages (values; binary encoding ⬜)             🟡
+    │  proto     messages, binary encoder/decoder                  ✅
     ├───────────────────────────────┤
     │  log       LogWriter, ReplicaLog (verification)              ✅
     ├───────────────────────────────┤
-    │  store     LogStore interface, MemoryLogStore; SQLite ⬜      🟡
+    │  store     LogStore: memory, SQLite, segment files           ✅
     ├───────────────────────────────┤
-    │  core      types, Record, canonical bytes, crypto seams      ✅ (real Ed25519 ⬜)
+    │  core      types, Record, canonical bytes, Ed25519            ✅
     └───────────────────────────────┘
 ```
 

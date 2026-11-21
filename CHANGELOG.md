@@ -4,6 +4,48 @@ Versions are `0.<closed milestones>.0`; the patch component carries fixes only. 
 is not frozen until the C ABI lands. What each version *must* do is specified in `openspec/specs/`; this file records what
 shipped.
 
+## 0.7.0 — 2026-11-21
+
+Seven milestones closed (M0 scaffold through M6 reach), so the minor number moves. Everything below is specified in
+`openspec/specs/` and enforced by `./scripts/ci.sh`.
+
+**Security and hardening**
+
+- Peer scoring (SEC-2): weighted strikes for objective faults, decay over time, escalating bans with a ceiling, bans that lapse on
+  their own or lift on a good hello plus one verifiable record. A ban is local policy - it never changes what a record is believed
+  to say.
+- Writer key rotation (SEC-3): a signed link record in the writer's own log names its successor; followers walk a bounded chain
+  from a root they already trust, and a channel rule may name that root.
+- Transport hardening (ZMQ-2): the poll set is sized from its peers (it was a three-entry stack array), frame counts are enforced,
+  the frame limit is a socket option, handover lets a restarted node reclaim its identity, heartbeats notice a silent link - and
+  the C ABI and Python binding encrypt by default instead of quietly running plaintext.
+
+**Discovery**
+
+- Peer-list gossip (DISC-3): `PeersMsg` over the existing transport, so gossip inherits CURVE, ZAP, request budgets and scoring.
+  Soft-state entries with ages, a hop distance, a bounded table, and the rule that freshness only improves.
+
+**Storage and retention**
+
+- A segment-file backend (STORE-2) whose layout is the log's own shape, with recovery on open and an index that is derived state.
+- Checkpoints and retention (STORE-3): a writer signs `(seq, hash)`, a backend keeps it, and only then may a prefix be dropped - in
+  whole segments where a backend has them. Verification across a truncation uses the checkpoint as the origin.
+
+**Protocol**
+
+- The hello now carries what a peer follows and one byte of spare capacity, and the protocol version is 2 (HELLO-1). Job workers
+  derive their worker set from it and rank saturated peers last (JOBS-4).
+
+**Performance**
+
+- Matcher: `matches_any` allocates nothing in steady state - 4.8 → 0.19 µs at 1k subscriptions, 179.7 → 4.2 µs at 100k (MATCH-4).
+- Batched ingest (LOG-2): a repair reply of 256 records costs one store call, ~2.1 µs per record.
+
+**Process**
+
+- The style backlog reached zero (STYLE-2) and the gate closed behind it: `clang-tidy` now fails the build on any finding,
+  correctness or style. `MOSAIC_LINT_STYLE` is gone.
+
 ## 0.6.0 — 2026-11-17
 
 Six milestones closed (M0 scaffold through M5 jobs). The first version that describes the system rather than the template it

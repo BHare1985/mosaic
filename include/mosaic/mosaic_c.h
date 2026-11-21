@@ -34,7 +34,7 @@ typedef enum mosaic_status {
     MOSAIC_ERR_UNSUPPORTED = 5       /* this build lacks the capability (no libsodium, no ZeroMQ) */
 } mosaic_status;
 
-/* Version of the library, e.g. "0.6.0". Static storage: do not free. */
+/* Version of the library, e.g. "0.7.0". Static storage: do not free. */
 const char* mosaic_version(void);
 
 /* ---------------------------------------------------------------------------------------------------------------

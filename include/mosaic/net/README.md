@@ -4,7 +4,8 @@
 deterministic in-process network that *schedules* delivery, so loss, duplication, delay, reordering and partitions are all
 injectable in simulated time. `Discovery` answers "who are my peers?".
 
-**Files:** `transport.h` (contract!), `sim_network.h`, `discovery.h`.
+**Files:** `transport.h` (contract!), `sim_network.h`, `peer_discovery.h` (`PeerDiscovery` and `PeerBook`),
+`peer_pins.h` (CURVE key policy), `zmq_transport.h`.
 
 **Rules**
 - Read the contract comment in `transport.h` before writing a transport: best-effort, non-blocking, single-threaded,

@@ -1,6 +1,6 @@
 # Decisions
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 Recorded 2026-11-09 by the maintainer. These are settled; change them only by adding a new dated entry.
 

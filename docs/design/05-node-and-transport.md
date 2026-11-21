@@ -1,6 +1,6 @@
 # 05 — Node & Transport
 
-_Describes 0.6.0._
+_Describes 0.7.0._
 
 ## Node (✅ `include/mosaic/node/node.h`)
 One class, three roles (writer, replica, responder). Configuration (`NodeConfig`): `head_interval_ms`, `fetch_batch`,
@@ -44,7 +44,7 @@ Scenarios are named functions over a seed, run by `test/source/scenario.h`: `fir
 first failing seed, and `MOSAIC_SEEDS` raises the sweep size (SIM-2). A convergence claim must cite a sweep, not one run.
 **All new Node behaviour must come with a sim scenario.**
 
-## ZeroMQ transport (⬜ ZMQ-0, ZMQ-1; layout **B** chosen, see [decisions](decisions.md) D3)
+## ZeroMQ transport (✅ layout **B**, see [decisions](decisions.md) D3)
 Two layouts were considered; the `Transport` interface hides the choice, so Node does not change:
 
 | Layout | Live path | Repair/unicast | Pros | Cons |
@@ -52,9 +52,10 @@ Two layouts were considered; the `Transport` interface hides the choice, so Node
 | **A. Dafka-shaped** | PUB/SUB, first frame = channel | also PUB/SUB, first frame = target node id | one socket kind, matches Dafka wire shape, trivially brokerless | unicast over PUB/SUB drops silently, no peer identity/back-pressure signal |
 | **B. Split** (**chosen**) | PUB/SUB, first frame = channel | ROUTER/DEALER (ROUTER identity = NodeId) | real unicast, identities for credits and ACL, back-pressure visible | two sockets per peer link, slightly more code |
 
-Whichever layout: bind a PUB (and ROUTER) per node; connect SUBs/DEALERs to discovered peers; use CURVE (SEC-1); set HWM; apply the
-prefix-subscription rule from [03](03-matching-and-channels.md); one I/O thread, poll loop owning all sockets
-(`zmq_poll`), feeding `poll()`.
+What layout B turned into: a PUB and a ROUTER bound per node; a SUB and a DEALER per peer, connected on discovery; CURVE on every
+link with keys derived from the writer identity and the handshake decided by a ZAP handler; explicit HWM, frame limit, heartbeats
+and handover (see "What the sockets are configured to do"); the prefix-subscription rule from [03](03-matching-and-channels.md)
+re-checked locally; and one thread whose `zmq_poll` feeds `poll()`, one message per call so the caller keeps control of time.
 
 ## Peer-list gossip (✅ DISC-3, implemented in `Node`)
 

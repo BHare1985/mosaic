@@ -8,8 +8,9 @@ using std::vector;
 namespace mosaic {
 
 vector<DiscoveredPeer> StaticPeerDiscovery::poll_discovered() {
-    if (delivered_)
+    if (delivered_) {
         return {};
+    }
     delivered_ = true;
     return peers_;
 }
@@ -29,15 +30,16 @@ bool PeerBook::observe(const DiscoveredPeer& peer, uint64_t now_ms) {
     entry.peer = peer;
     entry.last_seen_ms = now_ms;
     entry.dialled = true;
-    peers_.emplace(peer.id, move(entry));
+    peers_.emplace(peer.id, std::move(entry));
     return true;
 }
 
 vector<NodeId> PeerBook::take_evasive(uint64_t now_ms) {
     vector<NodeId> quiet;
     for (auto& [id, entry] : peers_) {
-        if (entry.evasive || now_ms - entry.last_seen_ms < evasive_ms_)
+        if (entry.evasive || now_ms - entry.last_seen_ms < evasive_ms_) {
             continue;
+        }
         entry.evasive = true;
         quiet.push_back(id);
     }
@@ -59,8 +61,10 @@ size_t PeerBook::expire(uint64_t now_ms) {
 
 vector<DiscoveredPeer> PeerBook::peers() const {
     vector<DiscoveredPeer> out;
-    for (const auto& [id, entry] : peers_)
+    out.reserve(peers_.size());
+    for (const auto& [id, entry] : peers_) {
         out.push_back(entry.peer);
+    }
     return out;
 }
 

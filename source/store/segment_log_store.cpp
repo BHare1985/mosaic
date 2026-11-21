@@ -47,11 +47,12 @@ uint32_t crc32(const uint8_t* data, size_t size) {
     // Bitwise CRC-32, no table: the store is not in the per-record hot path often enough for a
     // table to matter, and a table is 1 KiB of cache for a check with no alternatives to argue
     // about.
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0xFFFFFFFFU;
     for (size_t i = 0; i < size; ++i) {
         crc ^= data[i];
-        for (int bit = 0; bit < 8; ++bit)
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
     }
     return ~crc;
 }
@@ -94,6 +95,9 @@ string unescape(const string& text) {
 
 string segment_name(Seq first_seq) {
     char buffer[32] = {};
+    // Fixed-width zero padding is what snprintf is for, and an iostream would allocate on the
+    // segment-naming path.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     std::snprintf(buffer, sizeof(buffer), "%020llu", static_cast<unsigned long long>(first_seq));
     return string(buffer) + ".seg";
 }
@@ -105,11 +109,14 @@ string index_name(Seq first_seq) {
 }
 
 optional<Seq> segment_first_seq(const string& file_name) {
-    if (file_name.size() != 24 || file_name.substr(20) != ".seg")
+    if (file_name.size() != 24 || file_name.substr(20) != ".seg") {
         return nullopt;
-    for (size_t i = 0; i < 20; ++i)
-        if (file_name[i] < '0' || file_name[i] > '9')
+    }
+    for (size_t i = 0; i < 20; ++i) {
+        if (file_name[i] < '0' || file_name[i] > '9') {
             return nullopt;
+        }
+    }
     return static_cast<Seq>(std::stoull(file_name.substr(0, 20)));
 }
 
@@ -160,15 +167,17 @@ void put_u64(string& buffer, uint64_t value) {
 /// only in the ways it can recover from.
 string slurp(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
-    if (!in)
+    if (!in) {
         return {};
-    return string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    return {(std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()};
 }
 
 bool spit(const fs::path& path, const string& bytes) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out)
+    if (!out) {
         return false;
+    }
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     return out.good();
 }
@@ -178,7 +187,7 @@ bool spit(const fs::path& path, const string& bytes) {
 struct SegmentLogStore::Impl {
     fs::path root;
     Durability durability = Durability::PerRecord;
-    uint64_t segment_bytes = 8u << 20;
+    uint64_t segment_bytes = 8U << 20;
     size_t recovered = 0;
     mutable map<LogKey, LogState> logs;
     map<LogKey, bool> loaded;
@@ -203,24 +212,29 @@ struct SegmentLogStore::Impl {
         segment.entries.clear();
         while (offset + kFrameHeader <= bytes.size()) {
             const auto frame = read_u32(bytes, offset);
-            if (frame < kFrameOverhead || frame > kMaxFrameBytes)
+            if (frame < kFrameOverhead || frame > kMaxFrameBytes) {
                 break;
-            if (offset + 4 + frame > bytes.size())
+            }
+            if (offset + 4 + frame > bytes.size()) {
                 break;  // torn tail: the frame promised more than the file has
+            }
             const auto expected =
                 crc32(reinterpret_cast<const uint8_t*>(bytes.data()) + offset + 8, frame - 4);
-            if (expected != read_u32(bytes, offset + 4))
+            if (expected != read_u32(bytes, offset + 4)) {
                 break;  // a damaged frame ends the log here rather than being guessed at
+            }
             IndexEntry entry;
             entry.offset = static_cast<uint32_t>(offset);
             entry.length = frame + 4;
             const auto payload = bytes.substr(offset + kFrameHeader, frame - kFrameOverhead);
             const auto record = decode_record(Bytes(payload.begin(), payload.end()));
-            if (!record)
+            if (!record) {
                 break;
+            }
             const auto hash = record_hash_tagged(*record);
-            if (!hash)
+            if (!hash) {
                 break;
+            }
             entry.hash = *hash;
             segment.entries.push_back(entry);
             offset += entry.length;
@@ -237,7 +251,7 @@ struct SegmentLogStore::Impl {
         return complete;
     }
 
-    void rebuild_index(const Segment& segment) const {
+    static void rebuild_index(const Segment& segment) {
         string bytes;
         for (const auto& entry : segment.entries) {
             string frame;
@@ -250,21 +264,23 @@ struct SegmentLogStore::Impl {
     }
 
     bool load(const LogKey& key) {
-        if (loaded[key])
+        if (loaded[key]) {
             return true;
+        }
         LogState state;
         const auto dir = log_dir(key);
         std::error_code ignored;
         if (!fs::exists(dir, ignored)) {
             loaded[key] = true;
-            logs[key] = move(state);
+            logs[key] = std::move(state);
             return true;
         }
         for (const auto& item : fs::directory_iterator(dir, ignored)) {
             const auto name = item.path().filename().string();
             const auto first = segment_first_seq(name);
-            if (!first)
+            if (!first) {
                 continue;
+            }
             Segment segment;
             segment.first_seq = *first;
             segment.path = item.path();
@@ -276,11 +292,12 @@ struct SegmentLogStore::Impl {
                 state.head = segment.first_seq + complete - 1;
                 state.has_records = true;
             }
-            state.segments.push_back(move(segment));
+            state.segments.push_back(std::move(segment));
         }
-        std::sort(state.segments.begin(), state.segments.end(),
-                  [](const Segment& a, const Segment& b) { return a.first_seq < b.first_seq; });
-        logs[key] = move(state);
+        std::ranges::sort(state.segments, [](const Segment& a, const Segment& b) {
+            return a.first_seq < b.first_seq;
+        });
+        logs[key] = std::move(state);
         loaded[key] = true;
         return true;
     }
@@ -289,19 +306,21 @@ struct SegmentLogStore::Impl {
         vector<LogKey> out;
         std::error_code error;
         for (const auto& writer : fs::directory_iterator(root, error)) {
-            if (!writer.is_directory())
+            if (!writer.is_directory()) {
                 continue;
+            }
             for (const auto& channel : fs::directory_iterator(writer.path(), error)) {
-                if (!channel.is_directory())
+                if (!channel.is_directory()) {
                     continue;
-                out.push_back(LogKey{writer.path().filename().string(),
-                                     unescape(channel.path().filename().string())});
+                }
+                out.push_back(LogKey{.writer = writer.path().filename().string(),
+                                     .channel = unescape(channel.path().filename().string())});
             }
         }
         return out;
     }
 
-    bool write_frame(int fd, Seq seq, const Bytes& payload, size_t& written) {
+    static bool write_frame(int fd, Seq seq, const Bytes& payload, size_t& written) {
         string body;  // what the crc covers: seq, then the record's bytes
         put_u64(body, seq);
         body.append(reinterpret_cast<const char*>(payload.data()), payload.size());
@@ -317,40 +336,47 @@ struct SegmentLogStore::Impl {
     }
 };
 
-SegmentLogStore::SegmentLogStore(std::unique_ptr<Impl> impl) : impl_(move(impl)) {}
+SegmentLogStore::SegmentLogStore(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 SegmentLogStore::~SegmentLogStore() {
-    for (auto& [key, state] : impl_->logs)
-        if (state.write_fd >= 0)
+    for (auto& [key, state] : impl_->logs) {
+        if (state.write_fd >= 0) {
             ::close(state.write_fd);
+        }
+    }
 }
 
 optional<std::unique_ptr<SegmentLogStore>>
 SegmentLogStore::open(const string& root, Durability durability, uint64_t segment_bytes) {
     std::error_code error;
     fs::create_directories(root, error);
-    if (error)
+    if (error) {
         return nullopt;
+    }
 
     const auto head_path = fs::path(root) / kHeadFile;
     if (fs::exists(head_path, error)) {
         const string head = slurp(head_path);
-        if (head.size() < kMagicBytes + 1 || head.compare(0, kMagicBytes, kMagic) != 0)
+        if (head.size() < kMagicBytes + 1 || head.compare(0, kMagicBytes, kMagic) != 0) {
             return nullopt;  // not ours
-        if (static_cast<uint8_t>(head[kMagicBytes]) != kFormatVersion)
+        }
+        if (static_cast<uint8_t>(head[kMagicBytes]) != kFormatVersion) {
             return nullopt;  // a newer format is refused rather than parsed optimistically
+        }
     }
 
     auto impl = make_unique<Impl>();
     impl->root = root;
     impl->durability = durability;
-    impl->segment_bytes = segment_bytes == 0 ? (8u << 20) : segment_bytes;
-    auto store = unique_ptr<SegmentLogStore>(new SegmentLogStore(move(impl)));
-    if (!store->impl_->write_head())
+    impl->segment_bytes = segment_bytes == 0 ? (8U << 20) : segment_bytes;
+    auto store = unique_ptr<SegmentLogStore>(new SegmentLogStore(std::move(impl)));
+    if (!store->impl_->write_head()) {
         return nullopt;
-    for (const auto& key : store->impl_->all_keys())
+    }
+    for (const auto& key : store->impl_->all_keys()) {
         store->impl_->load(
             key);  // recovery on open, so a torn tail is discarded before anything appends
+    }
     return store;
 }
 
@@ -363,12 +389,14 @@ size_t SegmentLogStore::recovered_bytes() const {
 }
 
 AppendResult SegmentLogStore::append(const Record& record) {
-    if (!impl_->load(record.key()))
+    if (!impl_->load(record.key())) {
         return AppendResult::NotNext;
+    }
     auto& state = impl_->logs[record.key()];
     const Seq next = state.has_records ? state.head + 1 : 0;
-    if (record.seq != next)
+    if (record.seq != next) {
         return AppendResult::NotNext;
+    }
 
     const auto payload = encode_record(record);
     const auto dir = impl_->log_dir(record.key());
@@ -382,31 +410,37 @@ AppendResult SegmentLogStore::append(const Record& record) {
         segment.first_seq = record.seq;
         segment.path = dir / segment_name(record.seq);
         segment.index_path = dir / index_name(record.seq);
-        state.segments.push_back(move(segment));
+        state.segments.push_back(std::move(segment));
     }
 
     const auto& segment = state.segments.back();
+    // POSIX open is variadic in its own signature (the mode is only read with O_CREAT), which is
+    // not something this call site can change. NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     const int fd = ::open(segment.path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd < 0)
+    if (fd < 0) {
         return AppendResult::NotNext;
+    }
 
     size_t written = 0;
-    const bool ok = impl_->write_frame(fd, record.seq, payload, written);
-    if (ok && impl_->durability == Durability::PerRecord)
+    const bool ok = Impl::write_frame(fd, record.seq, payload, written);
+    if (ok && impl_->durability == Durability::PerRecord) {
         ::fsync(fd);
+    }
     ::close(fd);
-    if (!ok)
+    if (!ok) {
         return AppendResult::NotNext;
+    }
 
     auto& mutable_segment = impl_->logs[record.key()].segments.back();
     IndexEntry entry;
     entry.offset = static_cast<uint32_t>(mutable_segment.size);
     entry.length = static_cast<uint32_t>(written);
-    if (const auto hash = record_hash_tagged(record))
+    if (const auto hash = record_hash_tagged(record)) {
         entry.hash = *hash;
+    }
     mutable_segment.entries.push_back(entry);
     mutable_segment.size += written;
-    impl_->rebuild_index(mutable_segment);
+    Impl::rebuild_index(mutable_segment);
 
     auto& updated = impl_->logs[record.key()];
     updated.head = record.seq;
@@ -417,44 +451,54 @@ AppendResult SegmentLogStore::append(const Record& record) {
 AppendResult SegmentLogStore::append_batch(const vector<Record>& records) {
     for (const auto& record : records) {
         const auto result = append(record);
-        if (result != AppendResult::Ok)
+        if (result != AppendResult::Ok) {
             return result;
+        }
     }
     return AppendResult::Ok;
 }
 
 optional<Seq> SegmentLogStore::head_seq(const LogKey& key) const {
-    if (!impl_->load(key))
+    if (!impl_->load(key)) {
         return nullopt;
+    }
     const auto& state = impl_->logs[key];
-    if (!state.has_records)
+    if (!state.has_records) {
         return nullopt;
+    }
     return state.head;
 }
 
 optional<Record> SegmentLogStore::get(const LogKey& key, Seq seq) const {
-    if (!impl_->load(key))
+    if (!impl_->load(key)) {
         return nullopt;
+    }
     for (const auto& segment : impl_->logs[key].segments) {
-        if (segment.entries.empty())
+        if (segment.entries.empty()) {
             continue;
+        }
         const Seq last = segment.first_seq + segment.entries.size() - 1;
-        if (seq < segment.first_seq || seq > last)
+        if (seq < segment.first_seq || seq > last) {
             continue;
+        }
         const auto& entry = segment.entries[static_cast<size_t>(seq - segment.first_seq)];
         // Bounds are checked against the file, not trusted from the index: a damaged segment must
         // report the record missing rather than hand back bytes it cannot vouch for.
         std::error_code error;
-        if (static_cast<uint64_t>(entry.offset) + entry.length > fs::file_size(segment.path, error))
+        if (static_cast<uint64_t>(entry.offset) + entry.length >
+            fs::file_size(segment.path, error)) {
             return nullopt;
+        }
         std::ifstream in(segment.path, std::ios::binary);
-        if (!in)
+        if (!in) {
             return nullopt;
+        }
         in.seekg(entry.offset);
         string frame(entry.length, '\0');
         in.read(frame.data(), static_cast<std::streamsize>(frame.size()));
-        if (!in)
+        if (!in) {
             return nullopt;
+        }
         const auto payload = frame.substr(16);
         return decode_record(Bytes(payload.begin(), payload.end()));
     }
@@ -465,16 +509,18 @@ vector<Record> SegmentLogStore::read(const LogKey& key, Seq from, size_t count) 
     vector<Record> out;
     for (size_t i = 0; i < count; ++i) {
         auto record = get(key, from + i);
-        if (!record)
+        if (!record) {
             break;
-        out.push_back(move(*record));
+        }
+        out.push_back(std::move(*record));
     }
     return out;
 }
 
 bool SegmentLogStore::put_checkpoint(const LogKey& key, const Bytes& blob) {
-    if (!impl_->load(key))
+    if (!impl_->load(key)) {
         return false;
+    }
     std::error_code error;
     fs::create_directories(impl_->log_dir(key), error);
     return spit(impl_->log_dir(key) / "checkpoint.bin", string(blob.begin(), blob.end()));
@@ -482,14 +528,16 @@ bool SegmentLogStore::put_checkpoint(const LogKey& key, const Bytes& blob) {
 
 optional<Bytes> SegmentLogStore::checkpoint(const LogKey& key) const {
     const auto bytes = slurp(impl_->log_dir(key) / "checkpoint.bin");
-    if (bytes.empty())
+    if (bytes.empty()) {
         return nullopt;
+    }
     return Bytes(bytes.begin(), bytes.end());
 }
 
 optional<size_t> SegmentLogStore::truncate_before(const LogKey& key, Seq first_kept) {
-    if (!impl_->load(key))
+    if (!impl_->load(key)) {
         return nullopt;
+    }
     auto& state = impl_->logs[key];
     size_t dropped = 0;
     // Whole segments only, and never the last one: a log whose history is entirely dropped would
@@ -497,8 +545,9 @@ optional<size_t> SegmentLogStore::truncate_before(const LogKey& key, Seq first_k
     while (state.segments.size() > 1) {
         const auto& front = state.segments.front();
         const Seq last = front.first_seq + (front.entries.empty() ? 0 : front.entries.size() - 1);
-        if (!front.entries.empty() && last >= first_kept)
+        if (!front.entries.empty() && last >= first_kept) {
             break;  // this segment straddles the boundary: keep it rather than rewrite it
+        }
         dropped += front.entries.size();
         std::error_code error;
         fs::remove(front.path, error);
@@ -510,7 +559,7 @@ optional<size_t> SegmentLogStore::truncate_before(const LogKey& key, Seq first_k
 
 vector<LogKey> SegmentLogStore::keys() const {
     auto out = impl_->all_keys();
-    std::sort(out.begin(), out.end());
+    std::ranges::sort(out);
     return out;
 }
 

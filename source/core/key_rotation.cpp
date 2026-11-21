@@ -33,28 +33,34 @@ Bytes encode_rotation_link(const RotationLink& link) {
 }
 
 optional<RotationLink> decode_rotation_link(const Bytes& payload) {
-    if (payload.size() > kMaxPayloadBytes || payload.empty())
+    if (payload.size() > kMaxPayloadBytes || payload.empty()) {
         return nullopt;  // bounded before anything is allocated
+    }
     ByteReader reader(payload);
-    if (reader.get_u8() != kRotationFormat)
+    if (reader.get_u8() != kRotationFormat) {
         return nullopt;  // a format this build does not know is refused, not guessed at
+    }
     const auto algorithm = reader.get_u8();
     if (algorithm < static_cast<uint8_t>(HashAlgo::Sha256) ||
-        algorithm > static_cast<uint8_t>(HashAlgo::Blake2b))
+        algorithm > static_cast<uint8_t>(HashAlgo::Blake2b)) {
         return nullopt;
+    }
 
     RotationLink link;
     link.hash_algo = static_cast<HashAlgo>(algorithm);
     // Fixed-width key: read it as a length-prefixed blob would be, but check the size we asked for.
     const auto key = reader.get_bytes();
-    if (key.size() != kKeyBytes)
+    if (key.size() != kKeyBytes) {
         return nullopt;  // a successor key is exactly one Ed25519 public key
+    }
     link.successor = to_hex(key);
     link.successor_start_seq = reader.get_u64();
-    if (!reader.ok() || !reader.at_end())
+    if (!reader.ok() || !reader.at_end()) {
         return nullopt;
-    if (key == Bytes(kKeyBytes, 0))
+    }
+    if (key == Bytes(kKeyBytes, 0)) {
         return nullopt;  // a zeroed key is a placeholder, never a successor
+    }
     return link;
 }
 

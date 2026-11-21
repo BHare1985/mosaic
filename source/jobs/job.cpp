@@ -25,8 +25,10 @@ optional<JobRequest> decode_job_request(const Bytes& bytes) {
     request.reply_channel = reader.get_string();
     request.timeout_ms = reader.get_u32();
     request.body = reader.get_bytes();
-    if (!reader.ok() || !reader.at_end() || request.job_id.empty() || request.reply_channel.empty())
+    if (!reader.ok() || !reader.at_end() || request.job_id.empty() ||
+        request.reply_channel.empty()) {
         return nullopt;  // a half-read envelope is not a job
+    }
     return request;
 }
 
@@ -45,8 +47,9 @@ optional<JobResult> decode_job_result(const Bytes& bytes) {
     result.job_id = reader.get_string();
     result.ok = reader.get_u8() != 0;
     result.body = reader.get_bytes();
-    if (!reader.ok() || !reader.at_end() || result.job_id.empty())
+    if (!reader.ok() || !reader.at_end() || result.job_id.empty()) {
         return nullopt;
+    }
     return result;
 }
 

@@ -17,7 +17,7 @@ using std::uint8_t;
 
 namespace mosaic {
 namespace {
-constexpr uint32_t K[64] = {
+constexpr uint32_t kSha256K[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -38,16 +38,18 @@ Hash sha256(const uint8_t* data, size_t size) {
 
     Bytes msg(data, data + size);
     msg.push_back(0x80);
-    while (msg.size() % 64 != 56)
+    while (msg.size() % 64 != 56) {
         msg.push_back(0);
+    }
     const uint64_t bits = static_cast<uint64_t>(size) * 8;
-    for (int i = 7; i >= 0; --i)
+    for (int i = 7; i >= 0; --i) {
         msg.push_back(static_cast<uint8_t>(bits >> (8 * i)));
+    }
 
     for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
         uint32_t w[64];
         for (int i = 0; i < 16; ++i) {
-            const auto* p = &msg[chunk + 4 * static_cast<size_t>(i)];
+            const auto* p = &msg[chunk + (4 * static_cast<size_t>(i))];
             w[i] = (uint32_t{p[0]} << 24) | (uint32_t{p[1]} << 16) | (uint32_t{p[2]} << 8) | p[3];
         }
         for (int i = 16; i < 64; ++i) {
@@ -55,14 +57,21 @@ Hash sha256(const uint8_t* data, size_t size) {
             const auto s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
             w[i] = w[i - 16] + s0 + w[i - 7] + s1;
         }
-        auto a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        auto a = h[0];
+        auto b = h[1];
+        auto c = h[2];
+        auto d = h[3];
+        auto e = h[4];
+        auto f = h[5];
+        auto g = h[6];
+        auto hh = h[7];
         for (int i = 0; i < 64; ++i) {
-            const auto S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            const auto s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
             const auto ch = (e & f) ^ (~e & g);
-            const auto t1 = hh + S1 + ch + K[i] + w[i];
-            const auto S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            const auto t1 = hh + s1 + ch + kSha256K[i] + w[i];
+            const auto s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
             const auto maj = (a & b) ^ (a & c) ^ (b & c);
-            const auto t2 = S0 + maj;
+            const auto t2 = s0 + maj;
             hh = g;
             g = f;
             f = e;
@@ -83,9 +92,11 @@ Hash sha256(const uint8_t* data, size_t size) {
     }
 
     Hash out;
-    for (size_t i = 0; i < 8; ++i)
-        for (size_t j = 0; j < 4; ++j)
-            out.bytes[i * 4 + j] = static_cast<uint8_t>(h[i] >> (24 - 8 * j));
+    for (size_t i = 0; i < 8; ++i) {
+        for (size_t j = 0; j < 4; ++j) {
+            out.bytes[(i * 4) + j] = static_cast<uint8_t>(h[i] >> (24 - 8 * j));
+        }
+    }
     return out;
 }
 
@@ -135,7 +146,7 @@ Hash Blake2bHasher::hash(const Bytes& data) const {
 }
 
 Ed25519Signer::Ed25519Signer(Bytes public_key, Bytes secret_key)
-    : public_key_(move(public_key)), secret_key_(move(secret_key)) {}
+    : public_key_(std::move(public_key)), secret_key_(std::move(secret_key)) {}
 
 Bytes Ed25519Signer::sign(const Hash& record_hash) const {
     Bytes signature(crypto_sign_BYTES, 0);
@@ -150,10 +161,12 @@ bool Ed25519Verifier::verify(const WriterId& writer, const Hash& record_hash,
                              const Bytes& signature) const {
     // The identity is text; anything that is not a hex key is simply not a key we can verify.
     const auto public_key = from_hex(writer);
-    if (!public_key || public_key->size() != crypto_sign_PUBLICKEYBYTES)
+    if (!public_key || public_key->size() != crypto_sign_PUBLICKEYBYTES) {
         return false;
-    if (signature.size() != crypto_sign_BYTES)
+    }
+    if (signature.size() != crypto_sign_BYTES) {
         return false;
+    }
     return crypto_sign_verify_detached(signature.data(), record_hash.bytes.data(),
                                        record_hash.bytes.size(), public_key->data()) == 0;
 }
@@ -161,9 +174,10 @@ bool Ed25519Verifier::verify(const WriterId& writer, const Hash& record_hash,
 optional<pair<Bytes, Bytes>> ed25519_generate() {
     Bytes public_key(crypto_sign_PUBLICKEYBYTES, 0);
     Bytes secret_key(crypto_sign_SECRETKEYBYTES, 0);
-    if (crypto_sign_keypair(public_key.data(), secret_key.data()) != 0)
+    if (crypto_sign_keypair(public_key.data(), secret_key.data()) != 0) {
         return nullopt;
-    return make_pair(move(public_key), move(secret_key));
+    }
+    return make_pair(std::move(public_key), std::move(secret_key));
 }
 
 #endif  // MOSAIC_HAS_SODIUM

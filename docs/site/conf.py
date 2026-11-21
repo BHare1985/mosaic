@@ -1,7 +1,7 @@
 DOXYFILE = 'Doxyfile'
 
 LINKS_NAVBAR1 = [
-    (None, 'pages', [(None, 'about'), (None, 'guarantees'), (None, 'design'), (None, 'authority'), (None, 'modulemap')]),
+    (None, 'pages', [(None, 'about'), (None, 'guarantees'), (None, 'design'), (None, 'authority'), (None, 'modulemap'), (None, 'contributing')]),
     (None, 'namespaces', []),
     # No 'files' entry on purpose. m.css renders no file page for a compound with no documentation of its own, and this project
     # documents types rather than files (there is no `@file` brief in any header), so the Files tree could only ever be a list of

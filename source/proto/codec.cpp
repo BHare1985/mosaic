@@ -22,13 +22,14 @@ void put_log_key(ByteWriter& writer, const LogKey& key) {
 }
 
 LogKey get_log_key(ByteReader& reader) {
-    return LogKey{reader.get_string(), reader.get_string()};
+    return LogKey{.writer = reader.get_string(), .channel = reader.get_string()};
 }
 
 void put_patterns(ByteWriter& writer, const vector<string>& patterns) {
     writer.put_u32(static_cast<uint32_t>(patterns.size()));
-    for (const auto& pattern : patterns)
+    for (const auto& pattern : patterns) {
         writer.put_string(pattern);
+    }
 }
 
 vector<string> get_patterns(ByteReader& reader) {
@@ -36,11 +37,13 @@ vector<string> get_patterns(ByteReader& reader) {
     vector<string> patterns;
     // A hostile count is bounded by the bytes actually present: each entry needs at least its u32
     // length prefix, so asking the reader for them fails long before anything is allocated.
-    if (count > reader.remaining() / 4)
+    if (count > reader.remaining() / 4) {
         return patterns;
+    }
     patterns.reserve(count);
-    for (uint32_t i = 0; i < count; ++i)
+    for (uint32_t i = 0; i < count; ++i) {
         patterns.push_back(reader.get_string());
+    }
     return patterns;
 }
 
@@ -55,26 +58,32 @@ bool valid_peer_endpoint(const std::string& endpoint) {
     // Bounded before anything is compared: sixty-four entries of four-kilobyte hostnames is a
     // quarter-megabyte frame that is all endpoint and no peer.
     if (endpoint.size() <= scheme || endpoint.size() > 128 ||
-        endpoint.compare(0, scheme, kScheme) != 0)
+        endpoint.compare(0, scheme, kScheme) != 0) {
         return false;
+    }
     const auto colon = endpoint.rfind(':');
-    if (colon == string::npos || colon <= scheme || colon + 1 >= endpoint.size())
+    if (colon == string::npos || colon <= scheme || colon + 1 >= endpoint.size()) {
         return false;
-    if (endpoint.find(':', scheme) != colon)
+    }
+    if (endpoint.find(':', scheme) != colon) {
         return false;  // an unbracketed IPv6 literal is not something we can dial
+    }
     // A wildcard is a *bind* address, never a reachable one: a node that advertises one is telling
     // us where it listens, not where it can be found.
     const auto host = endpoint.substr(scheme, colon - scheme);
-    if (host == "*" || host == "0.0.0.0" || host == "[::]" || host == "::" || host == "[::0]")
+    if (host == "*" || host == "0.0.0.0" || host == "[::]" || host == "::" || host == "[::0]") {
         return false;
+    }
     uint32_t port = 0;
     for (size_t i = colon + 1; i < endpoint.size(); ++i) {
         const char c = endpoint[i];
-        if (c < '0' || c > '9')
+        if (c < '0' || c > '9') {
             return false;
-        port = port * 10 + static_cast<uint32_t>(c - '0');
-        if (port > 65535)
+        }
+        port = (port * 10) + static_cast<uint32_t>(c - '0');
+        if (port > 65535) {
             return false;
+        }
     }
     return port != 0;
 }
@@ -128,7 +137,7 @@ vector<PeerEntry> get_peers(ByteReader& reader, DecodeStatus& status) {
             status = DecodeStatus::Malformed;
             return {};
         }
-        entries.push_back(move(entry));
+        entries.push_back(std::move(entry));
     }
     status = DecodeStatus::Ok;
     return entries;
@@ -143,8 +152,9 @@ optional<Record> read_record(ByteReader& reader, const Bytes& body) {
     reader.get_u8();  // record format version; only version 1 exists
     const auto algorithm = reader.get_u8();
     if (algorithm < static_cast<uint8_t>(HashAlgo::Sha256) ||
-        algorithm > static_cast<uint8_t>(HashAlgo::Blake2b))
+        algorithm > static_cast<uint8_t>(HashAlgo::Blake2b)) {
         return nullopt;  // an unknown tag is a malformed record, not an algorithm we can guess at
+    }
     record.hash_algo = static_cast<HashAlgo>(algorithm);
     record.writer = reader.get_string();
     record.channel = reader.get_string();
@@ -154,20 +164,23 @@ optional<Record> read_record(ByteReader& reader, const Bytes& body) {
     record.content_type = reader.get_string();
     record.payload = reader.get_bytes();
     record.sig = reader.get_bytes();
-    if (!reader.ok())
+    if (!reader.ok()) {
         return nullopt;
+    }
 
     const auto end = reader.pos();
-    if (end <= start || end > body.size())
+    if (end <= start || end > body.size()) {
         return nullopt;
+    }
     const Bytes consumed(body.begin() + static_cast<ptrdiff_t>(start),
                          body.begin() + static_cast<ptrdiff_t>(end));
 
     Bytes reencoded = canonical_bytes(record);
     ByteWriter tail(reencoded);
     tail.put_bytes(record.sig);
-    if (reencoded != consumed)
+    if (reencoded != consumed) {
         return nullopt;  // not the canonical form of this record
+    }
     return record;
 }
 
@@ -266,8 +279,9 @@ Bytes encode_record(const Record& record) {
 optional<Record> decode_record(const Bytes& bytes) {
     ByteReader reader(bytes);
     auto record = read_record(reader, bytes);
-    if (!record || !reader.at_end())
+    if (!record || !reader.at_end()) {
         return nullopt;
+    }
     return record;
 }
 
@@ -282,51 +296,61 @@ Bytes encode_message(const Message& message) {
 }
 
 DecodeResult decode_message(const Bytes& frame) {
-    if (frame.size() < 4)
-        return {DecodeStatus::Truncated, nullopt};
+    if (frame.size() < 4) {
+        return {.status = DecodeStatus::Truncated, .message = nullopt};
+    }
 
     ByteReader header(frame);
     const auto declared = header.get_u32();
-    if (declared > kMaxFrameBytes)
-        return {DecodeStatus::Oversized, nullopt};  // rejected before any allocation
-    if (declared < 1)
-        return {DecodeStatus::Malformed, nullopt};
-    if (frame.size() - 4 < declared)
-        return {DecodeStatus::Truncated, nullopt};
-    if (frame.size() - 4 > declared)
-        return {DecodeStatus::Malformed, nullopt};
+    if (declared > kMaxFrameBytes) {
+        return {.status = DecodeStatus::Oversized,
+                .message = nullopt};  // rejected before any allocation
+    }
+    if (declared < 1) {
+        return {.status = DecodeStatus::Malformed, .message = nullopt};
+    }
+    if (frame.size() - 4 < declared) {
+        return {.status = DecodeStatus::Truncated, .message = nullopt};
+    }
+    if (frame.size() - 4 > declared) {
+        return {.status = DecodeStatus::Malformed, .message = nullopt};
+    }
 
     const Bytes body(frame.begin() + 4, frame.end());
     ByteReader reader(body);
     const auto id = reader.get_u8();
 
     const auto finish = [&](Message message) {
-        return reader.at_end() ? DecodeResult{DecodeStatus::Ok, move(message)}
-                               : DecodeResult{DecodeStatus::Malformed, nullopt};
+        return reader.at_end()
+                   ? DecodeResult{.status = DecodeStatus::Ok, .message = std::move(message)}
+                   : DecodeResult{.status = DecodeStatus::Malformed, .message = nullopt};
     };
 
     switch (id) {
         case kMsgRecord: {
             const Bytes rest(body.begin() + 1, body.end());
             const auto record = decode_record(rest);
-            if (!record)
-                return {DecodeStatus::Malformed, nullopt};
-            return {DecodeStatus::Ok, Message{RecordMsg{*record}}};
+            if (!record) {
+                return {.status = DecodeStatus::Malformed, .message = nullopt};
+            }
+            return {.status = DecodeStatus::Ok, .message = Message{RecordMsg{*record}}};
         }
         case kMsgDirectRecord: {
             const Bytes rest(body.begin() + 1, body.end());
             const auto record = decode_record(rest);
-            if (!record)
-                return {DecodeStatus::Malformed, nullopt};
-            return {DecodeStatus::Ok, Message{DirectRecordMsg{*record}}};
+            if (!record) {
+                return {.status = DecodeStatus::Malformed, .message = nullopt};
+            }
+            return {.status = DecodeStatus::Ok, .message = Message{DirectRecordMsg{*record}}};
         }
         case kMsgHead: {
             HeadMsg message;
             message.key = get_log_key(reader);
             message.seq = reader.get_u64();
             message.hash = reader.get_hash();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgDirectHead: {
@@ -334,8 +358,9 @@ DecodeResult decode_message(const Bytes& frame) {
             message.key = get_log_key(reader);
             message.seq = reader.get_u64();
             message.hash = reader.get_hash();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgFetch: {
@@ -343,30 +368,34 @@ DecodeResult decode_message(const Bytes& frame) {
             message.key = get_log_key(reader);
             message.from = reader.get_u64();
             message.count = reader.get_u32();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgAck: {
             AckMsg message;
             message.key = get_log_key(reader);
             message.seq = reader.get_u64();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgGetHeads: {
             GetHeadsMsg message;
             message.patterns = get_patterns(reader);
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgCredit: {
             CreditMsg message;
             message.credits = reader.get_u32();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         case kMsgHello: {
@@ -374,24 +403,30 @@ DecodeResult decode_message(const Bytes& frame) {
             message.version = reader.get_u8();
             message.patterns = get_patterns(reader);
             message.spare_capacity = reader.get_u8();
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
-            if (message.version != kProtocolVersion)
-                return {DecodeStatus::UnsupportedVersion, nullopt};  // reported, not decoded
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
+            if (message.version != kProtocolVersion) {
+                return {.status = DecodeStatus::UnsupportedVersion,
+                        .message = nullopt};  // reported, not decoded
+            }
             return finish(Message{message});
         }
         case kMsgPeers: {
             PeersMsg message;
             auto status = DecodeStatus::Ok;
             message.entries = get_peers(reader, status);
-            if (status != DecodeStatus::Ok)
-                return {status, nullopt};
-            if (!reader.ok())
-                return {DecodeStatus::Truncated, nullopt};
+            if (status != DecodeStatus::Ok) {
+                return {.status = status, .message = nullopt};
+            }
+            if (!reader.ok()) {
+                return {.status = DecodeStatus::Truncated, .message = nullopt};
+            }
             return finish(Message{message});
         }
         default:
-            return {DecodeStatus::UnknownId, nullopt};  // ignore and count; the link continues
+            return {.status = DecodeStatus::UnknownId,
+                    .message = nullopt};  // ignore and count; the link continues
     }
 }
 

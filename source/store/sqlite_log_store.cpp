@@ -23,36 +23,46 @@ namespace {
 struct Statement {
     sqlite3_stmt* handle = nullptr;
     Statement(sqlite3* db, const char* sql) {
-        if (sqlite3_prepare_v2(db, sql, -1, &handle, nullptr) != SQLITE_OK)
+        if (sqlite3_prepare_v2(db, sql, -1, &handle, nullptr) != SQLITE_OK) {
             handle = nullptr;
+        }
     }
     ~Statement() {
-        if (handle)
+        if (handle != nullptr) {
             sqlite3_finalize(handle);
+        }
     }
     Statement(const Statement&) = delete;
     Statement& operator=(const Statement&) = delete;
+    Statement(Statement&&) = delete;
+    Statement& operator=(Statement&&) = delete;
 
-    bool ok() const {
+    [[nodiscard]] bool ok() const {
         return handle != nullptr;
     }
 
-    void bind_text(int index, const string& value) {
+    void bind_text(int index, const string& value) const {
+        // SQLITE_TRANSIENT is sqlite's own "copy this now" sentinel, spelled as a cast pointer by
+        // its C API: NOLINT for the two checks that object to the spelling rather than the meaning.
+        // NOLINTBEGIN(performance-no-int-to-ptr, cppcoreguidelines-pro-type-cstyle-cast)
         sqlite3_bind_text(handle, index, value.data(), static_cast<int>(value.size()),
                           SQLITE_TRANSIENT);
+        // NOLINTEND(performance-no-int-to-ptr, cppcoreguidelines-pro-type-cstyle-cast)
     }
-    void bind_int64(int index, int64_t value) {
+    void bind_int64(int index, int64_t value) const {
         sqlite3_bind_int64(handle, index, value);
     }
-    void bind_blob(int index, const Bytes& value) {
+    void bind_blob(int index, const Bytes& value) const {
+        // NOLINTBEGIN(performance-no-int-to-ptr, cppcoreguidelines-pro-type-cstyle-cast)
         sqlite3_bind_blob(handle, index, value.data(), static_cast<int>(value.size()),
                           SQLITE_TRANSIENT);
+        // NOLINTEND(performance-no-int-to-ptr, cppcoreguidelines-pro-type-cstyle-cast)
     }
 
-    bool step_row() {
+    [[nodiscard]] bool step_row() const {
         return sqlite3_step(handle) == SQLITE_ROW;
     }
-    bool step_done() {
+    [[nodiscard]] bool step_done() const {
         return sqlite3_step(handle) == SQLITE_DONE;
     }
 };
@@ -60,8 +70,9 @@ struct Statement {
 /// A record is only "there" if it still decodes; a row that does not is a damaged tail, not a
 /// record.
 optional<Record> record_from(const uint8_t* data, int size) {
-    if (!data || size <= 0)
+    if ((data == nullptr) || size <= 0) {
         return nullopt;
+    }
     return decode_record(Bytes(data, data + size));
 }
 
@@ -71,65 +82,79 @@ struct SqliteLogStore::Impl {
     sqlite3* db = nullptr;
     string path;
 
+    Impl() = default;
+    // Owns a sqlite handle and a path: copying it would double-close the database.
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
+    Impl(Impl&&) = delete;
+    Impl& operator=(Impl&&) = delete;
+
     ~Impl() {
-        if (db)
+        if (db != nullptr) {
             sqlite3_close(db);
+        }
     }
 
-    bool exec(const char* sql) {
+    bool exec(const char* sql) const {
         return sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
     }
 
     /// Last sequence whose stored record still decodes. Walks down past a damaged tail.
-    optional<Seq> head_seq(const LogKey& key) const {
+    [[nodiscard]] optional<Seq> head_seq(const LogKey& key) const {
         Statement statement(db, "SELECT seq, blob FROM records WHERE writer = ?1 AND channel = ?2 "
                                 "ORDER BY seq DESC LIMIT 1");
-        if (!statement.ok())
+        if (!statement.ok()) {
             return nullopt;
+        }
         statement.bind_text(1, key.writer);
         statement.bind_text(2, key.channel);
-        if (!statement.step_row())
+        if (!statement.step_row()) {
             return nullopt;
+        }
 
         Seq seq = static_cast<Seq>(sqlite3_column_int64(statement.handle, 0));
         if (record_from(static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 1)),
-                        sqlite3_column_bytes(statement.handle, 1)))
+                        sqlite3_column_bytes(statement.handle, 1))) {
             return seq;
+        }
 
         // Damaged tail: answer with the highest sequence that is still readable.
         while (seq > 0) {
             --seq;
             const auto record = get(key, seq);
-            if (record)
+            if (record) {
                 return seq;
+            }
         }
         return nullopt;
     }
 
-    optional<Record> get(const LogKey& key, Seq seq) const {
+    [[nodiscard]] optional<Record> get(const LogKey& key, Seq seq) const {
         Statement statement(
             db, "SELECT blob FROM records WHERE writer = ?1 AND channel = ?2 AND seq = ?3");
-        if (!statement.ok())
+        if (!statement.ok()) {
             return nullopt;
+        }
         statement.bind_text(1, key.writer);
         statement.bind_text(2, key.channel);
         statement.bind_int64(3, static_cast<int64_t>(seq));
-        if (!statement.step_row())
+        if (!statement.step_row()) {
             return nullopt;
+        }
         return record_from(static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 0)),
                            sqlite3_column_bytes(statement.handle, 0));
     }
 };
 
 SqliteLogStore::SqliteLogStore(unique_ptr<Impl> impl, Durability durability)
-    : impl_(move(impl)), durability_(durability) {}
+    : impl_(std::move(impl)), durability_(durability) {}
 
 optional<unique_ptr<SqliteLogStore>> SqliteLogStore::open(const string& path,
                                                           Durability durability) {
     auto impl = make_unique<Impl>();
     impl->path = path;
     if (sqlite3_open(path.c_str(), &impl->db) != SQLITE_OK) {
-        if (impl->db) {
+        if (impl->db != nullptr) {
             sqlite3_close(impl->db);
             impl->db = nullptr;
         }
@@ -154,7 +179,7 @@ optional<unique_ptr<SqliteLogStore>> SqliteLogStore::open(const string& path,
                        " PRIMARY KEY (writer, channel)) WITHOUT ROWID")) {
         return nullopt;
     }
-    return unique_ptr<SqliteLogStore>(new SqliteLogStore(move(impl), durability));
+    return unique_ptr<SqliteLogStore>(new SqliteLogStore(std::move(impl), durability));
 }
 
 SqliteLogStore::~SqliteLogStore() = default;
@@ -162,8 +187,9 @@ SqliteLogStore::~SqliteLogStore() = default;
 bool SqliteLogStore::put_checkpoint(const LogKey& key, const Bytes& blob) {
     Statement statement(impl_->db, "INSERT OR REPLACE INTO checkpoints (writer, channel, blob)"
                                    " VALUES (?, ?, ?)");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return false;
+    }
     statement.bind_text(1, key.writer);
     statement.bind_text(2, key.channel);
     statement.bind_blob(3, blob);
@@ -172,37 +198,44 @@ bool SqliteLogStore::put_checkpoint(const LogKey& key, const Bytes& blob) {
 
 std::optional<Bytes> SqliteLogStore::checkpoint(const LogKey& key) const {
     Statement statement(impl_->db, "SELECT blob FROM checkpoints WHERE writer = ? AND channel = ?");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return std::nullopt;
+    }
     statement.bind_text(1, key.writer);
     statement.bind_text(2, key.channel);
-    if (sqlite3_step(statement.handle) != SQLITE_ROW)
+    if (sqlite3_step(statement.handle) != SQLITE_ROW) {
         return std::nullopt;
+    }
     const auto* data = static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 0));
     const auto size = sqlite3_column_bytes(statement.handle, 0);
-    if (data == nullptr || size <= 0)
+    if (data == nullptr || size <= 0) {
         return std::nullopt;
+    }
     return Bytes(data, data + size);
 }
 
 std::optional<std::size_t> SqliteLogStore::truncate_before(const LogKey& key, Seq first_kept) {
     Statement statement(impl_->db,
                         "DELETE FROM records WHERE writer = ? AND channel = ? AND seq < ?");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return std::nullopt;
+    }
     statement.bind_text(1, key.writer);
     statement.bind_text(2, key.channel);
     statement.bind_int64(3, static_cast<int64_t>(first_kept));
-    if (!statement.step_done())
+    if (!statement.step_done()) {
         return std::nullopt;
+    }
     return static_cast<std::size_t>(sqlite3_changes(impl_->db));
 }
 
 AppendResult SqliteLogStore::append_batch(const vector<Record>& records) {
-    if (records.empty())
+    if (records.empty()) {
         return AppendResult::Ok;
-    if (!impl_->exec("BEGIN IMMEDIATE"))
+    }
+    if (!impl_->exec("BEGIN IMMEDIATE")) {
         return AppendResult::NotNext;
+    }
 
     // Every record must be next in its own log, in order - the same rule as appending one at a
     // time. Any failure rolls the whole batch back, so a batch never half-applies.
@@ -247,12 +280,14 @@ AppendResult SqliteLogStore::append(const Record& record) {
     const LogKey key = record.key();
     const auto head = impl_->head_seq(key);
     const Seq expected = head ? *head + 1 : 0;
-    if (record.seq != expected)
+    if (record.seq != expected) {
         return AppendResult::NotNext;
+    }
 
     // One transaction per append: either the row is committed and durable, or nothing happened.
-    if (!impl_->exec("BEGIN IMMEDIATE"))
+    if (!impl_->exec("BEGIN IMMEDIATE")) {
         return AppendResult::NotNext;
+    }
     {
         Statement statement(
             impl_->db, "INSERT INTO records (writer, channel, seq, blob) VALUES (?1, ?2, ?3, ?4)");
@@ -286,12 +321,14 @@ optional<Record> SqliteLogStore::get(const LogKey& key, Seq seq) const {
 
 vector<Record> SqliteLogStore::read(const LogKey& key, Seq from, size_t count) const {
     vector<Record> records;
-    if (count == 0)
+    if (count == 0) {
         return records;
+    }
     Statement statement(impl_->db, "SELECT blob FROM records WHERE writer = ?1 AND channel = ?2 "
                                    "AND seq >= ?3 ORDER BY seq LIMIT ?4");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return records;
+    }
     statement.bind_text(1, key.writer);
     statement.bind_text(2, key.channel);
     statement.bind_int64(3, static_cast<int64_t>(from));
@@ -300,8 +337,9 @@ vector<Record> SqliteLogStore::read(const LogKey& key, Seq from, size_t count) c
         const auto record =
             record_from(static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 0)),
                         sqlite3_column_bytes(statement.handle, 0));
-        if (!record)
+        if (!record) {
             break;  // damaged tail: everything after it is untrustworthy, so stop here
+        }
         records.push_back(*record);
     }
     return records;
@@ -310,8 +348,9 @@ vector<Record> SqliteLogStore::read(const LogKey& key, Seq from, size_t count) c
 bool SqliteLogStore::save_fork(const ForkEvidence& evidence) {
     Statement statement(impl_->db, "INSERT OR REPLACE INTO forks (writer, channel, seq, accepted, "
                                    "conflicting) VALUES (?1, ?2, ?3, ?4, ?5)");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return false;
+    }
     statement.bind_text(1, evidence.key.writer);
     statement.bind_text(2, evidence.key.channel);
     statement.bind_int64(3, static_cast<int64_t>(evidence.seq));
@@ -324,8 +363,9 @@ vector<ForkEvidence> SqliteLogStore::load_forks(const LogKey& key) const {
     vector<ForkEvidence> out;
     Statement statement(impl_->db, "SELECT seq, accepted, conflicting FROM forks WHERE writer = ?1 "
                                    "AND channel = ?2 ORDER BY seq");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return out;
+    }
     statement.bind_text(1, key.writer);
     statement.bind_text(2, key.channel);
     while (statement.step_row()) {
@@ -335,10 +375,14 @@ vector<ForkEvidence> SqliteLogStore::load_forks(const LogKey& key) const {
         const auto conflicting =
             record_from(static_cast<const uint8_t*>(sqlite3_column_blob(statement.handle, 2)),
                         sqlite3_column_bytes(statement.handle, 2));
-        if (!accepted || !conflicting)
+        if (!accepted || !conflicting) {
             continue;  // unreadable evidence is skipped, never half-returned
-        out.push_back(ForkEvidence{key, static_cast<Seq>(sqlite3_column_int64(statement.handle, 0)),
-                                   *accepted, *conflicting});
+        }
+        out.push_back(
+            ForkEvidence{.key = key,
+                         .seq = static_cast<Seq>(sqlite3_column_int64(statement.handle, 0)),
+                         .accepted = *accepted,
+                         .conflicting = *conflicting});
     }
     return out;
 }
@@ -347,14 +391,16 @@ vector<LogKey> SqliteLogStore::keys() const {
     vector<LogKey> out;
     Statement statement(impl_->db,
                         "SELECT DISTINCT writer, channel FROM records ORDER BY writer, channel");
-    if (!statement.ok())
+    if (!statement.ok()) {
         return out;
+    }
     while (statement.step_row()) {
         const auto* writer =
             reinterpret_cast<const char*>(sqlite3_column_text(statement.handle, 0));
         const auto* channel =
             reinterpret_cast<const char*>(sqlite3_column_text(statement.handle, 1));
-        out.push_back(LogKey{writer ? writer : "", channel ? channel : ""});
+        out.push_back(LogKey{.writer = (writer != nullptr) ? writer : "",
+                             .channel = (channel != nullptr) ? channel : ""});
     }
     return out;
 }

@@ -25,17 +25,19 @@ vector<NodeId> rendezvous_rank(const string& job_id, const vector<NodeId>& worke
         in.insert(in.end(), worker.begin(), worker.end());
         const Hash h = hasher.hash(in);
         uint64_t score = 0;
-        for (int i = 0; i < 8; ++i)
+        for (int i = 0; i < 8; ++i) {
             score = (score << 8) | h.bytes[static_cast<size_t>(i)];
+        }
         scored.push_back({score, worker});
     }
-    sort(scored.begin(), scored.end(), [](const Scored& a, const Scored& b) {
+    std::ranges::sort(scored, [](const Scored& a, const Scored& b) {
         return a.score != b.score ? a.score > b.score : a.worker < b.worker;
     });
     vector<NodeId> out;
     out.reserve(scored.size());
-    for (auto& s : scored)
-        out.push_back(move(s.worker));
+    for (auto& s : scored) {
+        out.push_back(std::move(s.worker));
+    }
     return out;
 }
 

@@ -11,10 +11,15 @@ Checks: >
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
   google-build-using-namespace,
   google-global-names-in-headers,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
   performance-*,
   readability-*,
   -readability-identifier-length,
@@ -29,6 +34,16 @@ Checks: >
 #   avoid-do-while              the codec uses do/while deliberately in the checked reader
 #   pro-bounds-*                pointer arithmetic is confined to the codec's bounds-checked reader
 #   function-cognitive-complexity  a decoder with one branch per message type is long by design
+#   avoid-c-arrays, pro-bounds-constant-array-index  fixed-size buffers and bytes[i] indexing are how
+#                               the crypto seams and the z85 code talk to libsodium and C strings;
+#                               std::array with .at() there is noise, not safety
+#   owning-memory              the C ABI hands C strings to its caller by design - mosaic_free_string
+#                              is the contract - so `new char[]` is the interface, not a leak
+#   pro-type-reinterpret-cast  reinterpreting bytes is what a hash, a keystore and a SQL blob are
+#                              made of
+#   modernize-avoid-c-arrays   the modernize twin of the rule above, with the same reason. Negatives
+#                              must sit *after* the family they narrow: the list is applied in order,
+#                              so one placed above `modernize-*` is silently re-enabled by it.
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '^(?!.*/(build|_deps|third_party|external|docs)/).*'
@@ -44,6 +59,12 @@ CheckOptions:
   - { key: readability-identifier-naming.VariableCase, value: lower_case }
   - { key: readability-identifier-naming.ParameterCase, value: lower_case }
   - { key: readability-identifier-naming.LocalConstantCase, value: lower_case }
+  # Constants are kPascalCase (docs/design/conventions.md); spelling it here is what makes the check
+  # agree with the document instead of leaving it unconfigured and unenforced.
+  - { key: readability-identifier-naming.GlobalConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.GlobalConstantPrefix, value: k }
+  - { key: readability-identifier-naming.ConstexprVariableCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
 
   # Types and concepts: PascalCase (clang-tidy spells it CamelCase).
   - { key: readability-identifier-naming.ClassCase, value: CamelCase }

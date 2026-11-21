@@ -13,6 +13,7 @@
 #include <mosaic/net/zmq_transport.h>
 #endif
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -61,6 +62,9 @@ struct mosaic_record_owned {
 };
 
 namespace {
+// Per-thread by design: the ABI reports the last error straight after a failing call, and a
+// process-wide buffer would hand one thread another's message.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 thread_local std::string g_last_error;
 
 mosaic_status fail(mosaic_status status, const std::string& message) {
@@ -70,7 +74,7 @@ mosaic_status fail(mosaic_status status, const std::string& message) {
 
 char* copy_out(const std::string& text) {
     auto* buffer = new char[text.size() + 1];
-    std::copy(text.begin(), text.end(), buffer);
+    std::ranges::copy(text, buffer);
     buffer[text.size()] = '\0';
     return buffer;
 }
@@ -100,17 +104,20 @@ void mosaic_free_string(char** text) {
 // ---- store ----
 
 mosaic_status mosaic_store_open(const char* path, int durability, mosaic_store** out) {
-    if (out != nullptr)
+    if (out != nullptr) {
         *out = nullptr;
-    if (!valid(path) || out == nullptr)
+    }
+    if (!valid(path) || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_store_open: path and out are required");
+    }
 #ifndef MOSAIC_HAS_SQLITE
     return fail(MOSAIC_ERR_UNSUPPORTED, "this build has no durable store");
 #else
     const auto mode = durability == 1 ? mosaic::Durability::Batched : mosaic::Durability::PerRecord;
     auto opened = mosaic::SqliteLogStore::open(path, mode);
-    if (!opened)
+    if (!opened) {
         return fail(MOSAIC_ERR_IO, std::string("cannot open store: ") + path);
+    }
     auto* handle = new mosaic_store();
     handle->store = std::move(*opened);
     *out = handle;
@@ -137,13 +144,16 @@ mosaic_status need_crypto(const char* what) {
 #endif
 
 mosaic_status mosaic_keys_load(const char* path, mosaic_keys** out) {
-    if (out != nullptr)
+    if (out != nullptr) {
         *out = nullptr;
-    if (!valid(path) || out == nullptr)
+    }
+    if (!valid(path) || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_keys_load: path and out are required");
+    }
     const auto loaded = mosaic::load_keystore(path);
-    if (!loaded)
+    if (!loaded) {
         return fail(MOSAIC_ERR_CRYPTO, std::string("cannot load keys: ") + path);
+    }
     auto* handle = new mosaic_keys();
     handle->keystore = *loaded;
 #ifdef MOSAIC_HAS_SODIUM
@@ -159,22 +169,28 @@ mosaic_status mosaic_keys_load(const char* path, mosaic_keys** out) {
 }
 
 mosaic_status mosaic_keys_curve(mosaic_keys* keys, char** curve_public, char** curve_secret) {
-    if (curve_public != nullptr)
+    if (curve_public != nullptr) {
         *curve_public = nullptr;
-    if (curve_secret != nullptr)
+    }
+    if (curve_secret != nullptr) {
         *curve_secret = nullptr;
-    if (keys == nullptr)
+    }
+    if (keys == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_keys_curve: keys is required");
+    }
 #ifdef MOSAIC_HAS_SODIUM
     // The curve25519 pair derived from the Ed25519 identity: one keystore entry yields both the key
     // that signs records and the key that authenticates links (SEC-1).
     const auto curve = mosaic::curve_identity_from_keystore(keys->keystore);
-    if (!curve)
+    if (!curve) {
         return fail(MOSAIC_ERR_CRYPTO, "this build cannot derive curve keys from that keystore");
-    if (curve_public != nullptr)
+    }
+    if (curve_public != nullptr) {
         *curve_public = copy_out(curve->public_z85);
-    if (curve_secret != nullptr)
+    }
+    if (curve_secret != nullptr) {
         *curve_secret = copy_out(curve->secret_z85);
+    }
     return MOSAIC_OK;
 #else
     return fail(MOSAIC_ERR_UNSUPPORTED, "this build has no crypto");
@@ -182,17 +198,22 @@ mosaic_status mosaic_keys_curve(mosaic_keys* keys, char** curve_public, char** c
 }
 
 mosaic_status mosaic_keys_generate(const char* path, char** identity) {
-    if (identity != nullptr)
+    if (identity != nullptr) {
         *identity = nullptr;
-    if (!valid(path))
+    }
+    if (!valid(path)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_keys_generate: path is required");
+    }
     const auto generated = mosaic::generate_keystore();
-    if (!generated)
+    if (!generated) {
         return fail(MOSAIC_ERR_UNSUPPORTED, "this build has no signing support");
-    if (!mosaic::save_keystore(*generated, path))
+    }
+    if (!mosaic::save_keystore(*generated, path)) {
         return fail(MOSAIC_ERR_IO, std::string("cannot write keys: ") + path);
-    if (identity != nullptr)
+    }
+    if (identity != nullptr) {
         *identity = copy_out(generated->id());
+    }
     return MOSAIC_OK;
 }
 
@@ -210,15 +231,18 @@ namespace {
 mosaic_status transport_new(const char* self, const char* pub_bind, const char* router_bind,
                             const mosaic_peer* peers, size_t peer_count, const char* curve_public,
                             const char* curve_secret, bool plaintext, mosaic_transport** out) {
-    if (out != nullptr)
+    if (out != nullptr) {
         *out = nullptr;
-    if (!valid(self) || !valid(pub_bind) || !valid(router_bind) || out == nullptr)
+    }
+    if (!valid(self) || !valid(pub_bind) || !valid(router_bind) || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_transport_new: self, both binds and out are required");
-    if (!plaintext && (curve_public == nullptr || curve_secret == nullptr))
+    }
+    if (!plaintext && (curve_public == nullptr || curve_secret == nullptr)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_transport_new: curve keys are required - use "
                     "mosaic_transport_new_plaintext to ask for an unencrypted transport");
+    }
 #ifndef MOSAIC_HAS_ZMQ
     (void)peers;
     (void)peer_count;
@@ -273,9 +297,10 @@ mosaic_status mosaic_transport_new_plaintext(const char* self, const char* pub_b
 
 mosaic_status mosaic_transport_add_peer(mosaic_transport* transport, const mosaic_peer* peer) {
     if (transport == nullptr || peer == nullptr || peer->id == nullptr ||
-        peer->pub_endpoint == nullptr)
+        peer->pub_endpoint == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_transport_add_peer: transport, peer.id and pub_endpoint are required");
+    }
 #ifdef MOSAIC_HAS_ZMQ
     mosaic::ZmqPeerEndpoint endpoint;
     endpoint.id = peer->id;
@@ -292,13 +317,16 @@ mosaic_status mosaic_transport_add_peer(mosaic_transport* transport, const mosai
 
 mosaic_status mosaic_transport_endpoints(const mosaic_transport* transport, char** pub_endpoint,
                                          char** router_endpoint) {
-    if (pub_endpoint != nullptr)
+    if (pub_endpoint != nullptr) {
         *pub_endpoint = nullptr;
-    if (router_endpoint != nullptr)
+    }
+    if (router_endpoint != nullptr) {
         *router_endpoint = nullptr;
-    if (transport == nullptr || transport->transport == nullptr)
+    }
+    if (transport == nullptr || transport->transport == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_transport_endpoints: transport is required");
+    }
 #ifdef MOSAIC_HAS_ZMQ
     if (pub_endpoint != nullptr)
         *pub_endpoint = copy_out(transport->zmq->pub_endpoint());
@@ -330,12 +358,14 @@ mosaic_status mosaic_node_new(const mosaic_node_config* config, mosaic_transport
         *out = nullptr;
     return need_crypto("mosaic_node_new");
 #else
-    if (out != nullptr)
+    if (out != nullptr) {
         *out = nullptr;
+    }
     if (config == nullptr || !valid(config->id) || transport == nullptr || store == nullptr ||
-        keys == nullptr || out == nullptr)
+        keys == nullptr || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_node_new: config.id, transport, store, keys and out are required");
+    }
 
     auto* handle = new mosaic_node();
     handle->hasher = std::make_unique<mosaic::Sha256Hasher>();
@@ -343,18 +373,24 @@ mosaic_status mosaic_node_new(const mosaic_node_config* config, mosaic_transport
 
     mosaic::NodeConfig node_config;
     node_config.id = config->id;
-    if (config->head_interval_ms != 0)
+    if (config->head_interval_ms != 0) {
         node_config.head_interval_ms = config->head_interval_ms;
-    if (config->fetch_batch != 0)
+    }
+    if (config->fetch_batch != 0) {
         node_config.fetch_batch = config->fetch_batch;
-    if (config->fetch_window != 0)
+    }
+    if (config->fetch_window != 0) {
         node_config.fetch_window = config->fetch_window;
-    if (config->fetch_timeout_ms != 0)
+    }
+    if (config->fetch_timeout_ms != 0) {
         node_config.fetch_timeout_ms = config->fetch_timeout_ms;
-    if (config->max_serve != 0)
+    }
+    if (config->max_serve != 0) {
         node_config.max_serve = config->max_serve;
-    if (config->max_record_bytes != 0)
+    }
+    if (config->max_record_bytes != 0) {
         node_config.max_record_bytes = config->max_record_bytes;
+    }
     node_config.min_replicas = config->min_replicas;  // zero is meaningful here: best effort
 
     handle->signer = keys->signer.get();
@@ -363,8 +399,9 @@ mosaic_status mosaic_node_new(const mosaic_node_config* config, mosaic_transport
     // The callback lives in the handle and forwards to the C function pointer, so the user's
     // pointer survives.
     handle->node->on_record([handle](const mosaic::Record& record) {
-        if (handle->callback == nullptr)
+        if (handle->callback == nullptr) {
             return;
+        }
         mosaic_record view;
         view.writer = record.writer.c_str();
         view.channel = record.channel.c_str();
@@ -388,17 +425,20 @@ void mosaic_node_free(mosaic_node** node) {
 }
 
 mosaic_status mosaic_node_follow(mosaic_node* node, const char* pattern) {
-    if (node == nullptr || !valid(pattern))
+    if (node == nullptr || !valid(pattern)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_node_follow: node and pattern are required");
-    if (!node->node->follow(pattern))
+    }
+    if (!node->node->follow(pattern)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, std::string("invalid pattern: ") + pattern);
+    }
     return MOSAIC_OK;
 }
 
 mosaic_status mosaic_node_on_record(mosaic_node* node, mosaic_record_fn callback, void* user) {
-    if (node == nullptr)
+    if (node == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_node_on_record: node is required");
+    }
     node->callback = callback;
     node->user = user;
     return MOSAIC_OK;
@@ -406,17 +446,22 @@ mosaic_status mosaic_node_on_record(mosaic_node* node, mosaic_record_fn callback
 
 mosaic_status mosaic_node_allow_writers(mosaic_node* node, const char* pattern,
                                         const char** writers, size_t count) {
-    if (node == nullptr || !valid(pattern) || (count > 0 && writers == nullptr))
+    if (node == nullptr || !valid(pattern) || (count > 0 && writers == nullptr)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_node_allow_writers: node, pattern and writers are required");
-    if (!node->rules)
+    }
+    if (!node->rules) {
         node->rules = std::make_unique<mosaic::ChannelRules>();
+    }
     std::vector<mosaic::WriterId> allowed;
-    for (size_t i = 0; i < count; ++i)
-        if (writers[i] != nullptr)
+    for (size_t i = 0; i < count; ++i) {
+        if (writers[i] != nullptr) {
             allowed.emplace_back(writers[i]);
-    if (!node->rules->allow(pattern, allowed))
+        }
+    }
+    if (!node->rules->allow(pattern, allowed)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT, std::string("invalid pattern: ") + pattern);
+    }
     node->node->set_rules(node->rules.get());
     return MOSAIC_OK;
 }
@@ -424,50 +469,60 @@ mosaic_status mosaic_node_allow_writers(mosaic_node* node, const char* pattern,
 mosaic_status mosaic_node_publish(mosaic_node* node, const char* channel, const char* content_type,
                                   const uint8_t* payload, size_t payload_len, uint64_t now_ms,
                                   uint64_t* out_seq) {
-    if (out_seq != nullptr)
+    if (out_seq != nullptr) {
         *out_seq = 0;
-    if (node == nullptr || !valid(channel) || (payload_len > 0 && payload == nullptr))
+    }
+    if (node == nullptr || !valid(channel) || (payload_len > 0 && payload == nullptr)) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_node_publish: node, channel and payload are required");
+    }
     mosaic::Bytes bytes;
-    if (payload_len > 0)
+    if (payload_len > 0) {
         bytes.assign(payload, payload + payload_len);
+    }
     const auto record =
         node->node->publish(*node->signer, channel, content_type != nullptr ? content_type : "",
                             std::move(bytes), now_ms);
-    if (!record)
+    if (!record) {
         return fail(
             MOSAIC_ERR_REFUSED,
             "the node refused the record: oversized, or the channel does not allow this writer");
-    if (out_seq != nullptr)
+    }
+    if (out_seq != nullptr) {
         *out_seq = record->seq;
+    }
     return MOSAIC_OK;
 }
 
 void mosaic_node_pump(mosaic_node* node, uint64_t now_ms) {
-    if (node != nullptr && node->node != nullptr)
+    if (node != nullptr && node->node != nullptr) {
         node->node->pump(now_ms);
+    }
 }
 
 void mosaic_node_tick(mosaic_node* node, uint64_t now_ms) {
-    if (node != nullptr && node->node != nullptr)
+    if (node != nullptr && node->node != nullptr) {
         node->node->tick(now_ms);
+    }
 }
 
 // ---- copies ----
 
 mosaic_status mosaic_record_clone(const mosaic_record* record, mosaic_record_owned** out) {
-    if (out != nullptr)
+    if (out != nullptr) {
         *out = nullptr;
-    if (record == nullptr || out == nullptr)
+    }
+    if (record == nullptr || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_record_clone: record and out are required");
+    }
     auto* copy = new mosaic_record_owned();
     copy->writer = record->writer != nullptr ? record->writer : "";
     copy->channel = record->channel != nullptr ? record->channel : "";
     copy->content_type = record->content_type != nullptr ? record->content_type : "";
-    if (record->payload != nullptr && record->payload_len > 0)
+    if (record->payload != nullptr && record->payload_len > 0) {
         copy->payload.assign(reinterpret_cast<const char*>(record->payload), record->payload_len);
+    }
     copy->seq = record->seq;
     copy->timestamp_ms = record->timestamp_ms;
     *out = copy;
@@ -475,9 +530,10 @@ mosaic_status mosaic_record_clone(const mosaic_record* record, mosaic_record_own
 }
 
 mosaic_status mosaic_record_owned_get(const mosaic_record_owned* owned, mosaic_record* out) {
-    if (owned == nullptr || out == nullptr)
+    if (owned == nullptr || out == nullptr) {
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_record_owned_get: owned and out are required");
+    }
     out->writer = owned->writer.c_str();
     out->channel = owned->channel.c_str();
     out->seq = owned->seq;

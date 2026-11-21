@@ -116,7 +116,7 @@ public:
     std::size_t resume(const Signer& signer, std::uint64_t now_ms);
 
     /// Publish a request. Remembered so a timeout can be reported and a result accepted later.
-    bool submit(const Signer& signer, JobRequest request, std::uint64_t now_ms);
+    bool submit(const Signer& signer, const JobRequest& request, std::uint64_t now_ms);
 
     /// The first result for this job id, if it has arrived.
     std::optional<JobResult> result_for(const std::string& job_id) const;

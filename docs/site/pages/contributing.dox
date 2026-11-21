@@ -1,0 +1,25 @@
+/** @page contributing How the code is written
+
+  @section gated What the gate enforces
+
+  Formatting and lint are not advice here: `./scripts/ci.sh` runs `clang-format --dry-run --Werror` over every source file and
+  `clang-tidy` over every translation unit with the rules in `.clang-tidy`, and a finding fails the check. There is no separate
+  "style backlog" to consult - the number is zero, and the gate keeps it there.
+
+  The rules that shape code most are: braces on every statement body; `nodiscard` on an accessor whose result a caller must use;
+  designated initialisers for aggregates; `contains` rather than `find() != end()`; constants named `kPascalCase`; and the
+  naming table in [conventions](https://github.com/BHare1985/mosaic/blob/main/docs/design/conventions.md).
+
+  @section review The two rules review checks
+
+  - **No `std::` in a public header.** A header may not drag a `std::` name into `mosaic` for every includer.
+  - **No `using namespace` anywhere.** A `.cpp` may import the specific names it uses; nothing imports a namespace.
+
+  Both are stated in [conventions](https://github.com/BHare1985/mosaic/blob/main/docs/design/conventions.md), and both are the
+  kind of thing a compiler will not tell you about until it is a habit.
+
+  @section adding Adding a rule
+
+  In this order, always: enable the check, fix every finding, then gate it. Adopting a rule by turning the gate on first leaves
+  the tree red for everyone and teaches people to ignore the check; fixing first and gating later leaves nobody to keep it.
+*/

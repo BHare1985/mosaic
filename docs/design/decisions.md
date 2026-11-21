@@ -34,6 +34,19 @@ maintain and no upstream repository involved.
 Consequence: the site is exactly what the last workflow run produced, so it cannot hold a stale committed copy; and the only
 repository setting it needs is *Settings → Pages → Source: GitHub Actions*.
 
+## 2026-11-21 — the style gate closed, and there is no "reported only" lint left
+STYLE-2 is done: the style families that `adopt-cpp-style` put in place are enforced everywhere, and `./scripts/ci.sh` fails on
+any `clang-tidy` finding, correctness or style. `MOSAIC_LINT_STYLE` is gone.
+
+Why it is recorded: the split existed because a gate that goes red during a long mechanical sweep blocks unrelated work. It is
+the wrong state to *stay* in - a number that only grows stops being read, and the lint step decays into "the red part is
+ignored". The rule that came out of it is in [conventions](conventions.md): enable a check, fix every finding, then gate it,
+never the other way round.
+
+Three findings that the sweep turned up in the config rather than in the code, all now written down beside the list: a negative
+must sit after the family it narrows, comments cannot live inside a YAML block scalar, and a check that cannot be satisfied
+everywhere belongs in the exclusion list with its reason - not left firing as background noise.
+
 ## 2026-11-17 — the version number counts milestones
 The project reported `0.1.0` from its template through nineteen capability specs, a transport on a real network, durability,
 resilience, jobs and a daemon: a number that told a reader nothing. **The rule is now `0.<closed milestones>.0`**, so six closed

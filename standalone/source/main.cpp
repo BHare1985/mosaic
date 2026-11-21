@@ -528,8 +528,14 @@ int run_sim(int argc, char** argv) {
         Sha256Hasher hasher;
         MemoryLogStore writer_store, follower_store;
         SimTransport writer_net(net, "writer"), follower_net(net, "follower");
-        Node writer(NodeConfig{.id = "writer"}, writer_net, writer_store, hasher, verifier);
-        Node follower(NodeConfig{.id = "follower"}, follower_net, follower_store, hasher, verifier);
+        // Named rather than designated: NodeConfig gains fields as capabilities land, and an
+        // aggregate initialiser would break on every one of them.
+        NodeConfig writer_config;
+        writer_config.id = "writer";
+        NodeConfig follower_config;
+        follower_config.id = "follower";
+        Node writer(writer_config, writer_net, writer_store, hasher, verifier);
+        Node follower(follower_config, follower_net, follower_store, hasher, verifier);
         int delivered = 0;
         follower.on_record([&delivered](const Record&) { ++delivered; });
         follower.follow("events.>");

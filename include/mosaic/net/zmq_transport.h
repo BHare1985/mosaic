@@ -60,8 +60,17 @@ struct ZmqConfig {
     std::string pub_bind = "tcp://127.0.0.1:*";  // "*" lets tests avoid port collisions
     std::string router_bind = "tcp://127.0.0.1:*";
     std::vector<ZmqPeerEndpoint> peers;
-    int send_hwm = 1000;  // explicit, never inherited: overflow must be a counted drop
-    int receive_hwm = 1000;
+    /// Queue depth per peer, in messages. Explicit, never inherited, because overflow must be a
+    /// counted drop. The default matches the protocol's own in-flight bound (`fetch_window`), so
+    /// the worst-case footprint per peer is this number times the frame limit - 256 x 256 KiB = 64
+    /// MiB.
+    int send_hwm = 256;
+    int receive_hwm = 256;
+    /// Liveness of a TCP link: a peer that stops answering is given up on after this many
+    /// milliseconds, checked every `heartbeat_ivl_ms`. Zero disables heartbeats, which is a
+    /// reasonable choice on loopback and a poor one on a WAN.
+    int heartbeat_ivl_ms = 5000;
+    int heartbeat_timeout_ms = 15000;
     ZmqLinkPolicy link_policy = ZmqLinkPolicy::Open;
     ZmqCurveConfig curve;
 };
@@ -108,6 +117,21 @@ public:
 
     /// Messages dropped because their bytes did not decode, plus live-path overflow.
     std::size_t dropped() const;
+
+    /// Messages refused because their frame count did not match their kind: a unicast message that
+    /// was not exactly identity + payload, or a live one that was not exactly channel + sender +
+    /// payload. Counted separately from `dropped()` because it is a protocol violation, not loss.
+    std::size_t malformed() const;
+
+    /// Socket options this libzmq build rejected. A build without heartbeats or a frame limit says
+    /// so here rather than silently running without them.
+    std::size_t option_rejects() const;
+
+    /// Diagnostic: the value a live socket reports for one option (for example
+    /// `ZMQ_HEARTBEAT_IVL`), so a test can assert what was actually applied instead of what the
+    /// code intended. -1 when the option is unknown or unset. Takes an int rather than a `ZMQ_*`
+    /// constant to keep libzmq out of the header.
+    int socket_option(int option) const;
 
     /// Messages refused because the peer's CURVE key did not match what was pinned for it (SEC-1).
     std::size_t curve_rejects() const;

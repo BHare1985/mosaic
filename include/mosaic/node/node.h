@@ -82,6 +82,25 @@ struct NodeConfig {
     /// First ban duration. Every further ban at least doubles it, up to `ban_max_ms`.
     std::uint32_t ban_base_ms = 5000;
     std::uint32_t ban_max_ms = 600000;
+    /// Peer-list gossip (DISC-3). Zero `gossip_interval_ms` disables it entirely.
+    std::uint32_t gossip_interval_ms = 5000;
+    /// Neighbours offered the list each round. Two is enough for epidemic spread: fanout 2 reaches
+    /// O(log N) rounds with high probability, one neighbour is fragile and three multiplies traffic
+    /// for a property already satisfied.
+    std::uint32_t gossip_fanout = 2;
+    /// How far an entry may travel from its origin before it stops being propagated.
+    std::uint32_t gossip_max_hops = 6;
+    /// How long an entry stays in the table without being refreshed.
+    std::uint32_t gossip_entry_ttl_ms = 30000;
+    /// Most peers the gossip table will hold. A beacon or a peer list is a hint, so the bound is
+    /// what a flood costs.
+    std::uint32_t gossip_table_limit = 256;
+    /// Where this node's own PUB and ROUTER can be reached, so gossip can introduce it. Empty means
+    /// "do not advertise myself", which is what a process with no addresses (the simulator) wants.
+    /// A node that never advertised itself could only be found through a third party, and would
+    /// vanish for everyone the moment that third party left.
+    std::string pub_endpoint;
+    std::string router_endpoint;
 };
 
 /// Cumulative counters, so tests assert on behaviour instead of eyeballing logs (NODE-1).
@@ -121,6 +140,20 @@ struct NodeCounters {
     std::uint32_t peer_bans = 0;
     /// Strikes awarded per fault kind, cumulatively. Weighted, like the score: see strike_weight().
     std::map<PeerFault, std::uint64_t> strikes_by_kind;
+    std::uint64_t peers_gossiped = 0;   // PeersMsg we sent
+    std::uint64_t peers_learned = 0;    // entries that told us about an identity we did not know
+    std::uint64_t peers_refreshed = 0;  // entries that confirmed something already in the table
+    std::uint64_t peers_expired = 0;    // entries removed because nothing refreshed them
+    std::uint64_t gossip_refused = 0;   // entries (or messages) refused: stale, too far, malformed
+    std::uint64_t gossip_overflow = 0;  // entries dropped because the table was full
+};
+
+/// A peer this node heard about by gossip and cannot reach yet. The caller dials it: Node never
+/// dials, because dialling is the transport's job (DISC-3).
+struct GossipPeer {
+    NodeId id;
+    std::string pub_endpoint;
+    std::string router_endpoint;
 };
 
 /// The glue that makes the building blocks one system. A Node is simultaneously:
@@ -216,6 +249,17 @@ public:
     /// a deadline in the past reads as not banned even before the sweep has cleared it.
     bool peer_banned(const NodeId& peer, std::uint64_t now_ms) const;
 
+    /// Identities whose addresses come from configuration. Gossip may confirm that such a peer
+    /// exists, but must never record or use an address for it: a peer list is a hint, and a hint
+    /// cannot move something an operator placed (spec: discovery/peer-discovery).
+    void set_configured_peers(std::vector<NodeId> peers);
+    /// Peers learned by gossip that the transport does not address yet, least-recently offered
+    /// first. A peer the transport already knows is never offered: a gossiped address must not be
+    /// able to move a peer that configuration already placed.
+    std::vector<GossipPeer> take_new_gossip_peers();
+    /// Everything in the gossip table right now, for an operator or a test to read.
+    std::vector<GossipPeer> gossip_peers() const;
+
     /// Append to our own log on `channel` and announce it. The signer must outlive the Node.
     /// Empty when the payload exceeds the configured limit - a caller must not be able to create a
     /// log its own peers would refuse (bound-peer-requests).
@@ -268,6 +312,17 @@ private:
         std::uint8_t version = 0;
         PeerScore score;
     };
+    /// What gossip knows about one peer. `hops` is distance from the origin (D4), never a
+    /// countdown; `refreshed_ms` is the last time something confirmed the entry, which is the age
+    /// it passes on - staleness, not longevity. A node that has known a peer for an hour still has
+    /// a fresh entry.
+    struct GossipEntry {
+        GossipPeer peer;
+        std::uint32_t hops = 0;
+        std::uint64_t refreshed_ms = 0;
+        std::uint64_t refreshed_seq = 0;  // tie-free recency, for eviction and "freshest first"
+        bool offered = false;             // already handed to the caller to dial
+    };
     struct FetchState {
         std::uint64_t sent_ms = 0;
         Seq from = 0;                   // first seq requested
@@ -298,6 +353,12 @@ private:
     void handle_get_heads(const NodeId& from, const GetHeadsMsg& request, std::uint64_t now_ms);
     void handle_direct_head(const NodeId& from, const DirectHeadMsg& head, std::uint64_t now_ms);
     void handle_credit(const NodeId& from, const CreditMsg& credit);
+    /// Merge a peer list from `from`. Refused whole when it is malformed or over the per-message
+    /// cap; individual entries are refused for being stale, too far, or about ourselves (DISC-3).
+    void handle_peers(const NodeId& from, const PeersMsg& message, std::uint64_t now_ms);
+    /// Offer this node's freshest entries to a rotating subset of neighbours, and expire what
+    /// nothing refreshed. Called from tick().
+    void gossip_tick(std::uint64_t now_ms);
     /// Per-peer budget: true when this peer may have another request of this kind right now.
     bool admit_request(const NodeId& peer, std::uint64_t now_ms);
     /// Does a channel rule permit this writer? Counts and names the rule when it does not, and
@@ -365,7 +426,12 @@ private:
     /// records we will refuse forever - a traffic amplifier handed to whoever can publish a head.
     std::set<LogKey> unauthorized_logs_;
     std::map<NodeId, std::pair<std::uint64_t, std::uint32_t>>
-        request_budget_;  // peer -> (window start, used)
+        request_budget_;                    // peer -> (window start, used)
+    std::map<NodeId, GossipEntry> gossip_;  // peers heard about but not necessarily reachable
+    std::set<NodeId> configured_peers_;     // addresses that are not gossip's to change
+    std::size_t gossip_cursor_ = 0;         // rotates the neighbours a round is offered to
+    std::uint64_t last_gossip_ms_ = 0;
+    std::uint64_t gossip_seq_ = 0;  // increments per accepted entry, so recency never ties
     NodeCounters counters_;
     RecordHandler on_record_;
     RecordHandler on_fork_;

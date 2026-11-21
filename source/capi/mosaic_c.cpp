@@ -158,6 +158,29 @@ mosaic_status mosaic_keys_load(const char* path, mosaic_keys** out) {
     return MOSAIC_OK;
 }
 
+mosaic_status mosaic_keys_curve(mosaic_keys* keys, char** curve_public, char** curve_secret) {
+    if (curve_public != nullptr)
+        *curve_public = nullptr;
+    if (curve_secret != nullptr)
+        *curve_secret = nullptr;
+    if (keys == nullptr)
+        return fail(MOSAIC_ERR_INVALID_ARGUMENT, "mosaic_keys_curve: keys is required");
+#ifdef MOSAIC_HAS_SODIUM
+    // The curve25519 pair derived from the Ed25519 identity: one keystore entry yields both the key
+    // that signs records and the key that authenticates links (SEC-1).
+    const auto curve = mosaic::curve_identity_from_keystore(keys->keystore);
+    if (!curve)
+        return fail(MOSAIC_ERR_CRYPTO, "this build cannot derive curve keys from that keystore");
+    if (curve_public != nullptr)
+        *curve_public = copy_out(curve->public_z85);
+    if (curve_secret != nullptr)
+        *curve_secret = copy_out(curve->secret_z85);
+    return MOSAIC_OK;
+#else
+    return fail(MOSAIC_ERR_UNSUPPORTED, "this build has no crypto");
+#endif
+}
+
 mosaic_status mosaic_keys_generate(const char* path, char** identity) {
     if (identity != nullptr)
         *identity = nullptr;
@@ -182,27 +205,33 @@ void mosaic_keys_free(mosaic_keys** keys) {
 
 // ---- transport ----
 
-mosaic_status mosaic_transport_new(const char* self, const char* pub_bind, const char* router_bind,
-                                   const mosaic_peer* peers, size_t peer_count,
-                                   const char* curve_public, const char* curve_secret,
-                                   mosaic_transport** out) {
+namespace {
+
+mosaic_status transport_new(const char* self, const char* pub_bind, const char* router_bind,
+                            const mosaic_peer* peers, size_t peer_count, const char* curve_public,
+                            const char* curve_secret, bool plaintext, mosaic_transport** out) {
     if (out != nullptr)
         *out = nullptr;
     if (!valid(self) || !valid(pub_bind) || !valid(router_bind) || out == nullptr)
         return fail(MOSAIC_ERR_INVALID_ARGUMENT,
                     "mosaic_transport_new: self, both binds and out are required");
+    if (!plaintext && (curve_public == nullptr || curve_secret == nullptr))
+        return fail(MOSAIC_ERR_INVALID_ARGUMENT,
+                    "mosaic_transport_new: curve keys are required - use "
+                    "mosaic_transport_new_plaintext to ask for an unencrypted transport");
 #ifndef MOSAIC_HAS_ZMQ
     (void)peers;
     (void)peer_count;
     (void)curve_public;
     (void)curve_secret;
+    (void)plaintext;
     return fail(MOSAIC_ERR_UNSUPPORTED, "this build has no network transport");
 #else
     mosaic::ZmqConfig config;
     config.id = self;
     config.pub_bind = pub_bind;
     config.router_bind = router_bind;
-    if (curve_public != nullptr && curve_secret != nullptr)
+    if (!plaintext)
         config.curve = mosaic::ZmqCurveConfig{true, curve_public, curve_secret, ""};
     for (size_t i = 0; i < peer_count; ++i) {
         mosaic::ZmqPeerEndpoint endpoint;
@@ -223,6 +252,23 @@ mosaic_status mosaic_transport_new(const char* self, const char* pub_bind, const
     *out = handle;
     return MOSAIC_OK;
 #endif
+}
+
+}  // namespace
+
+mosaic_status mosaic_transport_new(const char* self, const char* pub_bind, const char* router_bind,
+                                   const mosaic_peer* peers, size_t peer_count,
+                                   const char* curve_public, const char* curve_secret,
+                                   mosaic_transport** out) {
+    return transport_new(self, pub_bind, router_bind, peers, peer_count, curve_public, curve_secret,
+                         false, out);
+}
+
+mosaic_status mosaic_transport_new_plaintext(const char* self, const char* pub_bind,
+                                             const char* router_bind, const mosaic_peer* peers,
+                                             size_t peer_count, mosaic_transport** out) {
+    return transport_new(self, pub_bind, router_bind, peers, peer_count, nullptr, nullptr, true,
+                         out);
 }
 
 mosaic_status mosaic_transport_add_peer(mosaic_transport* transport, const mosaic_peer* peer) {

@@ -35,7 +35,12 @@ struct JobsNode {
     MemoryLogStore store;
     Node node;
     JobsNode(SimNetwork& net, const NodeId& id, const Hasher& hasher, const Verifier& verifier)
-        : transport(net, id), node(NodeConfig{.id = id}, transport, store, hasher, verifier) {}
+        : transport(net, id), node(config_for(id), transport, store, hasher, verifier) {}
+    static NodeConfig config_for(const NodeId& id) {
+        NodeConfig config;
+        config.id = id;
+        return config;
+    }
 };
 
 void step(SimNetwork& net, uint64_t now_ms, initializer_list<JobsNode*> nodes,

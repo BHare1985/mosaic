@@ -86,7 +86,10 @@ int main(int argc, char** argv) {
     mosaic_free_string(&identity);
     if (mosaic_keys_load(keys_path, &keys) != MOSAIC_OK ||
         mosaic_store_open(store_path, 1, &store) != MOSAIC_OK ||
-        mosaic_transport_new(mode, self_pub, self_router, NULL, 0, NULL, NULL, &transport) !=
+        /* Plaintext on purpose and by name: this pair exists to prove durability and the ABI across
+         * two processes, and it has no argument with which to exchange CURVE keys. The encrypted
+         * ABI path is exercised in mosaic_c_test.c, where both keystores exist. */
+        mosaic_transport_new_plaintext(mode, self_pub, self_router, NULL, 0, &transport) !=
             MOSAIC_OK) {
         fprintf(stderr, "setup: %s\n", mosaic_last_error());
         return 1;

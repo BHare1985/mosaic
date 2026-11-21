@@ -1,4 +1,5 @@
 #include <mosaic/node/node.h>
+#include <mosaic/proto/codec.h>
 
 #include <algorithm>
 
@@ -137,6 +138,9 @@ void Node::tick(uint64_t now_ms) {
     // own.
     greet_peers(now_ms);
 
+    // 0a2. Discovery: offer what we know about the network, and forget what nothing refreshed.
+    gossip_tick(now_ms);
+
     // 0b. Control-plane work: find logs we are missing, and tell writers what we hold.
     request_heads(now_ms);
     acknowledge(now_ms);
@@ -187,6 +191,7 @@ void Node::handle(const NodeId& from, const Message& message, uint64_t now_ms) {
               [&](const GetHeadsMsg& m) { handle_get_heads(from, m, now_ms); },
               [&](const DirectHeadMsg& m) { handle_direct_head(from, m, now_ms); },
               [&](const CreditMsg& m) { handle_credit(from, m); },
+              [&](const PeersMsg& m) { handle_peers(from, m, now_ms); },
 
           },
           message);
@@ -478,6 +483,175 @@ void Node::handle_credit(const NodeId& from, const CreditMsg& credit) {
     live_credit_enabled_[from] = true;
     live_credits_.try_emplace(from, credit.credits * 4, credit.credits)
         .first->second.grant(credit.credits);
+}
+
+void Node::handle_peers(const NodeId& from, const PeersMsg& message, uint64_t now_ms) {
+    // A list this node must refuse is a message it cannot use, which is the same fault the wire
+    // decoder reports for the same bytes: one strike, message refused whole, nothing partly
+    // believed (D6).
+    if (message.entries.size() > kMaxPeersEntries) {
+        ++counters_.gossip_refused;
+        penalize(from, PeerFault::Undecodable, now_ms);
+        return;
+    }
+    // Peer lists count against the same per-peer request budget as every other control message, so
+    // a gossip burst cannot outrun the throttling that everything else obeys.
+    if (!admit_request(from, now_ms))
+        return;
+    for (const auto& entry : message.entries) {
+        const auto hops = entry.hops + 1;
+        const auto refuse = [&](const char* why) {
+            (void)why;  // the counter is the signal; the reason is in the design note
+            ++counters_.gossip_refused;
+        };
+        if (entry.id.empty() || entry.id == config_.id ||
+            !valid_peer_endpoint(entry.pub_endpoint) ||
+            !valid_peer_endpoint(entry.router_endpoint) ||
+            entry.age_ms > config_.gossip_entry_ttl_ms || hops > config_.gossip_max_hops) {
+            refuse("entry unwearable");
+            continue;
+        }
+
+        // A configured peer's address is not gossip's business: the entry confirms that it exists
+        // and nothing more (spec: discovery/peer-discovery).
+        if (configured_peers_.count(entry.id) != 0) {
+            ++counters_.peers_refreshed;
+            continue;
+        }
+
+        auto& slot = gossip_[entry.id];
+        slot.peer = GossipPeer{entry.id, entry.pub_endpoint, entry.router_endpoint};
+        // Nearer wins: an entry one hop from its origin describes a peer better than one six hops
+        // away that may be quoting a stale address, and hops is a distance for exactly this (D4).
+        slot.hops = std::min(slot.hops == 0 ? hops : slot.hops, hops);
+        if (slot.refreshed_ms == 0) {
+            ++counters_.peers_learned;
+        } else {
+            ++counters_.peers_refreshed;
+        }
+        slot.refreshed_ms = now_ms;
+        slot.refreshed_seq = ++gossip_seq_;
+        slot.offered = false;  // a fresh sighting is worth handing to the dialler again
+
+        // Bound the table the way a full buffer must be bounded: a peer list is a hint, and memory
+        // is not a place to be generous with hints (D5).
+        while (gossip_.size() > config_.gossip_table_limit) {
+            auto oldest = gossip_.begin();
+            for (auto it = gossip_.begin(); it != gossip_.end(); ++it)
+                if (it->second.refreshed_seq < oldest->second.refreshed_seq)
+                    oldest = it;
+            if (oldest->first == entry.id)
+                break;  // the newest entry never evicts itself
+            gossip_.erase(oldest);
+            ++counters_.gossip_overflow;
+        }
+    }
+}
+
+void Node::gossip_tick(uint64_t now_ms) {
+    // Expiry runs every tick, not only when we gossip, so a table with nothing to send still
+    // forgets what went quiet.
+    for (auto it = gossip_.begin(); it != gossip_.end();) {
+        if (now_ms - it->second.refreshed_ms > config_.gossip_entry_ttl_ms) {
+            it = gossip_.erase(it);
+            ++counters_.peers_expired;
+        } else {
+            ++it;
+        }
+    }
+
+    if (config_.gossip_interval_ms == 0 || config_.gossip_fanout == 0)
+        return;
+
+    const auto peers = transport_.peers();
+    if (peers.empty())
+        return;
+
+    // Jitter without an RNG: the node cannot read a clock or draw randomness (conventions), and
+    // every node already has a unique identity, so its identity is the phase offset. Two nodes with
+    // different ids do not gossip on the same tick.
+    std::uint64_t phase = 0;
+    for (const char c : config_.id)
+        phase = phase * 131 + static_cast<unsigned char>(c);
+    const auto spread = config_.gossip_interval_ms / 5;  // 20%
+    const auto wait = config_.gossip_interval_ms - spread + (phase % (2 * spread + 1));
+    if (last_gossip_ms_ != 0 && now_ms - last_gossip_ms_ < wait)
+        return;
+    last_gossip_ms_ = now_ms;
+
+    // Freshest first, so a bounded message carries what is most likely still true.
+    std::vector<std::pair<std::uint64_t, NodeId>> fresh;
+    for (const auto& [id, entry] : gossip_)
+        if (!entry.peer.pub_endpoint.empty() && !entry.peer.router_endpoint.empty())
+            fresh.emplace_back(entry.refreshed_seq, id);
+    sort(fresh.begin(), fresh.end(), greater<>());
+
+    std::vector<PeerEntry> entries;
+    // Ourselves first: a node is the origin of its own entry (hop 0, age 0). Without this, gossip
+    // could only ever repeat what a third party said, and every entry would expire the moment its
+    // introducer left (DISC-3).
+    if (!config_.pub_endpoint.empty() && !config_.router_endpoint.empty()) {
+        entries.push_back(
+            PeerEntry{config_.id, config_.pub_endpoint, config_.router_endpoint, 0, 0});
+    }
+    for (const auto& [refreshed, id] : fresh) {
+        if (entries.size() >= kMaxPeersEntries)
+            break;
+        const auto& entry = gossip_.at(id);
+        PeerEntry outgoing;
+        outgoing.id = id;
+        outgoing.pub_endpoint = entry.peer.pub_endpoint;
+        outgoing.router_endpoint = entry.peer.router_endpoint;
+        outgoing.hops = entry.hops;
+        // Staleness, not longevity: a fresh entry has age ~0 however long we have known the peer.
+        outgoing.age_ms = now_ms > entry.refreshed_ms ? now_ms - entry.refreshed_ms : 0;
+        entries.push_back(move(outgoing));
+    }
+    if (entries.empty())
+        return;
+
+    // Rotate rather than sample at random: without an RNG the only fair choice is a cursor, and it
+    // has the property that no neighbour is starved - every one is offered a round every
+    // ceil(neighbours / fanout) intervals.
+    const auto rounds = std::min<std::size_t>(config_.gossip_fanout, peers.size());
+    for (std::size_t i = 0; i < rounds; ++i) {
+        const auto& peer = peers[(gossip_cursor_ + i) % peers.size()];
+        if (peer_banned(peer, now_ms))
+            continue;
+        transport_.send(peer, PeersMsg{entries});
+        ++counters_.peers_gossiped;
+    }
+    gossip_cursor_ = (gossip_cursor_ + rounds) % peers.size();
+}
+
+void Node::set_configured_peers(vector<NodeId> peers) {
+    configured_peers_.clear();
+    for (auto& peer : peers)
+        configured_peers_.insert(move(peer));
+}
+
+vector<GossipPeer> Node::take_new_gossip_peers() {
+    const auto known = transport_.peers();
+    vector<GossipPeer> out;
+    for (auto& [id, entry] : gossip_) {
+        if (entry.offered || entry.peer.pub_endpoint.empty())
+            continue;
+        if (configured_peers_.count(id) != 0)
+            continue;  // configuration placed this peer; a hint does not move it
+        if (find(known.begin(), known.end(), id) != known.end())
+            continue;  // the transport already addresses it
+        entry.offered = true;
+        out.push_back(entry.peer);
+    }
+    return out;
+}
+
+vector<GossipPeer> Node::gossip_peers() const {
+    vector<GossipPeer> out;
+    out.reserve(gossip_.size());
+    for (const auto& [id, entry] : gossip_)
+        out.push_back(entry.peer);
+    return out;
 }
 
 void Node::request_heads(uint64_t now_ms) {

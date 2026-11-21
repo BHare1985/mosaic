@@ -44,6 +44,88 @@ vector<string> get_patterns(ByteReader& reader) {
     return patterns;
 }
 
+/// A peer endpoint as this protocol carries it: "tcp://host:port" with a non-empty host and a port
+/// in range. Checked on decode because an entry that survives this becomes something a node may try
+/// to dial, and "try to dial nonsense" is exactly what a hostile peer list is for (DISC-3).
+}  // namespace
+
+bool valid_peer_endpoint(const std::string& endpoint) {
+    constexpr const char* kScheme = "tcp://";
+    const auto scheme = sizeof("tcp://") - 1;
+    if (endpoint.size() <= scheme || endpoint.compare(0, scheme, kScheme) != 0)
+        return false;
+    const auto colon = endpoint.rfind(':');
+    if (colon == string::npos || colon <= scheme || colon + 1 >= endpoint.size())
+        return false;
+    if (endpoint.find(':', scheme) != colon)
+        return false;  // an unbracketed IPv6 literal is not something we can dial
+    uint32_t port = 0;
+    for (size_t i = colon + 1; i < endpoint.size(); ++i) {
+        const char c = endpoint[i];
+        if (c < '0' || c > '9')
+            return false;
+        port = port * 10 + static_cast<uint32_t>(c - '0');
+        if (port > 65535)
+            return false;
+    }
+    return port != 0;
+}
+
+namespace {
+
+void put_peers(ByteWriter& writer, const vector<PeerEntry>& entries) {
+    writer.put_u32(static_cast<uint32_t>(entries.size()));
+    for (const auto& entry : entries) {
+        writer.put_string(entry.id);
+        writer.put_string(entry.pub_endpoint);
+        writer.put_string(entry.router_endpoint);
+        writer.put_u32(entry.hops);
+        writer.put_u64(entry.age_ms);
+    }
+}
+
+/// Decode a peer list. Returns empty on a clean list of zero entries, and signals failure with a
+/// status through `status` rather than a partial vector: a message is believed whole or not at all.
+vector<PeerEntry> get_peers(ByteReader& reader, DecodeStatus& status) {
+    vector<PeerEntry> entries;
+    const auto count = reader.get_u32();
+    if (!reader.ok()) {
+        status = DecodeStatus::Truncated;
+        return entries;
+    }
+    if (count > kMaxPeersEntries) {
+        status = DecodeStatus::TooManyEntries;
+        return entries;
+    }
+    // Each entry needs at least a u32 length prefix per string and its two fixed fields: a hostile
+    // count is bounded by the bytes actually present before anything is allocated.
+    if (count > reader.remaining() / 12) {
+        status = DecodeStatus::Truncated;
+        return entries;
+    }
+    entries.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        PeerEntry entry;
+        entry.id = reader.get_string();
+        entry.pub_endpoint = reader.get_string();
+        entry.router_endpoint = reader.get_string();
+        entry.hops = reader.get_u32();
+        entry.age_ms = reader.get_u64();
+        if (!reader.ok()) {
+            status = DecodeStatus::Truncated;
+            return {};
+        }
+        if (entry.id.empty() || entry.id.size() > 255 || !valid_peer_endpoint(entry.pub_endpoint) ||
+            !valid_peer_endpoint(entry.router_endpoint) || entry.age_ms > kMaxPeerEntryAgeMs) {
+            status = DecodeStatus::Malformed;
+            return {};
+        }
+        entries.push_back(move(entry));
+    }
+    status = DecodeStatus::Ok;
+    return entries;
+}
+
 /// Decode a record from a reader over `body`, rejecting anything that does not re-encode to the
 /// same bytes: a canonical encoding must have exactly one representation on the wire.
 optional<Record> read_record(ByteReader& reader, const Bytes& body) {
@@ -108,6 +190,8 @@ Bytes payload_bytes(const Message& message) {
             } else if constexpr (is_same_v<T, HelloMsg>) {
                 writer.put_u8(value.version);
                 put_patterns(writer, value.patterns);
+            } else if constexpr (is_same_v<T, PeersMsg>) {
+                put_peers(writer, value.entries);
             }
         },
         message);
@@ -130,6 +214,8 @@ const char* to_string(DecodeStatus status) {
             return "malformed";
         case DecodeStatus::UnsupportedVersion:
             return "unsupported-version";
+        case DecodeStatus::TooManyEntries:
+            return "too-many-entries";
     }
     return "?";
 }
@@ -154,6 +240,8 @@ uint8_t message_id(const Message& message) {
             return kMsgCredit;
         case 8:
             return kMsgHello;
+        case 9:
+            return kMsgPeers;
         default:
             return 0;
     }
@@ -280,6 +368,16 @@ DecodeResult decode_message(const Bytes& frame) {
                 return {DecodeStatus::Truncated, nullopt};
             if (message.version != kProtocolVersion)
                 return {DecodeStatus::UnsupportedVersion, nullopt};  // reported, not decoded
+            return finish(Message{message});
+        }
+        case kMsgPeers: {
+            PeersMsg message;
+            auto status = DecodeStatus::Ok;
+            message.entries = get_peers(reader, status);
+            if (status != DecodeStatus::Ok)
+                return {status, nullopt};
+            if (!reader.ok())
+                return {DecodeStatus::Truncated, nullopt};
             return finish(Message{message});
         }
         default:

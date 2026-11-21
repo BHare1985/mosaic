@@ -101,6 +101,19 @@ about what is true; the signature is the only thing that decides that.
 | Network attacker | drop/duplicate/reorder, observe | protocol tolerates loss; CURVE hides content |
 | Resource exhaustion | huge records, huge `count`, many logs | max sizes in decoder (ENC-1), `max_serve`, per-peer budgets |
 
+## The encryption gap the C ABI had (closed, ZMQ-2)
+
+Worth recording because it was invisible and complete: `mosaic_transport_new` treated *missing* CURVE keys as "plaintext,
+quietly", and the Python binding passed NULL - so a Python node signed records with a real Ed25519 key and shipped them over an
+unencrypted link, while the C++ daemon and CLI encrypted. The C surface had no way to read the CURVE pair out of a keystore,
+which is why the binding could not have done better.
+
+Now: the ABI exposes `mosaic_keys_curve` (the curve25519 pair derived from the identity), a transport built through it is
+**encrypted unless the caller asks otherwise**, and `mosaic_transport_new_plaintext` exists so that "unencrypted" is a decision
+with a name rather than the behaviour of a forgotten argument. The Python binding loads the keystore it is already given, and
+`mosaic.curve_public(path)` gives a peer the key it needs to authenticate you. A test asserts that a transport built without key
+material is refused rather than downgraded.
+
 ## Rules for code
 - Never act on unverified data. Never log payloads. Treat every decoded field as hostile (bounds, sizes).
 - Never make acceptance depend on a peer's score ("bans are not belief"). Score where the fault is already counted, and drop

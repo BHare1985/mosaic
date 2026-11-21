@@ -82,6 +82,12 @@ mosaic_status mosaic_keys_load(const char* path, mosaic_keys** out);
 /* Generate a new key pair, save it with owner-only permissions, and copy its hex identity into
  * `identity`. The caller frees `identity` with mosaic_free_string. */
 mosaic_status mosaic_keys_generate(const char* path, char** identity);
+
+/* The curve25519 key pair derived from the identity in this keystore, in the z85 form ZeroMQ wants.
+ * This is what a transport needs, and the reason a binding never has to invent link keys of its
+ * own: the key that authenticates a link is derived from the key that signs records (SEC-1). Both
+ * strings are freed with mosaic_free_string. */
+mosaic_status mosaic_keys_curve(mosaic_keys* keys, char** curve_public, char** curve_secret);
 void mosaic_keys_free(mosaic_keys** keys);
 
 /* ---------------------------------------------------------------------------------------------------------------
@@ -97,12 +103,20 @@ typedef struct mosaic_peer {
     const char* curve_public; /* may be NULL when links are not encrypted */
 } mosaic_peer;
 
-/* self, the two bind addresses, an optional peer array, and optional CURVE keys (NULL disables
- * encryption). */
+/* self, the two bind addresses, an optional peer array, and the CURVE keys from mosaic_keys_curve.
+ * Both keys are required: a missing key is an error, not a quietly unencrypted link. Ask for
+ * mosaic_transport_new_plaintext if that is genuinely what you want. */
 mosaic_status mosaic_transport_new(const char* self, const char* pub_bind, const char* router_bind,
                                    const mosaic_peer* peers, size_t peer_count,
                                    const char* curve_public, const char* curve_secret,
                                    mosaic_transport** out);
+
+/* A transport whose links are NOT encrypted, for a loopback test or a diagnostic. It exists so that
+ * "plaintext" is something a caller says rather than something a caller gets by forgetting a key.
+ */
+mosaic_status mosaic_transport_new_plaintext(const char* self, const char* pub_bind,
+                                             const char* router_bind, const mosaic_peer* peers,
+                                             size_t peer_count, mosaic_transport** out);
 
 /* Dial a peer discovered after construction (needed when the bind address asked for an ephemeral
  * port, and by discovery). Idempotent for a peer already wired. */

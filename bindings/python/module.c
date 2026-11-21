@@ -65,16 +65,17 @@ static void Node_dealloc(NodeObject* self) {
 static int Node_init(NodeObject* self, PyObject* args, PyObject* kwargs) {
     /* Order matters twice: it is the keyword table and the positional format below. */
     static char* keywords[] = {"node_id",     "keys_path", "store_path", "pub_bind",
-                               "router_bind", "peers",     NULL};
+                               "router_bind", "peers",     "plaintext",  NULL};
     const char* node_id = NULL;
     const char* pub_bind = "tcp://127.0.0.1:*";
     const char* router_bind = "tcp://127.0.0.1:*";
     const char* keys_path = NULL;
     const char* store_path = NULL;
     PyObject* peers = NULL;
+    int plaintext = 0; /* links are encrypted unless the caller says otherwise */
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sss|ssO", keywords, &node_id, &keys_path,
-                                     &store_path, &pub_bind, &router_bind, &peers))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sss|ssOp", keywords, &node_id, &keys_path,
+                                     &store_path, &pub_bind, &router_bind, &peers, &plaintext))
         return -1;
 
     self->node = NULL;
@@ -106,10 +107,27 @@ static int Node_init(NodeObject* self, PyObject* args, PyObject* kwargs) {
         status_error(MOSAIC_ERR_IO);
         return -1;
     }
-    if (mosaic_transport_new(node_id, pub_bind, router_bind, NULL, 0, NULL, NULL,
-                             &self->transport) != MOSAIC_OK) {
-        status_error(MOSAIC_ERR_IO);
-        return -1;
+    /* The keystore is already loaded for signing; its curve25519 pair is what encrypts the links,
+     * so there is no reason for a Python node to run plaintext. Plaintext is opt-in and named. */
+    {
+        char* curve_public = NULL;
+        char* curve_secret = NULL;
+        mosaic_status status;
+        if (plaintext) {
+            status = mosaic_transport_new_plaintext(node_id, pub_bind, router_bind, NULL, 0,
+                                                    &self->transport);
+        } else {
+            status = mosaic_keys_curve(self->keys, &curve_public, &curve_secret);
+            if (status == MOSAIC_OK)
+                status = mosaic_transport_new(node_id, pub_bind, router_bind, NULL, 0, curve_public,
+                                              curve_secret, &self->transport);
+            mosaic_free_string(&curve_public);
+            mosaic_free_string(&curve_secret);
+        }
+        if (status != MOSAIC_OK) {
+            status_error(status);
+            return -1;
+        }
     }
     if (peers != NULL && PyList_Check(peers)) {
         const Py_ssize_t count = PyList_Size(peers);
@@ -124,7 +142,11 @@ static int Node_init(NodeObject* self, PyObject* args, PyObject* kwargs) {
             peer.id = id != NULL ? PyUnicode_AsUTF8(id) : NULL;
             peer.pub_endpoint = pub != NULL ? PyUnicode_AsUTF8(pub) : NULL;
             peer.router_endpoint = router != NULL ? PyUnicode_AsUTF8(router) : NULL;
-            peer.curve_public = NULL;
+            /* The peer's curve public key (z85), from `mosaic_keys_curve`. Without it a CURVE
+             * client cannot authenticate the server, so the link is not encrypted however it was
+             * asked for. */
+            PyObject* curve = PyDict_GetItemString(item, "curve");
+            peer.curve_public = curve != NULL ? PyUnicode_AsUTF8(curve) : NULL;
             if (mosaic_transport_add_peer(self->transport, &peer) != MOSAIC_OK) {
                 status_error(MOSAIC_ERR_INVALID_ARGUMENT);
                 return -1;
@@ -268,8 +290,36 @@ static PyObject* module_generate_keys(PyObject* module, PyObject* args) {
     return out;
 }
 
+/* The curve public key of a keystore: what you give a peer so it can authenticate your links. */
+static PyObject* module_curve_public(PyObject* self, PyObject* args) {
+    (void)self;
+    const char* keys_path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &keys_path))
+        return NULL;
+    mosaic_keys* keys = NULL;
+    if (mosaic_keys_load(keys_path, &keys) != MOSAIC_OK) {
+        PyErr_SetString(PyExc_RuntimeError, mosaic_last_error());
+        return NULL;
+    }
+    char* public_z85 = NULL;
+    char* secret_z85 = NULL;
+    const mosaic_status status = mosaic_keys_curve(keys, &public_z85, &secret_z85);
+    mosaic_free_string(&secret_z85); /* only the public half leaves this function */
+    mosaic_keys_free(&keys);
+    if (status != MOSAIC_OK || public_z85 == NULL) {
+        mosaic_free_string(&public_z85);
+        PyErr_SetString(PyExc_RuntimeError, mosaic_last_error());
+        return NULL;
+    }
+    PyObject* result = PyUnicode_FromString(public_z85);
+    mosaic_free_string(&public_z85);
+    return result;
+}
+
 static PyMethodDef module_methods[] = {
     {"version", module_version, METH_NOARGS, "The library version."},
+    {"curve_public", module_curve_public, METH_VARARGS,
+     "curve_public(keys_path) -> z85 curve key to give a peer"},
     {"generate_keys", module_generate_keys, METH_VARARGS, "generate_keys(path) -> writer identity"},
     {NULL, NULL, 0, NULL}};
 

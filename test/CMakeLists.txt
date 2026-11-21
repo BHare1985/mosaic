@@ -40,6 +40,19 @@ add_executable(${PROJECT_NAME} ${sources})
 target_link_libraries(${PROJECT_NAME} doctest::doctest Mosaic::Mosaic)
 if (TARGET MosaicZmq)
     target_link_libraries(${PROJECT_NAME} MosaicZmq)
+    # One transport test has to speak ZMTP itself - a peer that sends the wrong number of frames
+    # cannot be built out of the transport's own API. That needs libzmq's headers in the *test*
+    # binary only; the confinement rule (libzmq headers inside the transport) still holds for every
+    # product target, because MosaicZmq keeps its own link private.
+    foreach (zmq_candidate libzmq-static libzmq ZeroMQ::libzmq)
+        if (TARGET ${zmq_candidate})
+            get_target_property(zmq_includes ${zmq_candidate} INTERFACE_INCLUDE_DIRECTORIES)
+            if (zmq_includes)
+                target_include_directories(${PROJECT_NAME} PRIVATE ${zmq_includes})
+            endif ()
+            break()
+        endif ()
+    endforeach ()
 endif ()
 if (TARGET MosaicDaemon)
     target_link_libraries(${PROJECT_NAME} MosaicDaemon)

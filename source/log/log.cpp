@@ -1,5 +1,9 @@
 #include <mosaic/log/log.h>
 
+#include <algorithm>
+#include <map>
+#include <set>
+
 using std::move;
 using std::nullopt;
 using std::optional;
@@ -23,6 +27,8 @@ const char* to_string(IngestResult result) {
             return "bad-chain";
         case IngestResult::BadSignature:
             return "bad-signature";
+        case IngestResult::NotAttempted:
+            return "not-attempted";
     }
     return "?";
 }
@@ -120,6 +126,103 @@ IngestResult ReplicaLog::ingest(const Record& record) {
 
     store_.append(record);
     return IngestResult::Accepted;
+}
+
+vector<IngestResult> ReplicaLog::ingest_batch(const vector<Record>& records) {
+    vector<IngestResult> outcomes(records.size(), IngestResult::NotAttempted);
+
+    // Records for a log are taken in *sequence* order, not arrival order. A repair reply can be
+    // reordered by the link - the simulation tests it - and a run that stopped at the first
+    // out-of-order arrival would throw away the very records that fill the hole. Sequence order is
+    // also what the chain requires, so grouping by log and sorting by sequence keeps the batch
+    // equivalent to offering the same records one at a time in the order the chain defines.
+    std::map<LogKey, std::vector<size_t>> by_log;
+    for (size_t i = 0; i < records.size(); ++i)
+        by_log[records[i].key()].push_back(i);
+
+    for (auto& [key, indexes] : by_log) {
+        std::stable_sort(indexes.begin(), indexes.end(),
+                         [&](size_t a, size_t b) { return records[a].seq < records[b].seq; });
+
+        Seq next = store_.head_seq(key) ? *store_.head_seq(key) + 1 : 0;
+        std::optional<Hash> last_hash;
+        if (const auto head = store_.head_seq(key)) {
+            if (const auto previous = store_.get(key, *head); previous)
+                last_hash = record_hash_tagged(*previous);
+        }
+
+        vector<Record> run;
+        std::map<Seq, Hash> pending;  // what the run is holding, for duplicate and fork checks
+        bool halted = false;          // a hole: everything above it is not attempted
+
+        const auto flush = [&] {
+            if (run.empty())
+                return;
+            store_.append_batch(run);
+            run.clear();
+        };
+
+        for (const auto index : indexes) {
+            const Record& record = records[index];
+            const auto tagged = record_hash_tagged(record);
+            if (!tagged || !verifier_.verify(record.writer, *tagged, record.sig)) {
+                flush();
+                halted = true;
+                outcomes[index] = IngestResult::BadSignature;
+                continue;  // the rest of this log is not attempted
+            }
+            if (record.seq < next) {
+                // A duplicate of something already stored, or of something this run is still
+                // holding - which the store does not know about yet.
+                std::optional<Hash> existing_hash;
+                if (const auto at = pending.find(record.seq); at != pending.end())
+                    existing_hash = at->second;
+                else if (const auto existing = store_.get(key, record.seq); existing)
+                    existing_hash = record_hash_tagged(*existing);
+                const auto existing = store_.get(key, record.seq);
+                if (existing_hash && *existing_hash == *tagged) {
+                    outcomes[index] = IngestResult::Duplicate;
+                    continue;  // a duplicate does not stop the run
+                }
+                if (existing)
+                    keep_evidence(*existing, record);
+                flush();
+                halted = true;
+                outcomes[index] = IngestResult::Fork;
+                continue;
+            }
+            if (halted)
+                continue;  // NotAttempted stays
+            if (record.seq > next) {
+                flush();
+                halted = true;
+                outcomes[index] = IngestResult::Gap;
+                continue;
+            }
+            if (record.seq == 0) {
+                if (record.prev != Hash{}) {
+                    flush();
+                    halted = true;
+                    outcomes[index] = IngestResult::BadChain;
+                    continue;
+                }
+            } else if (!last_hash || record.prev != *last_hash) {
+                if (const auto previous = store_.get(key, record.seq - 1); previous)
+                    keep_evidence(*previous, record);
+                flush();
+                halted = true;
+                outcomes[index] = IngestResult::Fork;
+                continue;
+            }
+            outcomes[index] = IngestResult::Accepted;
+            pending.emplace(record.seq, *tagged);
+            run.push_back(record);
+            last_hash = *tagged;
+            ++next;
+        }
+        flush();
+    }
+    return outcomes;
 }
 
 vector<ForkEvidence> ReplicaLog::forks() const {

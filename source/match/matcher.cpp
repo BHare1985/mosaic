@@ -13,6 +13,21 @@ using std::vector;
 
 namespace mosaic {
 namespace {
+/// Split into `out`, reusing its buffer: the per-message path must not allocate (MATCH-4).
+void split_into(vector<string_view>& out, string_view s) {
+    out.clear();
+    size_t start = 0;
+    while (true) {
+        const auto dot = s.find('.', start);
+        if (dot == string_view::npos) {
+            out.push_back(s.substr(start));
+            return;
+        }
+        out.push_back(s.substr(start, dot - start));
+        start = dot + 1;
+    }
+}
+
 vector<string_view> split(string_view s) {
     vector<string_view> out;
     size_t start = 0;
@@ -141,33 +156,39 @@ void Matcher::remove(SubId id) {
 }
 
 bool Matcher::matches_any(string_view channel) const {
-    const auto segs = split(channel);
-    const size_t m = segs.size();
+    split_into(segs_, channel);
+    const size_t m = segs_.size();
 
-    Bits acc;
+    // Overwrite rather than clear-then-OR: `assign` is the same one pass the copy constructor did,
+    // without a separate zeroing pass over a 100k-subscription-wide buffer.
     if (m < exact_.size())
-        acc = exact_[m];
+        acc_.assign(exact_[m]);
+    else
+        acc_.clear();
     for (size_t k = 0; k < m && k < tail_.size(); ++k)
-        acc.or_with(tail_[k]);
-    if (acc.none())
+        acc_.or_with(tail_[k]);
+    if (acc_.none())
         return false;  // nothing of this length: the cheapest exit, and the common case for
                        // unrelated channels
 
-    Bits open;
-    for (size_t i = 0; i < m && !acc.none(); ++i) {
+    open_.clear();
+    for (size_t i = 0; i < m && !acc_.none(); ++i) {
         if (i < tail_.size())
-            open.or_with(tail_[i]);
-        Bits allowed = open;
+            open_.or_with(tail_[i]);
+        // `allowed = open | star[i] | literal[i][segment]`, built in a reused buffer rather than a
+        // fresh copy per position. The words are still touched once per position - what goes away
+        // is the allocation, and with it the growth that was worse than linear.
+        allowed_.assign(open_);
         if (i < star_.size())
-            allowed.or_with(star_[i]);
+            allowed_.or_with(star_[i]);
         if (i < literal_.size()) {
-            const auto it = literal_[i].find(string(segs[i]));
+            const auto it = literal_[i].find(string(segs_[i]));
             if (it != literal_[i].end())
-                allowed.or_with(it->second);
+                allowed_.or_with(it->second);
         }
-        acc.and_with(allowed);
+        acc_.and_with(allowed_);
     }
-    return !acc.none();
+    return !acc_.none();
 }
 
 bool Matcher::remove_pattern(string_view pattern) {

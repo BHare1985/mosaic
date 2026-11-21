@@ -21,6 +21,7 @@ enum class IngestResult {
     Fork,       // same writer+channel+seq (or prev) but different content: equivocation evidence
     BadChain,   // structurally invalid chain (e.g. seq 0 with non-zero prev)
     BadSignature,
+    NotAttempted,  // only in a batch: the run stopped before this record (a gap or a refusal ahead)
 };
 
 const char* to_string(IngestResult result);
@@ -53,6 +54,12 @@ public:
     ReplicaLog(LogStore& store, const Hasher& hasher, const Verifier& verifier);
 
     IngestResult ingest(const Record& record);
+
+    /// Offer a run of records, verifying each one and appending contiguous stretches with one
+    /// `append_batch` per log. The outcomes are exactly what `ingest` would have reported one at a
+    /// time; records after the first refusal in a log are `NotAttempted`, because a caller
+    /// repairing a gap needs to know what it did not get rather than guess (LOG-2).
+    std::vector<IngestResult> ingest_batch(const std::vector<Record>& records);
 
     /// Where the chain starts when the predecessor is no longer stored (a truncated log). Asked
     /// with the sequence whose hash is needed; returning nothing means "unknown", and the record is

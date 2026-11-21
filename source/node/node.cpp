@@ -216,8 +216,27 @@ optional<Record> Node::publish(const Signer& signer, const Channel& channel, str
 
 void Node::pump(uint64_t now_ms) {
     last_now_ms_ = now_ms;
-    while (auto envelope = transport_.poll())
+    while (auto envelope = transport_.poll()) {
+        // A repair reply is a run of DirectRecordMsg from one peer for one log. Buffer a run and
+        // append it with a single store call; anything else flushes first, so ordering between a
+        // record and the message that follows it is unchanged (LOG-2).
+        if (const auto* direct = std::get_if<DirectRecordMsg>(&envelope->message)) {
+            const auto key = direct->record.key();
+            if (direct_batch_key_.has_value() &&
+                (direct_batch_key_->first != envelope->from || direct_batch_key_->second != key))
+                flush_direct_batch(now_ms);
+            if (!precheck_record(envelope->from, direct->record, true, now_ms))
+                continue;  // refused before the store, exactly as the single-record path would
+            direct_batch_key_ = std::pair<NodeId, LogKey>{envelope->from, key};
+            direct_batch_.push_back(direct->record);
+            if (direct_batch_.size() >= config_.fetch_batch)
+                flush_direct_batch(now_ms);
+            continue;
+        }
+        flush_direct_batch(now_ms);
         handle(envelope->from, envelope->message, now_ms);
+    }
+    flush_direct_batch(now_ms);
     // A frame that did not decode never becomes a Message, so it is the one fault the choke point
     // cannot see. The transport reports it by sender instead of failing silently (SEC-2).
     for (const auto& peer : transport_.take_decode_faults())
@@ -298,27 +317,47 @@ void Node::handle(const NodeId& from, const Message& message, uint64_t now_ms) {
           message);
 }
 
-void Node::handle_record(const NodeId& from, const Record& record, bool direct, uint64_t now_ms) {
-    if (!accept_payload(from))
+void Node::flush_direct_batch(uint64_t now_ms) {
+    if (direct_batch_.empty()) {
+        direct_batch_key_.reset();
         return;
+    }
+    const auto from = direct_batch_key_->first;
+    const auto records = move(direct_batch_);
+    direct_batch_.clear();
+    direct_batch_key_.reset();
+    const auto outcomes = replica_.ingest_batch(records);
+    for (size_t i = 0; i < records.size(); ++i)
+        apply_ingest(from, records[i], true, outcomes[i], now_ms);
+}
+
+void Node::handle_record(const NodeId& from, const Record& record, bool direct, uint64_t now_ms) {
+    if (!precheck_record(from, record, direct, now_ms))
+        return;
+    apply_ingest(from, record, direct, replica_.ingest(record), now_ms);
+}
+
+bool Node::precheck_record(const NodeId& from, const Record& record, bool direct, uint64_t now_ms) {
+    if (!accept_payload(from))
+        return false;
     if (!direct && live_credit_enabled_[from]) {
         // Credit was granted on this link, so live delivery is paced; a record we cannot afford is
         // lost and repaired, never queued (FLOW-3).
         if (live_credits_[from].take_up_to(1) == 0) {
             ++counters_.credit_drops;
-            return;
+            return false;
         }
     }
     if (!following_.matches_any(record.channel))
-        return;
+        return false;
 
     if (record.payload.size() > config_.max_record_bytes) {
         ++counters_.oversized_records;
         penalize(from, PeerFault::Oversized, now_ms);
-        return;  // refused before the store, the callback or the chain
+        return false;  // refused before the store, the callback or the chain
     }
     if (!authorized(record.key()))
-        return;  // a channel rule does not permit this writer: never stored, never delivered
+        return false;  // a channel rule does not permit this writer: never stored, never delivered
 
     const LogKey key = record.key();
     bool requested = false;
@@ -342,15 +381,21 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
         // updated below.
         ++counters_.slow_follower_switches;
         request_fetch(key, from, now_ms);
-        return;
+        return false;
     }
 
     auto& known = remote_head_[key];
     known = max(known, record.seq);
     if (source_peer_.find(key) == source_peer_.end())
         source_peer_[key] = from;
+    return true;
+}
 
-    const auto result = replica_.ingest(record);
+void Node::apply_ingest(const NodeId& from, const Record& record, bool direct, IngestResult result,
+                        uint64_t now_ms) {
+    const LogKey key = record.key();
+    const auto known_it = remote_head_.find(key);
+    const auto known = known_it == remote_head_.end() ? record.seq : known_it->second;
     switch (result) {
         case IngestResult::Accepted:
             ++counters_.accepted;
@@ -377,6 +422,8 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
         case IngestResult::Duplicate:
             ++counters_.duplicate;
             break;
+        case IngestResult::NotAttempted:
+            break;  // only a batch reports this, and this path handles one record
         case IngestResult::BadChain:
         case IngestResult::BadSignature:
             // The two are one fault kind on purpose: to a node that has to decide how much

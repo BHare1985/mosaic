@@ -58,6 +58,14 @@ private:
         void or_with(const Bits& o);
         void and_with(const Bits& o);
         bool none() const;
+        /// Reuse: zero every word but keep the buffer, so a steady-state match allocates nothing.
+        void clear() {
+            for (auto& word : w)
+                word = 0;
+        }
+        void assign(const Bits& o) {
+            w = o.w;
+        }
     };
     struct Sub {
         std::string pattern;
@@ -70,6 +78,15 @@ private:
     std::vector<Bits> star_;   // [position] -> subs with '*' there
     std::vector<Bits> tail_;   // [k] -> subs with k leading segments then '>'
     std::vector<Bits> exact_;  // [m] -> subs without '>' that have exactly m segments
+
+    /// Scratch for the hot path, reused across calls: `matches_any` is asked once per arriving
+    /// record, and allocating three bitsets and a segment list per call was the measured cost
+    /// (MATCH-4). Mutable because matching is a const query; single-threaded by contract, and `add`
+    /// and `remove` were already not shareable across threads.
+    mutable Bits acc_;
+    mutable Bits open_;
+    mutable Bits allowed_;
+    mutable std::vector<std::string_view> segs_;
 };
 
 }  // namespace mosaic

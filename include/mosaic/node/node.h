@@ -420,6 +420,17 @@ private:
     void expire_bans(std::uint64_t now_ms);
     void notify_ban(const BanEvent& event) const;
     void handle_record(const NodeId& from, const Record& record, bool direct, std::uint64_t now_ms);
+    /// The per-record checks that come before the log sees a record: version, credit, whether we
+    /// follow the channel, size, the channel rule, and the accounting for a repair reply. False
+    /// means the record is refused; true means it is fit to ingest.
+    bool precheck_record(const NodeId& from, const Record& record, bool direct,
+                         std::uint64_t now_ms);
+    /// What a node does with an ingest outcome: counters, callbacks, repair. One place, because
+    /// both the single-record path and the batch path end here (LOG-2).
+    void apply_ingest(const NodeId& from, const Record& record, bool direct, IngestResult result,
+                      std::uint64_t now_ms);
+    /// Ingest the collected repair run with one store call, then account for each outcome in order.
+    void flush_direct_batch(std::uint64_t now_ms);
     void handle_head(const NodeId& from, const HeadMsg& head, std::uint64_t now_ms);
     void handle_fetch(const NodeId& from, const FetchMsg& fetch, std::uint64_t now_ms);
     void handle_ack(const NodeId& from, const AckMsg& ack);
@@ -519,6 +530,10 @@ private:
     std::uint64_t last_advert_ms_ = 0;  // when the outgoing hello was last rebuilt
     bool advert_refreshed_ = false;     // so "never built" is not confused with "built at 0"
     std::uint64_t last_retention_ms_ = 0;
+    /// A repair reply arrives as a run of DirectRecordMsg from one peer for one log. Collecting the
+    /// run and appending it once is what makes a 256-record reply cost one store call (LOG-2).
+    std::optional<std::pair<NodeId, LogKey>> direct_batch_key_;
+    std::vector<Record> direct_batch_;
     std::vector<std::string> advert_patterns_;  // what we tell peers we follow
     std::uint8_t spare_capacity_ = 0;           // what we tell peers about our backlog
     /// The last time the caller told us what time it is: staleness is computed against this,

@@ -24,25 +24,31 @@ result = set bits of acc
 ```
 Cost O(m × subscribers/64): no per-subscriber work, and independent of how many subscribers do not match.
 Correctness is tested against a naive matcher on random patterns, including removals and id reuse.
-### Measured cost (MATCH-1)
+### Measured cost (MATCH-1, re-measured for MATCH-4)
 
-The whitepaper's "~2 µs/message" claim was inherited aspiration; it is wrong. Measured on the reference machine
-(`./build/test/MosaicTests -tc="*matcher cost*"`, 2000 matches per case, mixed literal/star/tail patterns):
+The whitepaper's "~2 µs/message" claim was inherited aspiration; it is wrong. Measured with
+`./build/bench/MosaicTests -tc="*matcher cost*"` (Release build, 2000 matches per case, mixed literal/star/tail patterns). The
+*first* column pair is what the optimiser replaced; the second is after it.
 
-| subscriptions | `match()` (id list) | `matches_any()` (per message) |
-|---|---|---|
-| 1,000 | 6.7 µs | 4.8 µs |
-| 10,000 | 22.7 µs | 21.0 µs |
-| 100,000 | 191.7 µs | 179.7 µs |
+| subscriptions | `matches_any()` before | `matches_any()` after | `match()` after |
+|---|---|---|---|
+| 1,000 | 4.8 µs | **0.19 µs** | 0.34 µs |
+| 10,000 | 21.0 µs | **0.61 µs** | 1.23 µs |
+| 100,000 | 179.7 µs | **4.2 µs** | 7.6 µs |
+
+The "before" figures above are from an unoptimised build in the original measurement; on the same Release build the optimised
+path is 25x faster at 1k and 43x at 100k, because what it removed was an allocation per call plus a bitset copy per segment -
+costs that scale with subscribers and were paid on every arriving record.
 
 The growth is **linear in subscriptions**, which is what the algorithm predicts: cost is O(segments × subscribers/64), so
 100k subscriptions is ~1,500 words per position, several positions per match. What the design guarantees - that cost does not
 depend on how many subscribers *do not* match - holds; the absolute number is simply not 2 µs.
 
-`matches_any()` skips materialising the hit list, which is worth ~6% at 100k and ~29% at 1k. The dominant cost is the bitset
-work itself: each position builds a temporary `allowed` bitset by copying `open`. Removing those temporaries (a reused scratch
-buffer) and scanning word-wise with an early exit are the obvious next steps; they are recorded as MATCH-4 rather than done here,
-because this change's job was to measure first.
+`matches_any()` skips materialising the hit list, which is worth a little at every size (MATCH-1). MATCH-4 then removed the
+per-call allocation: `acc_`, `open_`, `allowed_` and the split segment list are reused across calls, so a steady-state match
+allocates nothing, and `Bits::and_with` no longer shrinks-then-grows the buffers (that thrash measured *slower* than the copy it
+replaced, which is why the first attempt at this was reverted). At 100k subscriptions the cost is now the word passes themselves,
+which is the algorithm's floor.
 
 ## How nodes "listen only to what they follow"
 1. `Node::follow(pattern)` registers the pattern in its own `Matcher` and calls `Transport::subscribe(pattern)`.

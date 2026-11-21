@@ -109,11 +109,17 @@ unique_ptr<Daemon> Daemon::create(const Config& config, string& error) {
 
     if (!config.allow.empty()) {
         self.rules = make_unique<ChannelRules>();
-        for (const auto& rule : config.allow)
+        for (const auto& rule : config.allow) {
             if (!self.rules->allow(rule.pattern, rule.writers)) {
                 error = "invalid allow pattern: " + rule.pattern;
                 return nullptr;
             }
+            if (!rule.rotation_roots.empty() &&
+                !self.rules->allow_rotation(rule.pattern, rule.rotation_roots)) {
+                error = "invalid allow pattern: " + rule.pattern;
+                return nullptr;
+            }
+        }
     }
 
     // Discovery, when configured: candidates are pulled once per loop iteration and dialled through

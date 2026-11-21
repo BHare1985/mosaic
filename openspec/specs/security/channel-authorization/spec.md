@@ -8,9 +8,11 @@ topic - and so that a job request cannot be injected by any node that happens to
 
 ### Requirement: Channels may name the writers allowed to write them
 
-A node MUST accept per-channel-pattern rules naming permitted writer identities. A record whose writer is not permitted MUST NOT
-be stored, delivered or acknowledged as accepted history. Channels without a rule MUST remain open, so a deployment that needs no
-authorization is unaffected.
+A node MUST accept per-channel-pattern rules naming permitted writer identities, and MUST accept a rule that names a rotation
+root instead: such a rule authorizes that identity and the bounded rotation chain it signs in its own log. A record MUST be
+accepted only when its writer is named directly or reachable from a named root, and MUST NOT be authorized because a record
+claims to be a successor - the claim is worth only the root's signature. Channels without a rule MUST remain open, so a
+deployment that needs no authorization is unaffected.
 
 #### Scenario: An unlisted writer is refused
 
@@ -26,6 +28,18 @@ authorization is unaffected.
 
 - **WHEN** no rule matches a channel
 - **THEN** any verified writer may write it, as before
+
+#### Scenario: A rotated key stays authorized
+
+- **GIVEN** a rule naming writer A as a rotation root, and A's log containing a valid rotation link to B
+- **WHEN** B publishes on that channel
+- **THEN** the record is accepted, without a configuration change on any peer
+
+#### Scenario: A rotation link is not a grant
+
+- **GIVEN** a rule that allows only B, and a rotation link from A to B
+- **WHEN** A publishes on that channel
+- **THEN** the record is refused: a chain authorizes the successor, never the predecessor
 
 ### Requirement: Authorization is enforced on both sides of a write
 

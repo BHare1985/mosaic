@@ -22,6 +22,10 @@ struct PeerSpec {
 struct RuleSpec {
     std::string pattern;
     std::vector<WriterId> writers;
+    /// Identities allowed through their rotation chain rather than by name: the root authorizes
+    /// itself and its bounded successors, so a writer can rotate without every peer editing a
+    /// config at the same moment (SEC-3).
+    std::vector<WriterId> rotation_roots;
 };
 
 struct DiscoverSpec {

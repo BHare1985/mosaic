@@ -11,6 +11,7 @@
 //                 --peer <id=host:port,curve-z85>   (repeatable)
 // Peer endpoints are supplied in configuration: static discovery, DISC-1.
 
+#include <mosaic/core/key_rotation.h>
 #include <mosaic/core/keystore.h>
 #include <mosaic/daemon/config.h>
 #include <mosaic/log/checkpoint.h>
@@ -78,6 +79,7 @@ int usage() {
            "  Mosaic tail <pattern[,pattern...]> [options]\n"
            "  Mosaic verify <store>\n"
            "  Mosaic checkpoint <channel> [options]   sign a checkpoint at this log's head\n"
+           "  Mosaic rotate <channel> --to <key-file> [options]   hand the log to a successor key\n"
            "  Mosaic sim [--seeds N] [--records N]\n"
            "\n"
            "options: --node <id>  --keys <path>  --store <path>  --listen <host:port>\n"
@@ -85,7 +87,8 @@ int usage() {
            "         --allow-writer <pattern>=<id>[,<id>]   (repeatable; open by default)\n"
            "         --no-curve                             diagnostic: run the link in plaintext\n"
            "         --config <file>                        ZPL config shared with mosaicd (flags "
-           "win)\n";
+           "win)\n"
+           "         --to <key-file>                        successor keystore (Mosaic rotate)\n";
     return 2;
 }
 
@@ -98,6 +101,7 @@ struct Options {
     vector<ZmqPeerEndpoint> peers;
     vector<pair<string, vector<WriterId>>> allow;  // channel rules
     string config_path;                            // ZPL file shared with mosaicd
+    string rotate_to;  // keystore of the key taking over (Mosaic rotate)
     bool explicit_node = false, explicit_keys = false, explicit_store = false,
          explicit_listen = false;
     bool explicit_peers = false, explicit_allow = false;
@@ -172,7 +176,10 @@ bool parse_options(int argc, char** argv, int first, Options& options, string& e
             into = argv[++i];
             return true;
         };
-        if (flag == "--config") {
+        if (flag == "--to") {
+            if (!next(options.rotate_to))
+                return false;
+        } else if (flag == "--config") {
             if (!next(options.config_path))
                 return false;
         } else if (flag == "--node") {
@@ -574,6 +581,53 @@ int run_sim(int argc, char** argv) {
     return converged == seeds ? 0 : 1;
 }
 
+/// `Mosaic rotate <channel> --to <key-file> [options]`: the old key, still trusted, signs a record
+/// in its own log naming the successor. Everything else - replication, repair, `Mosaic verify`,
+/// fork evidence - treats it as the ordinary record it is.
+int run_rotate(int argc, char** argv) {
+    if (argc < 3)
+        return usage();
+    const string channel = argv[2];
+    Options options;
+    string error;
+    if (!parse_options(argc, argv, 3, options, error)) {
+        cerr << error << '\n';
+        return usage();
+    }
+    if (options.rotate_to.empty()) {
+        cerr << "rotate needs --to <key-file>: the keystore of the key taking over\n";
+        return 2;
+    }
+    const auto current = load_keystore(options.keys);
+    const auto successor = load_keystore(options.rotate_to);
+    if (!current || !successor) {
+        cerr << "cannot load keys (" << options.keys << ", " << options.rotate_to << ")\n";
+        return 1;
+    }
+    const Ed25519Signer signer(current->public_key, current->secret_key);
+    const auto successor_id = to_hex(successor->public_key);
+    if (successor_id == signer.id()) {
+        cerr << "refusing to rotate a key to itself\n";
+        return 1;
+    }
+    auto store = SqliteLogStore::open(options.store);
+    if (!store) {
+        cerr << "cannot open store: " << options.store << '\n';
+        return 1;
+    }
+    const Sha256Hasher hasher;
+    RotationLink link;
+    link.successor = successor_id;
+    link.successor_start_seq = 0;
+    link.hash_algo = hasher.algorithm();
+    LogWriter writer(**store, hasher, signer, channel);
+    const auto record = writer.append(kRotationContentType, encode_rotation_link(link), 0);
+    cout << "rotation " << channel << " seq " << record.seq << " from " << signer.id() << " to "
+         << successor_id << '\n';
+    cout << "log " << successor_id << ' ' << channel << '\n';
+    return 0;
+}
+
 /// `Mosaic checkpoint <channel> [options]`: sign a checkpoint at the head of our own log and keep
 /// it in the store, which is what lets retention drop a prefix without losing verifiability. The
 /// bytes are printed so an operator can publish the same statement as a record for replicas to
@@ -702,6 +756,8 @@ int main(int argc, char** argv) {
         return run_verify(argc, argv);
     if (command == "checkpoint")
         return run_checkpoint(argc, argv);
+    if (command == "rotate")
+        return run_rotate(argc, argv);
     if (command == "sim")
         return run_sim(argc, argv);
     return usage();

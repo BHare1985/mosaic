@@ -12,12 +12,23 @@ using std::vector;
 namespace mosaic {
 
 bool ChannelRules::allow(const string& pattern, vector<WriterId> writers) {
+    // The matcher assigns a dense id in add order, which is exactly the rule index we need.
     const auto id = matcher_.add(pattern);
     if (!id)
         return false;
     if (rules_.size() <= *id)
-        rules_.resize(*id + 1, {pattern, {}});
-    rules_[*id] = {pattern, move(writers)};
+        rules_.resize(*id + 1, Rule{pattern, {}});
+    rules_[*id] = Rule{pattern, move(writers), false};
+    return true;
+}
+
+bool ChannelRules::allow_rotation(const string& pattern, vector<WriterId> roots) {
+    const auto id = matcher_.add(pattern);
+    if (!id)
+        return false;
+    if (rules_.size() <= *id)
+        rules_.resize(*id + 1, Rule{pattern, {}});
+    rules_[*id] = Rule{pattern, move(roots), true};
     return true;
 }
 
@@ -27,9 +38,33 @@ bool ChannelRules::permits(const Channel& channel, const WriterId& writer) const
     for (const auto id : matcher_.match(channel)) {
         if (id >= rules_.size())
             continue;
-        const auto& permitted = rules_[id].second;
-        if (find(permitted.begin(), permitted.end(), writer) != permitted.end())
+        const auto& permitted = rules_[id].writers;
+        return find(permitted.begin(), permitted.end(), writer) != permitted.end();
+    }
+    return true;
+}
+
+bool ChannelRules::permits(const Channel& channel, const WriterId& writer,
+                           RotationChain& chain) const {
+    for (const auto id : matcher_.match(channel)) {
+        if (id >= rules_.size())
+            continue;
+        const auto& rule = rules_[id];
+        if (find(rule.writers.begin(), rule.writers.end(), writer) != rule.writers.end())
             return true;
+        if (!rule.rotation_root)
+            return false;
+        // A root authorizes itself and its bounded successors. A chain that is refused authorizes
+        // only the root, which the check above already made: "not trusted" never becomes "trusted
+        // by default".
+        for (const auto& root : rule.writers) {
+            const auto& resolved = chain.resolve(root, channel);
+            if (resolved.refused)
+                continue;
+            if (find(resolved.identities.begin(), resolved.identities.end(), writer) !=
+                resolved.identities.end())
+                return true;
+        }
         return false;
     }
     return true;
@@ -39,7 +74,7 @@ optional<string> ChannelRules::rule_for(const Channel& channel) const {
     const auto hits = matcher_.match(channel);
     if (hits.empty() || hits.front() >= rules_.size())
         return nullopt;
-    return rules_[hits.front()].first;
+    return rules_[hits.front()].pattern;
 }
 
 }  // namespace mosaic

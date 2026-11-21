@@ -3,6 +3,7 @@
 #include <mosaic/core/crypto.h>
 #include <mosaic/flow/credits.h>
 #include <mosaic/log/log.h>
+#include <mosaic/log/rotation.h>
 #include <mosaic/match/matcher.h>
 #include <mosaic/net/transport.h>
 #include <mosaic/node/channel_rules.h>
@@ -468,6 +469,9 @@ private:
     LogStore& store_;
     const Hasher& hasher_;
     ReplicaLog replica_;
+    /// Following a trusted writer's rotation chain is how a rule that names a *root* stays honest
+    /// after that writer rotates. Cached per (root, channel), invalidated when a link arrives.
+    RotationChain rotation_;
     Matcher following_;
 
     std::map<LogKey, WriterSlot> writers_;

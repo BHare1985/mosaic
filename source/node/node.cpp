@@ -81,7 +81,7 @@ uint32_t strike_weight(PeerFault fault) {
 Node::Node(NodeConfig config, Transport& transport, LogStore& store, const Hasher& hasher,
            const Verifier& verifier)
     : config_(move(config)), transport_(transport), store_(store), hasher_(hasher),
-      replica_(store, hasher, verifier) {
+      replica_(store, hasher, verifier), rotation_(store, verifier) {
     // The chain origin is a checkpoint when retention has dropped the predecessor: see retain().
     replica_.set_origin([this](const LogKey& key, Seq seq) { return checkpoint_hash(key, seq); });
 }
@@ -355,6 +355,11 @@ void Node::handle_record(const NodeId& from, const Record& record, bool direct, 
         case IngestResult::Accepted:
             ++counters_.accepted;
             ingested_logs_.insert(key);
+            if (record.content_type == kRotationContentType) {
+                // A link changes who may write here: drop the cached answer so the next decision
+                // sees it, without a restart.
+                rotation_.invalidate(record.writer, record.channel);
+            }
             if (on_record_)
                 on_record_(record);
             if (direct && next_seq(key) <= known)
@@ -809,7 +814,7 @@ Seq Node::behind_by(const LogKey& key) const {
 bool Node::authorized(const LogKey& key) {
     if (rules_ == nullptr || rules_->size() == 0)
         return true;
-    if (rules_->permits(key.channel, key.writer))
+    if (rules_->permits(key.channel, key.writer, rotation_))
         return true;
     ++counters_.unauthorized_records;
     const auto rule = rules_->rule_for(key.channel);

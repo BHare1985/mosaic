@@ -72,6 +72,36 @@ read whose index entry points past the end of the file reports the record *missi
 `Durability::PerRecord` fsyncs before an append returns. `Batched` reaches the operating system without an fsync: it survives
 process death and not power loss, and the documentation says so rather than implying the stronger promise.
 
+## Key rotation (✅ SEC-3)
+
+A log's identity is `(writer public key, channel)`, which is what makes provenance verifiable and what makes a lost or retired key
+a dead end. The way out is a **rotation link**: a record in the writer's own log, on the same channel, signed with the old key,
+content type `mosaic/rotation`, payload:
+
+```
+u8 format (1) | u8 algorithm | bytes successor_key (32) | u64 successor_start_seq
+```
+
+It is an ordinary record on purpose - hash-chained, signed, replicated, repaired, covered by fork evidence - so a replica that has
+never heard of rotation still stores and forwards it, and `Mosaic verify` proves it offline.
+
+Following is a **local, bounded walk from a root the verifier already trusts**:
+
+- the walk reads the root's own log for links; a link found in *someone else's* log grants nothing, because the claim has to live
+  in the log it is about;
+- at most four links by default (`RotationChain`'s depth): unbounded is a denial of service, and exceeding the limit fails closed
+  rather than treating "I stopped looking" as "there is nothing more";
+- a repeat is refused - A → B → A would make two logs the same log, exactly the ambiguity fork evidence exists to prevent;
+- each link's signature is verified again during the walk, because resolution can run before a store has been replayed.
+
+**Rotation is not a grant.** It changes *authorization* (a channel rule may name a root, and the rule then authorizes that root and
+its successors) and nothing else. `ReplicaLog::ingest` still verifies against `record.writer`; the data layer learns nothing, and a
+chain authorizes the successor, never the predecessor - otherwise retiring a key by rotating away from it would retire nothing.
+
+What it cannot do, said plainly: a leaked old key can rotate to an attacker's key. The control is visibility rather than
+prevention - the link is in the log, replicated everywhere, printed by `Mosaic rotate`, and checked by anyone who follows the
+chain.
+
 ## Checkpoints and retention (✅ STORE-3)
 
 A checkpoint is the writer's signed statement about its own history: `(log, seq, hash)`, signed under the algorithm it names, in

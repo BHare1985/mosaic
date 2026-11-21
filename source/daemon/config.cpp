@@ -70,6 +70,8 @@ constexpr Setting kSettings[] = {
     {"follow", "pattern", "", "Channel pattern to replicate (repeat the section per pattern)"},
     {"allow", "pattern", "", "Channel pattern whose writers are restricted (repeat per rule)"},
     {"allow", "writer", "", "Writer identity allowed to write that pattern (repeatable)"},
+    {"allow", "root", "",
+     "Writer identity trusted as a rotation root: it and its successors may write that pattern"},
     {"discover", "cluster", "mosaic",
      "Scopes discovery: two deployments on one network must not merge"},
     {"discover", "beacon_port", "0", "UDP port to announce on; 0 disables LAN discovery"},
@@ -258,12 +260,17 @@ struct Walker {
                 unknown(key);
         } else if (section == "allow") {
             if (key == "pattern")
-                config.allow.push_back({value, {}});
+                config.allow.push_back({value, {}, {}});
             else if (key == "writer") {
                 if (config.allow.empty())
                     error("allow.writer", "a writer entry appeared before any allow.pattern");
                 else
                     config.allow.back().writers.push_back(value);
+            } else if (key == "root") {
+                if (config.allow.empty())
+                    error("allow.root", "a root entry appeared before any allow.pattern");
+                else
+                    config.allow.back().rotation_roots.push_back(value);
             } else
                 unknown(key);
         }

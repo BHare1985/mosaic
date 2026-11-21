@@ -12,6 +12,7 @@
 using std::ofstream;
 using std::remove;
 using std::string;
+using std::vector;
 
 #ifdef MOSAIC_HAS_CZMQ
 
@@ -214,6 +215,43 @@ peer
 #endif
 
 #ifdef MOSAIC_HAS_CZMQ
+TEST_CASE("a rule can name a rotation root instead of a literal writer") {
+    const auto path = write_temp("test-config-rotation.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+allow
+    pattern = svc.jobs
+    writer = 1111
+    root = 2222
+    root = 3333
+)");
+    const auto result = load_config(path);
+    for (const auto& error : result.errors)
+        MESSAGE(error.where << ": " << error.message);
+    REQUIRE(result.ok());
+    REQUIRE(result.config.allow.size() == 1);
+    CHECK(result.config.allow.front().writers == vector<WriterId>{"1111"});
+    REQUIRE(result.config.allow.front().rotation_roots.size() == 2);
+    CHECK(result.config.allow.front().rotation_roots[0] == "2222");
+    CHECK(result.config.allow.front().rotation_roots[1] == "3333");
+    remove(path.c_str());
+
+    // A root entry before any allow.pattern names nothing, so it is an error rather than a rule
+    // silently attached to the wrong pattern.
+    const auto orphan = write_temp("test-config-root-orphan.zpl", R"(node
+    id = alpha
+    store = alpha.db
+    keys = alpha.key
+allow
+    root = 2222
+)");
+    const auto broken = load_config(orphan);
+    REQUIRE_FALSE(broken.ok());
+    CHECK(broken.errors.front().where == "allow.root");
+    remove(orphan.c_str());
+}
+
 TEST_CASE("gossip is configurable, and its defaults are the documented ones") {
     const auto path = write_temp("test-config-gossip.zpl", R"(node
     id = alpha

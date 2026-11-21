@@ -92,6 +92,23 @@ temptation is real - "this peer is banned, so its records must be bad" - and it 
 censor a node by getting its *neighbour* banned. A ban is local policy about how much attention a peer gets, never a claim
 about what is true; the signature is the only thing that decides that.
 
+## Key rotation, and what it cannot do (✅ SEC-3)
+
+A writer hands its log to a successor by publishing a rotation link in its own log (`mosaic/rotation`); a channel rule may name a
+*root* and thereby authorize that root and its bounded successors. The mechanism is described in [01](01-data-model.md), and its
+security properties are worth stating as limits:
+
+- **It prevents a dead end, not a compromise.** If the old key leaks, the attacker can sign a rotation to their own key. Rotation
+  cannot tell "the owner rotating" from "the thief rotating", and a system that claimed otherwise would be lying. What it buys is
+  the ability to retire a key *without* breaking every follower's continuity - and a link, once published, is replicated
+  everywhere and visible to anyone.
+- **Trust does not propagate.** A link is believed only when it lives in the log of an identity the verifier already trusts, and
+  only for as many hops as it is configured to follow. A stranger's log claiming to succeed a trusted writer grants nothing.
+- **A rotation is not an authorization.** Rules still decide who may write; rotation only changes *which* identity a rule that
+  names a root covers. A chain authorizes successors and never predecessors, so rotating away from a key does retire it.
+- **Nothing about verification changes.** A record's writer is whoever signed it, always; rotation never rewrites history and a
+  fork in either log is reported exactly as before.
+
 ## Threat model (first draft; owner: maintainer to review)
 | Actor | Can | Cannot / mitigation |
 |---|---|---|

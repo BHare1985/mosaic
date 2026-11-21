@@ -23,7 +23,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, ~~SEC-1~~ ✅, ~~SEC-1b~~ ✅, ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, ~~DISC-2~~ ✅ | writer can go offline; slow followers handled; LAN auto-discovery works |
 | **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, ~~JOBS-4~~ ✅ | call a service by name over the same network, capacity-aware |
-| **M6 — reach** | ~~BIND-1~~ ✅, ~~BIND-2~~ ✅, ~~STORE-2~~ ✅, ~~STORE-3~~ ✅, ~~SEC-2~~ ✅, SEC-3 | C ABI + Python, retention, hardening |
+| **M6 — reach** | ~~BIND-1~~ ✅, ~~BIND-2~~ ✅, ~~STORE-2~~ ✅, ~~STORE-3~~ ✅, ~~SEC-2~~ ✅, ~~SEC-3~~ ✅ | C ABI + Python, retention, hardening |
 
 ## core
 | ID | Task | Size | Depends | Acceptance criteria |
@@ -97,7 +97,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | SEC-1 | CURVE + ZAP allow-list on the ZeroMQ transport | M | ZMQ-1, CORE-2 | Unlisted key cannot connect (test) | ✅
 | SEC-1b | ZAP handler for CURVE peer keys, so `PeerPins` is enforced at the handshake (open = pin on first use, closed = allow-list) | M | SEC-1 | An unlisted key cannot complete a handshake; a key that changed under a known identity is refused and counted; `curve_unauthenticated` stays 0 | ✅
 | SEC-2 | Bad-peer scoring and rate limits | M | NODE-1 | Peer sending N bad records is ignored for T seconds (sim) | ✅ |
-| SEC-3 | Writer key rotation (link record) | M | CORE-2, design note | Old log points to new log; verifier follows the link |
+| SEC-3 | Writer key rotation (link record) | M | CORE-2, design note | Old log points to new log; verifier follows the link | ✅
 
 ## jobs
 | ID | Task | Size | Depends | Acceptance criteria |

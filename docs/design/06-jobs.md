@@ -1,4 +1,4 @@
-# 06 — Jobs / services over logs (✅ ranking, envelopes, worker and requester; JOBS-4 open)
+# 06 — Jobs / services over logs (✅ ranking, envelopes, worker and requester, derived worker set)
 
 _Describes 0.6.0._
 
@@ -19,9 +19,14 @@ requester                                   workers (follow svc.resize)
 - **Deterministic assignment** with no coordination: `rendezvous_rank` (✅). Removing a worker only reassigns its own jobs.
 - **At-least-once.** A slow rank[0] and a rank[1] may both run the job. Handlers must be idempotent by `job_id`; the
   requester accepts the first result per `job_id` and ignores later ones.
-- **Worker set** = peers that follow `svc.<service>` (from `HelloMsg.patterns`, HELLO-1). Until then, a static list, which is
-  what `JobWorker` takes. Deriving it is JOBS-4 and needs its own decision about what a peer advertises.
-- **Capacity:** workers advertise credit; ranking skips workers with none (JOBS-4, depends on FLOW-3).
+- **Worker set** = the peers whose hellos advertise following `svc.<service>`, plus this node when it follows the service
+  itself (HELLO-1, JOBS-4 - ✅). An explicit list still wins, which is what a single-node deployment and a test use.
+- **Capacity is a penalty, not a filter.** Each worker advertises one byte of spare capacity derived from its own queue
+  (`pending >= max_pending / 2` means none). The *slot* a worker takes comes from the plain rendezvous rank; a worker that
+  advertises no room waits one extra cycle. Penalising rather than filtering is what keeps two workers whose views differ by a
+  hello interval from both believing they are due first, and keeps a job landing somewhere when everyone is busy.
+- **Advertisements are hints.** A peer that lies about its patterns or its capacity loses messages or work; it gains nothing,
+  because delivery, acceptance and authorization never read them (`proto/peer-advertisement`).
 - **Results are records** on the requester's own channel, so the requester can replay them after a restart.
 - **Not provided:** exactly-once, cancellation, priorities, streaming results. Consider later, one at a time.
 

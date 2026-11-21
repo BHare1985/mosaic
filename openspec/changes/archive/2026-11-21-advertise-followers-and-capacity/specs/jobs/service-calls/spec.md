@@ -7,12 +7,22 @@ worker list with one derived from advertisement, and makes ranking capacity-awar
 
 ## MODIFIED Requirements
 
-### Requirement: A worker runs a job when ranking says it is its turn
+### Requirement: Exactly one worker runs a job in the common case
 
-The set of workers for a service MUST be derivable from the peers whose advertised subscriptions include that service's
-channel. A caller MAY still supply an explicit set, which MUST win over the derived one, so that single-node deployments and
-tests do not need a network. A worker MUST NOT run a job whose assigned slot belongs to another worker while that worker is
-known to be alive and has not deferred.
+Workers MUST rank themselves for a job id with rendezvous ranking over the worker set they know, and the highest-ranked worker
+MUST run the job. Ranking MUST be deterministic from the job id and the worker set alone, so no coordination is needed. A worker
+MUST be able to derive that set from the peers whose advertised subscriptions include the service's channel; an explicit set
+supplied by the caller MUST win over the derived one, so a single-node deployment needs no network.
+
+#### Scenario: All healthy workers pick the same runner
+
+- **WHEN** three workers see the same request and the same worker set
+- **THEN** exactly one runs it and the others do not
+
+#### Scenario: Removing a worker only reassigns its own jobs
+
+- **WHEN** a worker leaves the set
+- **THEN** jobs it did not rank first for are unaffected
 
 #### Scenario: Workers find each other
 
@@ -25,6 +35,8 @@ known to be alive and has not deferred.
 - **GIVEN** a worker constructed with an explicit list of two ids
 - **WHEN** the advertised followers differ
 - **THEN** ranking uses the explicit list
+
+## ADDED Requirements
 
 ### Requirement: Ranking accounts for advertised capacity
 

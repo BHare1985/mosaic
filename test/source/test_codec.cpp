@@ -43,7 +43,7 @@ vector<Message> every_message() {
         Message{GetHeadsMsg{{"a.*", "svc.>"}}},
         Message{DirectHeadMsg{record.key(), 7, record.prev}},
         Message{CreditMsg{42}},
-        Message{HelloMsg{kProtocolVersion, {"events.>", "svc.x"}}},
+        Message{HelloMsg{kProtocolVersion, {"events.>", "svc.x"}, 42}},
         Message{PeersMsg{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1, 250},
                           PeerEntry{"c", "tcp://10.0.0.3:5555", "tcp://10.0.0.3:5556", 2, 0}}}},
     };
@@ -91,8 +91,9 @@ TEST_CASE("the wire format matches its golden vectors") {
           "026869000000206321bfbc3df98c84e88c6ad5f713df0fab38b5ab8f0cb72f94fe050f2debbd85");
     CHECK(to_hex(encode_message(Message{FetchMsg{record.key(), 3, 64}})) ==
           "000000220300000005616c696365000000086576656e74732e61000000000000000300000040");
-    CHECK(to_hex(encode_message(Message{HelloMsg{1, {"events.>", "svc.x"}}})) ==
-          "0000001b050100000002000000086576656e74732e3e000000057376632e78");
+    // Version 2 added the capacity byte: the frame is one byte longer, and it ends with the figure.
+    CHECK(to_hex(encode_message(Message{HelloMsg{2, {"events.>", "svc.x"}, 7}})) ==
+          "0000001c050200000002000000086576656e74732e3e000000057376632e7807");
     CHECK(to_hex(encode_message(Message{CreditMsg{42}})) == "00000005070000002a");
     // A peer list: u32 count, then per entry the id, both endpoints, hops and age, each
     // length-prefixed.
@@ -103,7 +104,24 @@ TEST_CASE("the wire format matches its golden vectors") {
         "00000000000005");
 }
 
-TEST_CASE("a peer list is believed whole or not at all") {
+TEST_CASE("the protocol version says which hello layout to expect") {
+    CHECK(kProtocolVersion == 2);  // the capacity byte is a wire change, not a field nobody sees
+
+    // A hello carrying capacity must round-trip with it, and dropping the figure must change the
+    // bytes - otherwise a version 1 peer would decode as a version 2 peer with no spare capacity.
+    const Message hello = Message{HelloMsg{2, {"svc.>"}, 3}};
+    const auto decoded = decode_message(encode_message(hello));
+    REQUIRE(decoded.ok());
+    CHECK(std::get<HelloMsg>(*decoded.message).spare_capacity == 3);
+    CHECK(to_hex(encode_message(Message{HelloMsg{2, {"svc.>"}, 0}})) !=
+          to_hex(encode_message(Message{HelloMsg{2, {"svc.>"}, 3}})));
+
+    // A hello from an older peer is refused rather than decoded as the new layout.
+    const auto old = decode_message(encode_message(Message{HelloMsg{1, {"svc.>"}, 0}}));
+    CHECK(old.status == DecodeStatus::UnsupportedVersion);
+}
+
+TEST_CASE("a peer list is believed wholly or not at all") {
     const auto one = [] {
         return PeersMsg{{PeerEntry{"b", "tcp://10.0.0.2:5555", "tcp://10.0.0.2:5556", 1, 250}}};
     };

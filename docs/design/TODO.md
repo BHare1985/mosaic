@@ -19,10 +19,10 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|
 | **M0 — scaffold** ✅ | (this repo) | Log + Matcher + Credits + Node converge under loss in the simulator |
 | **M1 — trustworthy sim** | CORE-3, STORE-0, ~~NET-0~~ ✅, ~~SIM-1~~ ✅, ~~SIM-2~~ ✅, ~~NODE-1~~ ✅, LOG-1 | richer faults, conformance suites, metrics, fork evidence |
-| **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, HELLO-1 🟡 | signed records that survive a byte round-trip |
+| **M2 — real crypto & wire** | ~~CORE-1~~ ✅, ~~CORE-2~~ ✅, ~~ENC-1~~ ✅, ~~ENC-2~~ ✅, ~~HELLO-1~~ ✅ | signed records that survive a byte round-trip |
 | **M3 — two machines** | ~~ZMQ-0~~ ✅, ~~ZMQ-1~~ ✅, ~~DISC-1~~ ✅, ~~SEC-1~~ ✅, ~~SEC-1b~~ ✅, ~~STORE-1~~ ✅, ~~CLI-1~~ ✅ | `mosaic pub` on one host, `mosaic tail` on another, durable, over CURVE |
 | **M4 — resilience** | ~~ACK-1~~ ✅, ~~HEADS-1~~ ✅, ~~FLOW-2~~ ✅, ~~FLOW-3~~ ✅, ~~FLOW-4~~ ✅, ~~DISC-2~~ ✅ | writer can go offline; slow followers handled; LAN auto-discovery works |
-| **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, JOBS-4 🟡 | call a service by name over the same network; capacity-aware ranking still open |
+| **M5 — jobs** | ~~JOBS-1~~ ✅, ~~JOBS-2~~ ✅, ~~JOBS-3~~ ✅, ~~JOBS-4~~ ✅ | call a service by name over the same network, capacity-aware |
 | **M6 — reach** | BIND-1, BIND-2, STORE-2, STORE-3, SEC-2, SEC-3 | C ABI + Python, retention, hardening |
 
 ## core
@@ -67,7 +67,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 |---|---|---|---|---|
 | ENC-1 | Binary encode/decode of all messages and Records | L | design note | Round-trip + fuzz tests; strict bounds; golden test vectors checked in; `std::optional<Message>` decoder | ✅
 | ENC-2 | Unknown message id/version handling | S | ENC-1 | Unknown ids ignored, counted; version mismatch reported | ✅
-| HELLO-1 | Handle `HelloMsg` (version + patterns), keep per-peer follow set | S | MATCH-2 | Peers learn who follows what; used by jobs worker discovery | 🟡 version + codec done; pattern advertisement moved to JOBS-2
+| HELLO-1 | Handle `HelloMsg` (version + patterns), keep per-peer follow set | S | MATCH-2 | Peers learn who follows what; used by jobs worker discovery | ✅ |
 | ACK-1 | Replica sends `AckMsg`; writer tracks acked seq and `min_replicas`; unacked retention | L | design note | Writer keeps records until `min_replicas` ACKs (fixes Dafka's missing setting); sim with replica loss | ✅
 | HEADS-1 | `GetHeadsMsg`/`DirectHeadMsg` | M | HELLO-1 | Newcomer learns heads while the writer is offline and fetches from other replicas | ✅
 
@@ -105,7 +105,7 @@ Status legend: ⬜ open · 🟡 partly done · ✅ done
 | JOBS-1 | Encode `JobRequest`/`JobResult` into record payloads | S | – | Round-trip tests; documented in [06](06-jobs.md) | ✅
 | JOBS-2 | Worker runtime: follow `svc.<name>`, run if rank 0, publish result | M | JOBS-1 | Sim: 3 workers, each job run by exactly one when all healthy | ✅
 | JOBS-3 | Requester: submit, timeout → next rank, dedupe results by `job_id` | M | JOBS-2 | Sim: kill rank 0, job still completes once from the requester's view | ✅
-| JOBS-4 | Capacity-aware ranking | M | FLOW-3, HELLO-1 | Overloaded worker is skipped | 🟡 blocked on hello pattern advertisement (HELLO-1 second half)
+| JOBS-4 | Capacity-aware ranking | M | FLOW-3, HELLO-1 | Overloaded worker is skipped | ✅ |
 
 ## tools, infra, docs, bindings
 | ID | Task | Size | Depends | Acceptance criteria |

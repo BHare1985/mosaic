@@ -4,8 +4,10 @@
 #include <mosaic/net/sim_network.h>
 #include <mosaic/store/memory_log_store.h>
 
+#include <algorithm>
 #include <doctest/doctest.h>
 
+using std::find;
 using std::initializer_list;
 using std::string;
 using std::uint32_t;
@@ -241,4 +243,138 @@ TEST_CASE("a requester accepts the first result and reports a timeout when none 
     const auto result = caller2.result_for("job-d");
     REQUIRE(result.has_value());
     CHECK(result->body == first.body);
+}
+
+TEST_CASE("workers find each other from what they advertise, with no list to keep in step") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(61);
+
+    JobsNode w0(net, "w0", hasher, alice), w1(net, "w1", hasher, alice),
+        w2(net, "w2", hasher, alice), requester(net, "requester", hasher, alice);
+
+    int runs = 0;
+    const auto handler = [&runs](const JobRequest& job) {
+        ++runs;
+        JobResult result;
+        result.job_id = job.job_id;
+        result.ok = true;
+        return result;
+    };
+    // No worker list: each one learns the others from their hellos (JOBS-4).
+    JobWorker worker0(w0.node, alice, hasher, "resize", handler);
+    JobWorker worker1(w1.node, alice, hasher, "resize", handler);
+    JobWorker worker2(w2.node, alice, hasher, "resize", handler);
+    JobRequester caller(requester.node, requester.store, "res.requester");
+
+    // Let the workers exchange hellos first: what they advertise is what they rank against.
+    uint64_t now = 0;
+    for (int i = 0; i < 12; ++i) {
+        now += 100;
+        step(net, now, {&w0, &w1, &w2, &requester}, {&worker0, &worker1, &worker2}, {&caller});
+    }
+    REQUIRE(worker0.ranking("job-gossip").size() >= 2);  // learned, not supplied
+
+    REQUIRE(caller.submit(alice, request_for("job-gossip", "requester", 600), now));
+    for (int i = 0; i < 400 && !caller.result_for("job-gossip"); ++i) {
+        now += 25;
+        step(net, now, {&w0, &w1, &w2, &requester}, {&worker0, &worker1, &worker2}, {&caller});
+    }
+
+    REQUIRE(caller.result_for("job-gossip").has_value());
+    CHECK(runs == 1);  // exactly one, and nobody supplied the membership
+    // The derived set is what they ranked against, and it grew as hellos arrived.
+    CHECK(worker0.ranking("job-gossip").size() >= 2);
+}
+
+TEST_CASE("a worker advertising no spare capacity is asked last, not dropped") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(67);
+
+    JobsNode me(net, "me", hasher, alice);
+    JobsNode saturated(net, "saturated", hasher, alice), idle(net, "idle", hasher, alice);
+    int runs = 0;
+    JobWorker worker(me.node, alice, hasher, "resize", [&runs](const JobRequest& job) {
+        ++runs;
+        JobResult result;
+        result.job_id = job.job_id;
+        result.ok = true;
+        return result;
+    });
+
+    // Two peers that follow the service; one says it has no room at all.
+    saturated.transport.send("me", HelloMsg{kProtocolVersion, {"svc.resize"}, 0});
+    idle.transport.send("me", HelloMsg{kProtocolVersion, {"svc.resize"}, 255});
+    net.advance(0);
+    me.node.pump(0);
+    me.node.tick(0);
+
+    const auto ranked = worker.ranking("job-capacity");
+    REQUIRE(ranked.size() == 3);          // the two peers and ourselves
+    CHECK(ranked.back() == "saturated");  // moved behind, still in the order
+    // Saturated does not mean excluded: it is still ranked, so a job still lands somewhere.
+    CHECK(find(ranked.begin(), ranked.end(), string("saturated")) != ranked.end());
+
+    // Everyone saturated: the order is still total, so someone is asked first rather than nobody.
+    idle.transport.send("me", HelloMsg{kProtocolVersion, {"svc.resize"}, 0});
+    me.node.set_spare_capacity(0);
+    net.advance(10);
+    me.node.pump(10);
+    const auto all_saturated = worker.ranking("job-capacity");
+    CHECK(all_saturated.size() == 3);  // a total order, not an empty set
+    CHECK_FALSE(all_saturated.empty());
+    CHECK(find(all_saturated.begin(), all_saturated.end(), string("idle")) != all_saturated.end());
+}
+
+TEST_CASE("a worker with a queued job advertises no spare capacity, and drops in the ranking") {
+    Sha256Hasher hasher;
+    InsecureTestSigner alice("alice");
+    SimNetwork net(71);
+
+    JobsNode busy(net, "busy", hasher, alice), idle(net, "idle", hasher, alice),
+        requester(net, "requester", hasher, alice);
+
+    const auto handler = [](const JobRequest& job) {
+        JobResult result;
+        result.job_id = job.job_id;
+        result.ok = true;
+        return result;
+    };
+    // An explicit list, so the ordering under test does not depend on hello timing: "ghost" never
+    // runs, which is what holds a job in someone's queue long enough to observe.
+    const vector<NodeId> workers{"ghost", "busy", "idle"};
+    JobWorker busy_worker(busy.node, alice, hasher, workers, "resize", handler);
+    busy_worker.max_pending = 2;  // one queued job is already half full, so it advertises no room
+    JobWorker idle_worker(idle.node, alice, hasher, workers, "resize", handler);
+    JobRequester caller(requester.node, requester.store, "res.requester");
+
+    uint64_t now = 0;
+    for (int i = 0; i < 12; ++i) {  // let capacity advertisements settle
+        now += 100;
+        step(net, now, {&busy, &idle, &requester}, {&busy_worker, &idle_worker}, {&caller});
+    }
+
+    // A job where busy is not rank 0: it waits in the queue instead of running.
+    string held;
+    for (int i = 0; i < 1000 && held.empty(); ++i) {
+        const auto candidate = "job-held-" + std::to_string(i);
+        const auto ranking = busy_worker.ranking(candidate);
+        if (ranking.size() == 3 && ranking.front() != "busy")
+            held = candidate;
+    }
+    REQUIRE(!held.empty());
+    REQUIRE(caller.submit(alice, request_for(held, "requester", 60000), now));
+    for (int i = 0; i < 14; ++i) {  // past one hello interval, so the figure reaches the peer
+        now += 100;
+        step(net, now, {&busy, &idle, &requester}, {&busy_worker, &idle_worker}, {&caller});
+    }
+    REQUIRE(busy_worker.pending() >= 1);  // waiting for its slot
+    CHECK(busy.node.spare_capacity() == 0);
+
+    // The idle worker's own view puts the saturated one behind it, and keeps it in the order rather
+    // than dropping it: when everyone is saturated somebody still has to be first.
+    const auto ranked = idle_worker.ranking("job-next");
+    REQUIRE(ranked.size() == 3);
+    CHECK(ranked.back() == "busy");
 }

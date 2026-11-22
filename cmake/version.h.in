@@ -1,0 +1,57 @@
+#pragma once
+
+// Version of this library. CMake's project(VERSION ...) is the single source of truth: this file is
+// generated from it, and a test compares the two so they cannot drift.
+//
+// The minor number counts closed milestones (see docs/design/conventions.md): 0.7.0 means seven
+// milestones are done. 0.x minors may break; the C ABI is not frozen yet.
+
+#include <array>
+#include <cstdint>
+#include <string_view>
+
+namespace mosaic {
+
+inline constexpr std::uint32_t kVersionMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr std::uint32_t kVersionMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr std::uint32_t kVersionPatch = @PROJECT_VERSION_PATCH@;
+
+/// Why the minor number is what it is: the count of closed milestones.
+inline constexpr std::uint32_t kMilestonesClosed = kVersionMinor;
+
+inline constexpr std::string_view kVersion = "@PROJECT_VERSION@";
+
+/// Major.minor.patch, for a caller that wants the parts rather than the string.
+inline constexpr std::array<std::uint32_t, 3> kVersionParts { kVersionMajor, kVersionMinor, kVersionPatch };
+
+namespace detail {
+    /// "0.6.0" -> {0, 6, 0}, so the components can be checked against the string at compile time.
+    constexpr std::array<std::uint32_t, 3> parse_version(std::string_view text)
+    {
+        std::array<std::uint32_t, 3> parts {};
+        std::size_t index = 0;
+        for (const char character : text) {
+            if (character == '.') {
+                ++index;
+                if (index > 2)
+                    return {};
+                continue;
+            }
+            if (character < '0' || character > '9')
+                return {};
+            parts[index] = parts[index] * 10 + static_cast<std::uint32_t>(character - '0');
+        }
+        return parts;
+    }
+} // namespace detail
+
+static_assert(detail::parse_version(kVersion) == kVersionParts,
+    "kVersion and its components came from different values: CMake is the source of truth");
+
+} // namespace mosaic
+
+/// Thin alias for CMake and packaging, which reference the version by macro name.
+#define MOSAIC_VERSION "@PROJECT_VERSION@"
+#define MOSAIC_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define MOSAIC_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define MOSAIC_VERSION_PATCH @PROJECT_VERSION_PATCH@

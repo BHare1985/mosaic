@@ -1,0 +1,95 @@
+---
+# Mosaic's semantic and naming rules. Formatting lives in .clang-format; both are described in
+# docs/design/conventions.md.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  google-build-using-namespace,
+  google-global-names-in-headers,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  performance-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity
+
+# Every exclusion above is noise rather than a rule worth enforcing here:
+#   easily-swappable-parameters  flags any two same-typed parameters (fetch(from, count) is fine)
+#   avoid-magic-numbers, magic-numbers  flag 2, 100, 0x0f in code where the intent is local and clear
+#   identifier-length           bans i, x, n - loop counters are not an offence
+#   use-trailing-return-type    would rewrite every signature in the tree for no gain
+#   avoid-do-while              the codec uses do/while deliberately in the checked reader
+#   pro-bounds-*                pointer arithmetic is confined to the codec's bounds-checked reader
+#   function-cognitive-complexity  a decoder with one branch per message type is long by design
+#   avoid-c-arrays, pro-bounds-constant-array-index  fixed-size buffers and bytes[i] indexing are how
+#                               the crypto seams and the z85 code talk to libsodium and C strings;
+#                               std::array with .at() there is noise, not safety
+#   owning-memory              the C ABI hands C strings to its caller by design - mosaic_free_string
+#                              is the contract - so `new char[]` is the interface, not a leak
+#   pro-type-reinterpret-cast  reinterpreting bytes is what a hash, a keystore and a SQL blob are
+#                              made of
+#   modernize-avoid-c-arrays   the modernize twin of the rule above, with the same reason. Negatives
+#                              must sit *after* the family they narrow: the list is applied in order,
+#                              so one placed above `modernize-*` is silently re-enabled by it.
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '^(?!.*/(build|_deps|third_party|external|docs)/).*'
+FormatStyle: file
+
+CheckOptions:
+  - { key: readability-braces-around-statements.ShortStatementLines, value: '0' }
+
+  # Namespaces, functions and variables: snake_case (clang-tidy spells it lower_case).
+  - { key: readability-identifier-naming.NamespaceCase, value: lower_case }
+  - { key: readability-identifier-naming.FunctionCase, value: lower_case }
+  - { key: readability-identifier-naming.MethodCase, value: lower_case }
+  - { key: readability-identifier-naming.VariableCase, value: lower_case }
+  - { key: readability-identifier-naming.ParameterCase, value: lower_case }
+  - { key: readability-identifier-naming.LocalConstantCase, value: lower_case }
+  # Constants are kPascalCase (docs/design/conventions.md); spelling it here is what makes the check
+  # agree with the document instead of leaving it unconfigured and unenforced.
+  - { key: readability-identifier-naming.GlobalConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.GlobalConstantPrefix, value: k }
+  - { key: readability-identifier-naming.ConstexprVariableCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
+
+  # Types and concepts: PascalCase (clang-tidy spells it CamelCase).
+  - { key: readability-identifier-naming.ClassCase, value: CamelCase }
+  - { key: readability-identifier-naming.StructCase, value: CamelCase }
+  - { key: readability-identifier-naming.EnumCase, value: CamelCase }
+  - { key: readability-identifier-naming.UnionCase, value: CamelCase }
+  - { key: readability-identifier-naming.TypeAliasCase, value: CamelCase }
+  - { key: readability-identifier-naming.TypedefCase, value: CamelCase }
+  - { key: readability-identifier-naming.TypeTemplateParameterCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConceptCase, value: CamelCase }
+
+  # Public members snake_case; private and protected carry a trailing underscore.
+  - { key: readability-identifier-naming.PublicMemberCase, value: lower_case }
+  - { key: readability-identifier-naming.PrivateMemberCase, value: lower_case }
+  - { key: readability-identifier-naming.PrivateMemberSuffix, value: _ }
+  - { key: readability-identifier-naming.ProtectedMemberCase, value: lower_case }
+  - { key: readability-identifier-naming.ProtectedMemberSuffix, value: _ }
+
+  # Constants are kPascalCase; scoped enum values are PascalCase; macros are UPPER_CASE.
+  - { key: readability-identifier-naming.ScopedEnumConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.EnumConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariableCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
+  - { key: readability-identifier-naming.GlobalConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.GlobalConstantPrefix, value: k }
+  - { key: readability-identifier-naming.ClassConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.ClassConstantPrefix, value: k }
+  - { key: readability-identifier-naming.MacroDefinitionCase, value: UPPER_CASE }

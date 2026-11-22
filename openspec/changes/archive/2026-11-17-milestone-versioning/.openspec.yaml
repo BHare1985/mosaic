@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-17
+skip_specs: true
+# The version string, how it is generated and how it is displayed. No capability's behaviour changes.

@@ -1,0 +1,91 @@
+/** @page bindings From C and Python
+
+  Mosaic is C++20. When a program cannot use C++, it uses the C ABI instead: one header, one library, no C++ in the calling
+  code. The Python binding is written against that header and nothing else, which is what keeps it from drifting from what C
+  callers are promised.
+
+  @section bindings_cabi The C ABI
+
+  The header is `mosaic/mosaic_c.h` and the target is `MosaicC`. Four rules describe all of it:
+
+  - **Handles are opaque.** `mosaic_node`, `mosaic_store`, `mosaic_transport`, `mosaic_keys`, `mosaic_record_owned` are
+    pointers to incomplete types. Constructors fill an out parameter; the matching `*_free` clears the pointer, so calling it
+    twice is a no-op.
+  - **Errors are values.** Calls that can fail return `mosaic_status` (`MOSAIC_OK`, `MOSAIC_ERR_INVALID_ARGUMENT`,
+    `MOSAIC_ERR_IO`, `MOSAIC_ERR_CRYPTO`, `MOSAIC_ERR_REFUSED`, `MOSAIC_ERR_UNSUPPORTED`). `mosaic_last_error()` returns the
+    message for the current thread, valid until the next call on that thread.
+  - **Records are borrowed.** The record passed to your callback lives only for that call. Copy it with
+    `mosaic_record_clone` and release it with `mosaic_record_owned_free`.
+  - **Single-threaded, no timers.** You supply the clock: `mosaic_node_pump(node, now_ms)` handles what is waiting,
+    `mosaic_node_tick(node, now_ms)` runs the node's periodic work. Call both from your own loop.
+
+  A minimal publisher:
+
+  @code{.c}
+  mosaic_keys* keys = NULL;
+  mosaic_store* store = NULL;
+  mosaic_transport* transport = NULL;
+  mosaic_node* node = NULL;
+  mosaic_node_config config = { .id = "writer", .head_interval_ms = 200 };
+
+  mosaic_keys_load("writer.key", &keys);
+  mosaic_store_open("writer.db", 0, &store);                        // 0 = durable per record
+  mosaic_transport_new("writer", "tcp://0.0.0.0:6100", "tcp://0.0.0.0:6101",
+                       NULL, 0, NULL, NULL, &transport);
+  mosaic_node_new(&config, transport, store, keys, &node);
+
+  uint64_t seq = 0;
+  mosaic_node_publish(node, "events.a", "text/plain",
+                      (const uint8_t*)"hello", 5, now_ms(), &seq);
+
+  mosaic_node_free(&node); mosaic_transport_free(&transport);
+  mosaic_store_free(&store); mosaic_keys_free(&keys);
+  @endcode
+
+  A follower registers `mosaic_node_on_record` and `mosaic_node_follow(node, "events.>")`, then calls `pump` and `tick` in
+  its loop. Two processes can be connected by creating a transport on each and pointing one at the other with
+  `mosaic_transport_add_peer` (endpoints are readable with `mosaic_transport_endpoints`, which is how you learn the port when
+  you bind `*`).
+
+  A build without signing or without a transport still compiles against this header: the affected constructors return
+  `MOSAIC_ERR_UNSUPPORTED` rather than failing to link.
+
+  @section bindings_python Python
+
+  The Python binding lives in `bindings/python`. It is a compiled extension (`mosaic._mosaic`) that calls the C ABI, with a
+  thin pure-Python layer on top that adds a record iterator:
+
+  @code{.python}
+  import time, mosaic
+
+  mosaic.generate_keys("writer.key")
+  with mosaic.Node(node_id="writer", keys_path="writer.key", store_path="writer.db",
+                   pub_bind="tcp://127.0.0.1:6100",
+                   router_bind="tcp://127.0.0.1:6101") as node:
+      node.publish("events.a", b"hello", int(time.time() * 1000))
+
+  # On the other side: follow, then iterate. records() pumps for you and yields as they arrive.
+  with mosaic.Node(node_id="reader", keys_path="reader.key", store_path="reader.db",
+                   pub_bind="tcp://127.0.0.1:6110",
+                   router_bind="tcp://127.0.0.1:6111",
+                   peers=[{"id": "writer", "pub": "tcp://127.0.0.1:6100",
+                           "router": "tcp://127.0.0.1:6101"}]) as node:
+      node.follow("events.>")
+      for record in node.records(timeout_ms=2000):
+          print(record["seq"], record["payload"])
+  @endcode
+
+  Build and install it against a CMake build tree with one command:
+
+  @code{.sh}
+  ./scripts/build_python.sh                      # into the current interpreter
+  ./scripts/build_python.sh /path/to/venv/bin/python   # into a virtualenv
+  @endcode
+
+  @section bindings_tests Where the tests are
+
+  - `test/capi/mosaic_c_test.c` - compiled by a C compiler, publishes and tails in one process, and checks the ownership rules
+    (double free, a record cloned out of a callback).
+  - `test/capi/mosaic_c_pubtail.c` - the same ABI as two processes, one publishing and one tailing.
+  - `bindings/python/test_binding.py` - a Python process tailing records published by another Python process.
+*/

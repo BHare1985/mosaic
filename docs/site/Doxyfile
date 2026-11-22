@@ -1,0 +1,49 @@
+# Configuration for Doxygen for use with CMake
+# Only options that deviate from the default are included
+# To create a new Doxyfile containing all available options, call `doxygen -g`
+
+# Get Project name and version from CMake
+PROJECT_NAME = @DOXYGEN_PROJECT_NAME@
+PROJECT_NUMBER = @DOXYGEN_PROJECT_VERSION@
+# Identity in the site's header: the one-line description beside the name, and the project's original logo. The logo is
+# referenced by its historical URL rather than copied into the repository - m.css emits an absolute URL unchanged and skips
+# copying it, so the build needs no asset and no network. M_THEME_COLOR must be quoted: an unquoted '#' starts a Doxyfile
+# comment and the value silently becomes empty.
+PROJECT_BRIEF = "Brokerless, verifiable, replicated logs for C++20"
+PROJECT_LOGO = https://github.com/BHare1985/mosaic/assets/2180284/73ac71af-2309-4efd-a24a-bf8d8b021eb1
+M_THEME_COLOR = "#4A0380"
+
+# Add sources
+INPUT = @DOXYGEN_PROJECT_ROOT@/README.md @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@/docs/site/pages
+EXTRACT_ALL = YES
+RECURSIVE = YES
+# The published site is the public surface - README, public headers, module READMEs and these pages. The internal
+# design set and the fetched reference trees are deliberately not rendered: they address contributors, not readers.
+# (Excluding the whole docs tree would also exclude these pages, which live under it.)
+EXCLUDE = @DOXYGEN_PROJECT_ROOT@/docs/design \
+          @DOXYGEN_PROJECT_ROOT@/docs/references \
+          @DOXYGEN_PROJECT_ROOT@/docs/direction.md \
+OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
+
+# Use the README as a main page
+USE_MDFILE_AS_MAINPAGE = @DOXYGEN_PROJECT_ROOT@/README.md
+
+# set relative include paths
+FULL_PATH_NAMES = YES
+STRIP_FROM_PATH = @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@
+
+# We use m.css to generate the html documentation, so we only need XML output
+GENERATE_XML = YES
+
+# Report documentation problems; scripts/docs.sh turns warnings about PUBLIC HEADERS into a failure (the site's
+# own Markdown links point at repository paths on purpose, and a reader on GitHub follows them).
+WARN_IF_UNDOCUMENTED = YES
+WARN_IF_DOC_ERROR = YES
+WARN_AS_ERROR = NO
+GENERATE_HTML = NO
+GENERATE_LATEX = NO
+XML_PROGRAMLISTING = NO
+CREATE_SUBDIRS = NO
+
+# Include all directories, files and namespaces in the documentation
+# Disable to include only explicitly documented objects

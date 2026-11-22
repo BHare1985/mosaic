@@ -1,0 +1,50 @@
+# Publishes the reference documentation to GitHub Pages.
+#
+# The artifact is exactly what scripts/docs.sh builds, so there is no committed gh-pages branch and no second copy of the
+# site in git. Repository setting required: Settings -> Pages -> Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake doxygen
+      - name: Build the site
+        run: |
+          ./scripts/docs.sh
+          # m.css decides where html lands; hand Pages the directory that actually holds index.html
+          html=$(dirname "$(find build/all/site -name index.html | head -1)")
+          echo "site: $html"
+          cp -r "$html" build/pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

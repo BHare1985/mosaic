@@ -1,0 +1,38 @@
+/** @page authority Which document is authoritative
+
+  Three places describe this project, and they are not equal:
+
+  - **Behaviour** is specified in `openspec/specs/` - one file per capability, each a set of requirements with
+    scenarios. When something must be true, that is where it is written, and it is what a change is measured
+    against.
+  - **Rationale** is in `docs/design/` - why the design is shaped the way it is, what was considered and rejected,
+    and how the pieces fit. It explains the specifications; it does not define behaviour.
+  - **Work** is on the board in `docs/design/TODO.md`, with task ids the code cites in `TODO(ID)` comments.
+
+  If this site and a specification disagree, the specification is right and the site has a bug. Requirements are
+  never restated here: a restated requirement is a requirement with two versions.
+
+  Running it: `docs/design/09-operations.md`. Why it is shaped this way: `docs/direction.md`.
+*/
+
+/** @page modulemap The modules
+
+  Dependencies only ever point leftward: a module may include the ones before it and no others. `match` and
+  `flow` have no dependencies at all.
+
+  | Module | What it owns | Contract |
+  |---|---|---|
+  | core | records, canonical bytes, hashing and signing seams, keystore | `openspec/specs/core/record-integrity` |
+  | store | the persistence seam (memory, SQLite) and fork evidence | `openspec/specs/store/log-store` |
+  | log | writer-side chaining, replica verification, static verification | `openspec/specs/log/replicated-log` |
+  | proto | the binary wire format and its total decoder | `openspec/specs/proto/wire-format` |
+  | net | the transport contract, the ZeroMQ transport, peer pinning, simulation | `openspec/specs/net/transport` |
+  | node | the single-threaded state machine wiring everything together | `openspec/specs/node/node-runtime` |
+  | flow | credit control | `openspec/specs/flow/credit-control` |
+  | match | channel pattern matching | `openspec/specs/match/channel-patterns` |
+  | jobs | calling a service by name over logs | `openspec/specs/jobs/service-calls` |
+  | daemon | `mosaicd`: ZPL configuration, lifecycle, discovery | `openspec/specs/daemon/mosaicd` |
+
+  Each module's own README sits next to its headers - `include/mosaic/<module>/README.md` - and is the page to read
+  before changing it.
+*/

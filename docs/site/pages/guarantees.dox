@@ -1,0 +1,93 @@
+/** @page guarantees What Mosaic promises
+
+  These are the promises a node, a writer and a reader can rely on. Each one is owned by a capability specification - the link
+  in each heading is where the requirement lives, and that file wins if this page and the requirement ever disagree.
+
+  @section writer Guarantees to a writer
+
+  - **Your log is yours.** A log is identified by `(writer identity, channel)`; only the holder of that key can extend it. Nothing
+    in the system can rewrite a record you signed - a replica either stores your chain or refuses to store anything.
+  - **Sequence numbers are contiguous and never reused.** A restarted writer continues at head+1, so a reader can tell a gap from
+    a rewrite.
+  - **You can ask for retention.** With `min_replicas` set, records are kept until that many replicas confirm them, and an unmet
+    floor is reported rather than hidden (`credit`, `retention`, `store/log-store`).
+
+  @section follower Guarantees to a follower
+
+  - **You converge.** Whatever the network does - loss, duplication, delay, reordering, a partition that later heals - a follower's
+    log ends up identical to the writer's for every log it follows (`node/node-runtime`, `harness/simulation`).
+  - **You never keep anything unverified.** Every record is checked for signature and chain before it is stored or shown to the
+    application. A forged record is refused and counted (`log/replicated-log`).
+  - **You can fall behind and catch up.** Repair is asked for, credit-paced and retried; a follower too far behind stops taking
+    live records and fetches instead, so its memory is bounded (`flow/credit-control`).
+  - **You can join while the writer is away.** Heads are available from any peer that holds the log (`node/node-runtime`).
+
+  @section reader Guarantees to a reader
+
+  - **History can be checked by anyone.** Signed, hash-chained records mean a holder of the head hash can verify the whole prefix
+    without trusting who gave it to them (`core/record-integrity`).
+  - **Two histories cannot be hidden from each other.** If a writer equivocates, a replica that sees both keeps both as evidence
+    (`log/replicated-log`).
+  - **A store can be verified offline.** `Mosaic verify` re-derives every hash and checks every signature and link; a gap, a broken
+    link or an unreadable tail is a failure, never a short log (`cli/operations`).
+
+  @section not Not promised
+
+  - No ordering between different logs, no exactly-once execution, no consumer groups, no consensus.
+  - The link is encrypted and the peer's key is pinned, but **data authority comes from signatures**, not from who carried the
+    bytes: a link key never decides whether a record is true (`security`).
+  - `0.x` minors may change APIs. The C ABI is not frozen yet.
+*/
+
+/** @page design Design at a glance
+
+  Three roles, one class. A node is a writer for the logs it publishes, a replica for the patterns it follows, and a responder for
+  anything it holds - there is no separate broker, store server or consumer process.
+
+@verbatim
+                publisher (writer)                        follower (replica)
+        +-----------------------------+          +-----------------------------+
+        |  LogWriter: seq, prev, sig  |          |  ReplicaLog: verify, store  |
+        +--------------+--------------+          +--------------+--------------+
+                       |                                        ^
+        publish(channel, record)                               | record / head
+                       |                                        |
+                       v                                        |
+                +----------------------------------------------+--+
+                |                  Transport                      |
+                |  live:  PUB/SUB, first frame = channel         |
+                |  repair: ROUTER/DEALER by node id              |
+                |  best effort; CURVE; peer key decided at ZAP   |
+                +----------------------------------------------+--+
+                       |                                        |
+                       |  FETCH from any peer that holds it     |
+                       +----------------------------------------+
+@endverbatim
+
+  @section log The log
+
+  A writer owns one append-only log per channel. Each record carries a sequence number, a signed hash of its own contents and the
+  hash of its predecessor - so a log is a chain, and any prefix can be verified from the head hash alone. Identity is the writer's
+  public key, not a session id, so a restart keeps the log.
+
+  @section repair Repair
+
+  Live records are best effort; a follower that misses one notices the gap (or a head announcement) and asks for the range. Repair
+  is credit-paced: the requester says how many records it can take, and each one returned spends a unit. Any peer holding the log
+  can answer, not only the writer - which is what lets a writer go offline.
+
+  @section channels Channels and patterns
+
+  Channels are dotted names (`storage.eu.shard7`). A subscription is a pattern: literals, `*` for one segment, `>` for a trailing
+  range. Matching happens locally on arrival, because a byte-prefix subscription cannot express "exactly one segment".
+
+  @section credits Flow control
+
+  The receiver grants credit; the sender spends it and never sends at zero. A follower that cannot keep up loses live records and
+  recovers by repair rather than slowing the writer down. Queue limits are explicit, and overflow is a counted drop.
+
+  @section jobs Jobs, optionally
+
+  A job is an ordinary record on `svc.<name>`. Workers rank themselves deterministically for the job id and the top rank runs it,
+  later ranks taking over if no result appears - so one worker dying delays a job instead of losing it.
+*/

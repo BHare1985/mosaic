@@ -1,0 +1,139 @@
+# 01 — Data model (✅ implemented, in-memory)
+
+_Describes 0.7.0._
+
+## Record
+```
+Record { writer, channel, seq, prev, timestamp_ms, content_type, payload, sig }
+hash = H(hash_algo)(canonical_bytes(record))      // sig excluded; H named by the record's own tag
+sig  = Sign(writer_key, hash)
+prev = hash of record seq-1 (all-zero when seq == 0)
+```
+`canonical_bytes` (frozen, format version 1): `u8 1 | u8 hash_algo | writer | channel | u64 seq | 32B prev |
+u64 timestamp_ms | content_type | payload`, integers big-endian, each variable field prefixed by a `u32` length. Length
+prefixes make the encoding unambiguous, and a decoder rejects any encoding that does not re-encode identically (both tested).
+`hash_algo` is `1` for SHA-256 and `2` for BLAKE2b; it is inside the hashed bytes so a verifier reads the algorithm from the
+record instead of from a build setting, and a log written under one algorithm stays verifiable after the default changes.
+`timestamp_ms` is the writer's claim, not trusted for ordering.
+
+**When building a record by hand** (tests, tools, future ACK/jobs work) you must stamp `hash_algo` yourself: `LogWriter` does
+it from its hasher, but a struct literal defaults to the build's default algorithm and will then hash under the wrong function.
+
+A **log** is `(writer, channel)`. Ordering exists **only inside a log**. There is no cross-log order.
+
+## Why a hash chain
+Anyone holding the head hash can verify the whole prefix; a replica can detect that a writer showed different
+histories to different peers (**fork / equivocation**): two validly signed records with the same `(writer, channel, seq)`
+but different hashes, or a record whose `prev` disagrees with what we stored.
+
+## Verification rules (`ReplicaLog::ingest`, in this order)
+1. `Verify(writer, hash, sig)` fails → `BadSignature`.
+2. `seq < next`: identical hash → `Duplicate`; otherwise → `Fork`.
+3. `seq > next` → `Gap` (record is **not** stored; the caller fetches the missing range).
+4. `seq == 0` and `prev != 0` → `BadChain`.
+5. `seq > 0` and `prev != hash(stored seq-1)` → `Fork`.
+6. Otherwise store → `Accepted`.
+
+## LogStore contract (`store/log_store.h`)
+Append-only per log, `seq == head+1`; `read(from, count)` returns ≤ count in order; unknown log = empty. The store never
+hashes or verifies. Durability is per backend (memory: none; SQLite: WAL commit before returning `Ok`).
+
+## The segment layout (✅ STORE-2)
+
+`SegmentLogStore` writes a log as the thing it claims to be: a directory of append-only files. A reader that knows only this
+section can recover every record.
+
+```
+<store>/HEAD                             "MOSAICSEG" + u8 format version (1)
+<store>/<writer>/<channel>/0000000000.seg    one file per segment, named by its first sequence
+<store>/<writer>/<channel>/0000000000.idx    derived index: (u32 offset | u32 length | hash[32]) per record
+<store>/<writer>/<channel>/checkpoint.bin    the log's newest checkpoint, if it has one
+```
+
+A channel with characters outside `[A-Za-z0-9._-]` is escaped as `%XX`, so `events.a` is its own directory name.
+
+Each record is one frame:
+
+| Field | Width | Note |
+|---|---|---|
+| length | u32 | count of everything after this field: crc + seq + payload |
+| crc | u32 | CRC-32 over seq + payload, so a torn write is detectable without a second file |
+| seq | u64 | the record's sequence number |
+| payload | length - 12 | the record's wire bytes (canonical bytes plus signature) |
+
+**Recovery is part of opening.** The store scans every segment on open, keeps the frames that validate, and truncates the file at
+the first one that does not - a frame that promises more bytes than are there, or whose CRC disagrees. The head is then the last
+complete record, and appending continues at head+1. Nothing is guessed: a frame that fails to validate ends the log there rather
+than being repaired.
+
+**The index is derived state, never authority.** It is rebuilt from the segment on open and rewritten as records are appended. A
+read whose index entry points past the end of the file reports the record *missing*; it never returns adjacent bytes.
+
+`Durability::PerRecord` fsyncs before an append returns. `Batched` reaches the operating system without an fsync: it survives
+process death and not power loss, and the documentation says so rather than implying the stronger promise.
+
+## Key rotation (✅ SEC-3)
+
+A log's identity is `(writer public key, channel)`, which is what makes provenance verifiable and what makes a lost or retired key
+a dead end. The way out is a **rotation link**: a record in the writer's own log, on the same channel, signed with the old key,
+content type `mosaic/rotation`, payload:
+
+```
+u8 format (1) | u8 algorithm | bytes successor_key (32) | u64 successor_start_seq
+```
+
+It is an ordinary record on purpose - hash-chained, signed, replicated, repaired, covered by fork evidence - so a replica that has
+never heard of rotation still stores and forwards it, and `Mosaic verify` proves it offline.
+
+Following is a **local, bounded walk from a root the verifier already trusts**:
+
+- the walk reads the root's own log for links; a link found in *someone else's* log grants nothing, because the claim has to live
+  in the log it is about;
+- at most four links by default (`RotationChain`'s depth): unbounded is a denial of service, and exceeding the limit fails closed
+  rather than treating "I stopped looking" as "there is nothing more";
+- a repeat is refused - A → B → A would make two logs the same log, exactly the ambiguity fork evidence exists to prevent;
+- each link's signature is verified again during the walk, because resolution can run before a store has been replayed.
+
+**Rotation is not a grant.** It changes *authorization* (a channel rule may name a root, and the rule then authorizes that root and
+its successors) and nothing else. `ReplicaLog::ingest` still verifies against `record.writer`; the data layer learns nothing, and a
+chain authorizes the successor, never the predecessor - otherwise retiring a key by rotating away from it would retire nothing.
+
+What it cannot do, said plainly: a leaked old key can rotate to an attacker's key. The control is visibility rather than
+prevention - the link is in the log, replicated everywhere, printed by `Mosaic rotate`, and checked by anyone who follows the
+chain.
+
+## Checkpoints and retention (✅ STORE-3)
+
+A checkpoint is the writer's signed statement about its own history: `(log, seq, hash)`, signed under the algorithm it names, in
+a canonical encoding of its own (`u8 format | u8 algorithm | string writer | string channel | u64 seq | hash[32]` plus a
+length-prefixed signature). It is **not a record in the log**: putting it in the log would move the head every time retention ran
+and force every follower to replicate a retention decision it did not make. When it has to travel it travels as a record on the
+same channel; the store keeps the object.
+
+Retention evaluates a *policy*, never a schedule:
+
+1. the prefix is old enough (`retention_max_age_ms`, measured against the record's own timestamp) and beyond the floor
+   (`retention_keep_min` records always survive);
+2. when `min_replicas` is set, the ACK floor covers the whole prefix - a record whose replication state is unknown is kept,
+   because dropping on a guess is exactly the guarantee ACK-1 exists to provide;
+3. the writer signs a checkpoint naming the last record being dropped, and the backend stores it before it truncates. A backend
+   that cannot keep a checkpoint refuses to truncate, and the refusal is counted rather than hidden.
+
+Truncation drops **whole segments** where a backend has them, so the advance always lands on a segment boundary and the crash
+story is short: write the checkpoint, delete files, and on reopen believe the files.
+
+### Verifying a record whose predecessor is gone
+
+`ReplicaLog::ingest` verifies `record.prev == hash(previous)`. After truncation the previous record is missing, so ingest asks the
+checkpoint: if `record.prev` equals the checkpoint's hash and `record.seq == checkpoint.seq + 1`, the record descends from the
+checkpoint and is accepted. If no checkpoint covers it, the record is refused exactly as before. Fork detection is unaffected:
+equivocation is two records at one sequence, and truncation only ever removes a prefix.
+
+## Questions this document used to leave open (all settled)
+
+- **Retention and truncation:** a replica may drop a prefix only when a signed checkpoint names what it dropped; the format and
+  the origin rule are in "Checkpoints and retention" above.
+- **Fork evidence:** both conflicting records are stored, bounded by `max_evidence`, and a replica re-checks a whole store
+  offline with `Mosaic verify`.
+- **Writer key rotation:** a link record in the old log names the successor, followed as a bounded chain from a trusted root.
+- **Durable writer identity:** the writer id is the public key, so a restart continues the same log.

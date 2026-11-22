@@ -1,0 +1,22 @@
+# CI is a thin wrapper over scripts/ci.sh: the same command a developer runs, so a green here means what a
+# green locally means. The matrix covers crypto on/off x ZeroMQ on/off, plus sanitizers and the format check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake clang-format doxygen
+      - name: Run the full check
+        run: ./scripts/ci.sh

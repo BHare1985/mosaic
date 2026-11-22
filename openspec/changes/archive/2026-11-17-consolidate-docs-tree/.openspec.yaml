@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-17
+skip_specs: true
+# Moving files and updating build paths: no requirement changes, no behaviour changes.
